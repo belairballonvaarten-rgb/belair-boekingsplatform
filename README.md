@@ -117,3 +117,4 @@ Bij overgang naar `geaccepteerd` wordt automatisch een leveringsrecord aangemaak
 - E-mailtemplates versturen bij statuswijziging
 - Betaal-/factuuropvolging (tabel bestaat al, nog geen UI/logica)
 - Website-integratie (aanvraagformulier + WordPress-plugin) — **bewust uitgesteld**
+# belair-boekingsplatform
