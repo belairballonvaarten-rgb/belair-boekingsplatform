@@ -1,4 +1,11 @@
 function vereistIngelogd(req, res, next) {
+  // Tijdelijke diagnose-log (mag later terug weg) om het sessie/cookie-probleem te vinden.
+  console.log(
+    '[vereistIngelogd]', req.method, req.originalUrl,
+    '| sessionID:', req.sessionID,
+    '| adminId in sessie:', req.session && req.session.adminId,
+    '| cookie-header aanwezig:', Boolean(req.headers.cookie)
+  );
   if (req.session && req.session.adminId) {
     return next();
   }

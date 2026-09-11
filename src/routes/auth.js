@@ -23,6 +23,8 @@ router.post('/login', asyncHandler(async (req, res) => {
   }
 
   req.session.adminId = admin.id;
+  // Tijdelijke diagnose-log (mag later terug weg) om het sessie/cookie-probleem te vinden.
+  console.log('[login] sessionID:', req.sessionID, '| adminId gezet:', req.session.adminId, '| secure cookie-config:', req.session.cookie.secure);
   res.json({ id: admin.id, email: admin.email, naam: admin.naam });
 }));
 

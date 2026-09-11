@@ -14,6 +14,11 @@ const boekingenRoutes = require('./routes/boekingen');
 
 const app = express();
 
+// Render (en de meeste hosting-providers) zitten als reverse proxy vóór de app.
+// Zonder dit vertrouwt Express de "https"-status van het originele verzoek niet
+// correct, wat het zetten/lezen van de sessie-cookie kan verstoren.
+app.set('trust proxy', 1);
+
 app.use(cors({ origin: process.env.CORS_ORIGIN || true, credentials: true }));
 app.use(express.json());
 
