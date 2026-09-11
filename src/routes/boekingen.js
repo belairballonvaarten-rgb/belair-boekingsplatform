@@ -38,9 +38,11 @@ router.post('/beschikbaarheid-check', asyncHandler(async (req, res) => {
   res.json(resultaat);
 }));
 
-// Lijst met filters: status, datum-range, klant
-router.get('/', asyncHandler(async (req, res) => {
-  const { status, vanaf, tot, klant_id } = req.query;
+// Gedeelde filter (status/periode/klant) en basisquery voor het boekingenoverzicht —
+// gebruikt door zowel de lijst (JSON) als de export (CSV), zodat die twee altijd
+// exact dezelfde selectie tonen.
+function bouwBoekingenFilter(query) {
+  const { status, vanaf, tot, klant_id } = query;
   const condities = [];
   const params = [];
   if (status) {
@@ -60,32 +62,77 @@ router.get('/', asyncHandler(async (req, res) => {
     condities.push(`b.klant_id = $${params.length}`);
   }
   const where = condities.length ? `WHERE ${condities.join(' AND ')}` : '';
+  return { where, params };
+}
+
+const BOEKINGEN_OVERZICHT_SELECT = `
+  SELECT b.*, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
+         k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
+         COALESCE(bp_totaal.waarde, 0) AS waarde,
+         COALESCE(bet.betaald_bedrag, 0) AS betaling_ontvangen,
+         bp_namen.producten_namen
+  FROM boekingen b
+  JOIN klanten k ON k.id = b.klant_id
+  LEFT JOIN (
+    SELECT boeking_id, SUM(prijs * aantal) AS waarde
+    FROM boeking_producten GROUP BY boeking_id
+  ) bp_totaal ON bp_totaal.boeking_id = b.id
+  LEFT JOIN betalingen bet ON bet.boeking_id = b.id
+  LEFT JOIN (
+    SELECT bp.boeking_id,
+           string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen
+    FROM boeking_producten bp
+    JOIN producten p ON p.id = bp.product_id
+    GROUP BY bp.boeking_id
+  ) bp_namen ON bp_namen.boeking_id = b.id
+`;
+
+// Lijst met filters: status, datum-range, klant
+router.get('/', asyncHandler(async (req, res) => {
+  const { where, params } = bouwBoekingenFilter(req.query);
   const { rows } = await db.query(
-    `SELECT b.*, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
-            k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
-            COALESCE(bp_totaal.waarde, 0) AS waarde,
-            COALESCE(bet.betaald_bedrag, 0) AS betaling_ontvangen,
-            bp_namen.producten_namen
-     FROM boekingen b
-     JOIN klanten k ON k.id = b.klant_id
-     LEFT JOIN (
-       SELECT boeking_id, SUM(prijs * aantal) AS waarde
-       FROM boeking_producten GROUP BY boeking_id
-     ) bp_totaal ON bp_totaal.boeking_id = b.id
-     LEFT JOIN betalingen bet ON bet.boeking_id = b.id
-     LEFT JOIN (
-       SELECT bp.boeking_id,
-              string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen
-       FROM boeking_producten bp
-       JOIN producten p ON p.id = bp.product_id
-       GROUP BY bp.boeking_id
-     ) bp_namen ON bp_namen.boeking_id = b.id
-     ${where}
-     ORDER BY b.gewenste_datum_start DESC
-     LIMIT 200`,
+    `${BOEKINGEN_OVERZICHT_SELECT} ${where} ORDER BY b.gewenste_datum_start DESC LIMIT 200`,
     params
   );
   res.json(rows);
+}));
+
+// CSV-export van het (gefilterde) boekingenoverzicht — opent rechtstreeks in Excel.
+// Let op: deze route moet vóór '/:id' staan, anders wordt "export.csv" als :id gezien.
+function csvVeld(waarde) {
+  const tekst = waarde === null || waarde === undefined ? '' : String(waarde);
+  return /[";\n]/.test(tekst) ? `"${tekst.replace(/"/g, '""')}"` : tekst;
+}
+
+router.get('/export.csv', asyncHandler(async (req, res) => {
+  const { where, params } = bouwBoekingenFilter(req.query);
+  const { rows } = await db.query(
+    `${BOEKINGEN_OVERZICHT_SELECT} ${where} ORDER BY b.gewenste_datum_start ASC`,
+    params
+  );
+
+  const kolommen = ['Datum start', 'Datum einde', 'Product(en)', 'Locatie', 'Klant', 'Telefoon', 'Status', 'Waarde', 'Betaald', 'Openstaand'];
+  const regels = [kolommen.join(';')];
+  for (const b of rows) {
+    const locatie = b.leveringswijze === 'afhaling'
+      ? 'Afhaling'
+      : (b.leveringsadres
+        || [b.klant_adres, [b.klant_postcode, b.klant_gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', '));
+    const waarde = Number(b.waarde) || 0;
+    const betaald = Number(b.betaling_ontvangen) || 0;
+    const naarBedrag = (n) => n.toFixed(2).replace('.', ',');
+    regels.push([
+      b.gewenste_datum_start, b.gewenste_datum_einde, b.producten_namen || '', locatie || '',
+      b.klant_naam, b.klant_telefoon || '', b.status,
+      naarBedrag(waarde), naarBedrag(betaald), naarBedrag(waarde - betaald),
+    ].map(csvVeld).join(';'));
+  }
+  // BOM vooraan zodat Excel het bestand herkent als UTF-8 (anders lopen accenten fout).
+  const csv = '﻿' + regels.join('\r\n');
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="belair-boekingen.csv"`);
+  res.send(csv);
 }));
 
 // Berekent de prijstabel (producten, levering, toeslag/korting, totaal, btw, betaald, saldo)
@@ -241,11 +288,17 @@ router.post('/:id/herbereken-afstand', asyncHandler(async (req, res) => {
   res.json({ ...updated[0], prijstabel, voorgestelde_transportkost: berekenVoorgesteldeTransportkost(updated[0]) });
 }));
 
-// Algemene velden van het dossier bewerken (opmerkingen, transportkost, toeslag/korting, afstand).
+// Algemene velden van het dossier bewerken: opmerkingen, transportkost/toeslag/afstand,
+// en (voor telefonische correcties zoals een fout adres of typfout) ook het
+// plaatsingsadres, leveringswijze, ondergrond/toegankelijkheid en tijdstipvoorkeuren.
 // Dit is ook de manier om een bevestigde transportkost (of toeslag/korting) weer te
 // wissen: geef gewoon `null` mee voor dat veld.
 router.put('/:id', asyncHandler(async (req, res) => {
-  const velden = ['notities', 'transportkost', 'toeslag_korting', 'afstand_km'];
+  const velden = [
+    'notities', 'transportkost', 'toeslag_korting', 'afstand_km',
+    'leveringsadres', 'type_ondergrond', 'toegankelijkheid', 'leveringswijze',
+    'voorkeur_tijdstip_levering', 'voorkeur_tijdstip_afhaling',
+  ];
   const updates = [];
   const params = [];
   for (const veld of velden) {
@@ -256,6 +309,13 @@ router.put('/:id', asyncHandler(async (req, res) => {
   }
   if (!updates.length) return res.status(400).json({ fout: 'Geen velden om te updaten' });
 
+  // Als het plaatsingsadres wijzigt, is een eerder berekende afstand niet meer
+  // betrouwbaar -> automatisch laten herberekenen (tenzij afstand_km zelf ook
+  // expliciet in dezelfde aanvraag werd meegegeven).
+  if (req.body.leveringsadres !== undefined && req.body.afstand_km === undefined) {
+    updates.push('afstand_km = NULL');
+  }
+
   params.push(req.params.id);
   const { rows } = await db.query(
     `UPDATE boekingen SET ${updates.join(', ')}, bijgewerkt_op = now() WHERE id = $${params.length} RETURNING *`,
@@ -264,6 +324,15 @@ router.put('/:id', asyncHandler(async (req, res) => {
   if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
   const prijstabel = await berekenPrijstabel(req.params.id);
   res.json({ ...rows[0], prijstabel, voorgestelde_transportkost: berekenVoorgesteldeTransportkost(rows[0]) });
+}));
+
+// Boeking volledig verwijderen (bv. een dubbele of foutieve aanvraag). Alle
+// gekoppelde gegevens (producten, historiek, betalingen, communicatie, levering)
+// worden mee verwijderd via ON DELETE CASCADE — dit kan niet ongedaan gemaakt worden.
+router.delete('/:id', asyncHandler(async (req, res) => {
+  const { rows } = await db.query('DELETE FROM boekingen WHERE id = $1 RETURNING id', [req.params.id]);
+  if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+  res.status(204).end();
 }));
 
 // Betaling registreren (telt op bij eerder ontvangen bedragen -> saldo wordt herberekend)

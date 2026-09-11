@@ -65,12 +65,24 @@ function fmtEuro(bedrag) {
 // systeem): vaste tijdsloten per 15 minuten, met bovenaan een gratis flexibel tijdsvak.
 const TIJDSTIP_FLEXIBEL_WAARDE = 'Tussen 07:00 en 12:00 uur (gratis)';
 
+const TIJDSTIP_HHMM_PATROON = /^([01]\d|2[0-3]):(00|15|30|45)$/;
+
 function bouwTijdstipOpties(selectEl, standaardTijd) {
   if (!selectEl) return;
+  const isBekendeWaarde = standaardTijd === undefined
+    || standaardTijd === TIJDSTIP_FLEXIBEL_WAARDE
+    || TIJDSTIP_HHMM_PATROON.test(standaardTijd);
+
   const opties = [
     `<option value=""${standaardTijd === undefined ? ' selected' : ''}>Geen voorkeur</option>`,
-    `<option value="${TIJDSTIP_FLEXIBEL_WAARDE}">Tussen 07:00 en 12:00 uur (GRATIS)</option>`,
   ];
+  if (!isBekendeWaarde) {
+    // Een bestaande vrije-tekst waarde (bv. van vóór de vaste tijdslots bestonden)
+    // niet stilzwijgend laten verdwijnen als het bewerkformulier opgeslagen wordt
+    // zonder dat dit veld aangepast werd.
+    opties.push(`<option value="${standaardTijd}" selected>${standaardTijd} (bestaande waarde)</option>`);
+  }
+  opties.push(`<option value="${TIJDSTIP_FLEXIBEL_WAARDE}">Tussen 07:00 en 12:00 uur (GRATIS)</option>`);
   for (let m = 0; m < 24 * 60; m += 15) {
     const uur = String(Math.floor(m / 60)).padStart(2, '0');
     const minuut = String(m % 60).padStart(2, '0');
@@ -241,7 +253,10 @@ async function wijzigStatus(boekingId, nieuweStatus, opmerking) {
 // ============================================================
 // BOEKINGENOVERZICHT
 // ============================================================
-async function laadBoekingenOverzicht() {
+// De actieve status/periode-filters van het Boekingenoverzicht — gedeeld tussen het
+// laden van de lijst en de export/afdruk-knoppen, zodat die altijd overeenkomen
+// met wat er op het scherm staat.
+function huidigeBoekingenFilterParams() {
   const status = document.getElementById('filter-status').value;
   const vanaf = document.getElementById('filter-vanaf').value;
   const tot = document.getElementById('filter-tot').value;
@@ -249,7 +264,11 @@ async function laadBoekingenOverzicht() {
   if (status) params.set('status', status);
   if (vanaf) params.set('vanaf', vanaf);
   if (tot) params.set('tot', tot);
+  return params;
+}
 
+async function laadBoekingenOverzicht() {
+  const params = huidigeBoekingenFilterParams();
   const boekingen = await api(`/api/boekingen?${params.toString()}`);
 
   const totaal = boekingen.reduce((som, b) => som + Number(b.waarde || 0), 0);
@@ -290,6 +309,17 @@ async function laadBoekingenOverzicht() {
 }
 
 document.getElementById('btn-filter-toepassen').addEventListener('click', laadBoekingenOverzicht);
+
+// Exporteren (Excel/CSV) en afdrukken van het overzicht — op basis van dezelfde
+// status/periode-filter die nu op het scherm staat.
+document.getElementById('btn-boekingen-exporteren').addEventListener('click', () => {
+  const params = huidigeBoekingenFilterParams();
+  window.location.href = `/api/boekingen/export.csv?${params.toString()}`;
+});
+
+document.getElementById('btn-boekingen-afdrukken').addEventListener('click', () => {
+  window.print();
+});
 
 // Snelfilters (zoals in het huidige bookingonline.co.uk-systeem)
 function berekenDatumRange(bereik) {
@@ -410,18 +440,44 @@ async function openDetail(boekingId) {
 
   inhoud.innerHTML = `
     <h3>${b.klant_naam} <span class="status-pill">${STATUS_LABELS[b.status]}</span></h3>
-    <div class="detail-rij"><span>Periode</span><span>${fmtDatum(b.gewenste_datum_start)} – ${fmtDatum(b.gewenste_datum_einde)}</span></div>
-    <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
-    <div class="detail-rij"><span>E-mail</span><span>${b.klant_email || '—'}</span></div>
-    <div class="detail-rij"><span>Leveringswijze</span><span>${b.leveringswijze || '—'}</span></div>
-    <div class="detail-rij"><span>Ondergrond</span><span>${b.type_ondergrond || '—'}</span></div>
-    <div class="detail-rij"><span>Toegankelijkheid</span><span>${b.toegankelijkheid || '—'}</span></div>
-    <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
-    <div class="detail-rij"><span>Voorkeur afhaling</span><span>${b.voorkeur_tijdstip_afhaling || '—'}</span></div>
-    <div class="detail-rij"><span>Huurvoorwaarden</span><span>${b.huurvoorwaarden_geaccepteerd ? 'Geaccepteerd' : 'Niet geaccepteerd'}</span></div>
+    <button type="button" id="btn-klantgegevens-bewerken" class="linkbtn">✎ Klant-/boekinggegevens bewerken</button>
+
+    <div id="klantgegevens-weergave">
+      <div class="detail-rij"><span>Periode</span><span>${fmtDatum(b.gewenste_datum_start)} – ${fmtDatum(b.gewenste_datum_einde)}</span></div>
+      <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
+      <div class="detail-rij"><span>E-mail</span><span>${b.klant_email || '—'}</span></div>
+      <div class="detail-rij"><span>Leveringswijze</span><span>${b.leveringswijze || '—'}</span></div>
+      <div class="detail-rij"><span>Adres</span><span>${adresVolledig || '—'}</span></div>
+      <div class="detail-rij"><span>Ondergrond</span><span>${b.type_ondergrond || '—'}</span></div>
+      <div class="detail-rij"><span>Toegankelijkheid</span><span>${b.toegankelijkheid || '—'}</span></div>
+      <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
+      <div class="detail-rij"><span>Voorkeur afhaling</span><span>${b.voorkeur_tijdstip_afhaling || '—'}</span></div>
+      <div class="detail-rij"><span>Huurvoorwaarden</span><span>${b.huurvoorwaarden_geaccepteerd ? 'Geaccepteerd' : 'Niet geaccepteerd'}</span></div>
+    </div>
+
+    <form id="form-klantgegevens-bewerken" class="grid-2" hidden>
+      <label>Naam<input type="text" id="kg-naam" value="${b.klant_naam || ''}" /></label>
+      <label>Telefoon<input type="text" id="kg-telefoon" value="${b.klant_telefoon || ''}" /></label>
+      <label>E-mail<input type="email" id="kg-email" value="${b.klant_email || ''}" /></label>
+      <label>Leveringswijze
+        <select id="kg-leveringswijze">
+          <option value="levering" ${b.leveringswijze === 'levering' ? 'selected' : ''}>Levering door ons team</option>
+          <option value="afhaling" ${b.leveringswijze === 'afhaling' ? 'selected' : ''}>Afhaling door klant</option>
+        </select>
+      </label>
+      <label>Plaatsingsadres<input type="text" id="kg-leveringsadres" value="${b.leveringsadres || ''}" placeholder="leeg = adres van de klant" /></label>
+      <label>Type ondergrond<input type="text" id="kg-ondergrond" value="${b.type_ondergrond || ''}" /></label>
+      <label>Toegankelijkheid<input type="text" id="kg-toegankelijkheid" value="${b.toegankelijkheid || ''}" /></label>
+      <label>Tijdstip levering<select id="kg-tijdstip-levering"></select></label>
+      <label>Tijdstip afhaling<select id="kg-tijdstip-afhaling"></select></label>
+      <div class="form-acties">
+        <button type="submit">Opslaan</button>
+        <button type="button" id="btn-klantgegevens-annuleren" class="linkbtn">Annuleren</button>
+      </div>
+      <p id="klantgegevens-fout" class="foutmelding"></p>
+    </form>
 
     <h4>Locatie</h4>
-    <div class="detail-rij"><span>Adres</span><span>${adresVolledig || '—'}</span></div>
     ${mapsUrl ? `<div class="detail-rij"><span></span><span><a href="${mapsUrl}" target="_blank" rel="noopener">Bekijk op Google Maps ↗</a></span></div>` : ''}
     <form id="form-locatie" class="grid-2">
       <label>Afstand tot Overmere (km)<input type="number" id="dd-afstand-km" step="0.1" min="0" value="${b.afstand_km != null ? b.afstand_km : ''}" placeholder="automatisch of manueel" /></label>
@@ -500,7 +556,70 @@ async function openDetail(boekingId) {
 
     <h4>Historiek</h4>
     ${historiekHtml || '<p class="leeg-bericht">Geen historiek</p>'}
+
+    <div class="gevaar-zone">
+      <button type="button" id="btn-boeking-verwijderen" class="linkbtn gevaar">🗑 Boeking volledig verwijderen</button>
+    </div>
   `;
+
+  bouwTijdstipOpties(document.getElementById('kg-tijdstip-levering'), b.voorkeur_tijdstip_levering || undefined);
+  bouwTijdstipOpties(document.getElementById('kg-tijdstip-afhaling'), b.voorkeur_tijdstip_afhaling || undefined);
+
+  document.getElementById('btn-klantgegevens-bewerken').addEventListener('click', () => {
+    document.getElementById('klantgegevens-weergave').hidden = true;
+    document.getElementById('form-klantgegevens-bewerken').hidden = false;
+  });
+  document.getElementById('btn-klantgegevens-annuleren').addEventListener('click', () => {
+    document.getElementById('klantgegevens-weergave').hidden = false;
+    document.getElementById('form-klantgegevens-bewerken').hidden = true;
+  });
+  document.getElementById('form-klantgegevens-bewerken').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const elFout = document.getElementById('klantgegevens-fout');
+    elFout.textContent = '';
+    try {
+      await Promise.all([
+        api(`/api/klanten/${b.klant_id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            naam: document.getElementById('kg-naam').value.trim() || null,
+            telefoon: document.getElementById('kg-telefoon').value.trim() || null,
+            email: document.getElementById('kg-email').value.trim() || null,
+          }),
+        }),
+        api(`/api/boekingen/${boekingId}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            leveringswijze: document.getElementById('kg-leveringswijze').value,
+            leveringsadres: document.getElementById('kg-leveringsadres').value.trim() || null,
+            type_ondergrond: document.getElementById('kg-ondergrond').value.trim() || null,
+            toegankelijkheid: document.getElementById('kg-toegankelijkheid').value.trim() || null,
+            voorkeur_tijdstip_levering: document.getElementById('kg-tijdstip-levering').value || null,
+            voorkeur_tijdstip_afhaling: document.getElementById('kg-tijdstip-afhaling').value || null,
+          }),
+        }),
+      ]);
+      openDetail(boekingId);
+      laadBoekingenOverzicht();
+    } catch (err) {
+      elFout.textContent = err.message;
+    }
+  });
+
+  document.getElementById('btn-boeking-verwijderen').addEventListener('click', async () => {
+    const bevestiging = confirm(
+      `Boeking van ${b.klant_naam} (${fmtDatum(b.gewenste_datum_start)}) volledig en onherroepelijk verwijderen?\n\nDit verwijdert ook alle betalingen, communicatie en historiek van deze boeking.`
+    );
+    if (!bevestiging) return;
+    try {
+      await api(`/api/boekingen/${boekingId}`, { method: 'DELETE' });
+      laadAanvragen();
+      laadBoekingenOverzicht();
+      wisselView(boekingDetailVorigeView);
+    } catch (err) {
+      alert(err.message);
+    }
+  });
 
   inhoud.querySelectorAll('.status-acties button').forEach((btn) => {
     btn.addEventListener('click', () => {
