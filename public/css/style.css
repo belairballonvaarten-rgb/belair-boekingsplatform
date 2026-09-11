@@ -27,6 +27,9 @@ h1, h2 { margin-top: 0; }
   align-items: center;
   justify-content: center;
 }
+/* Zonder deze regel wint de 'display: flex' hierboven het altijd van het
+   'hidden'-attribuut, en blijft het inlogscherm zichtbaar na het inloggen. */
+#view-login[hidden] { display: none; }
 .login-box {
   background: white;
   padding: 2.5rem;
@@ -185,6 +188,10 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
   position: fixed; inset: 0; background: rgba(0,0,0,0.4);
   display: flex; align-items: center; justify-content: center; z-index: 50;
 }
+/* Zelfde reden als bij #view-login hierboven: zonder deze regel blijft de
+   popup als een volledig scherm-dekkende laag zichtbaar en onderschept ze
+   alle kliks, ook wanneer er geen boeking geopend is. */
+.modal[hidden] { display: none; }
 .modal-inhoud {
   background: white; border-radius: 10px; padding: 1.8rem;
   width: 560px; max-width: 92vw; max-height: 86vh; overflow-y: auto; position: relative;
