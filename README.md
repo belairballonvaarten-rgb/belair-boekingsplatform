@@ -1,9 +1,9 @@
-# Belair-boekingsplatform — API (Fase 1)
+# Belair-boekingsplatform (Fase 1)
 
 Custom boekingsplatform voor Belair-Fun, ter vervanging van bookingonline.co.uk.
-Dit is de backend/API. Focus van deze eerste versie: het **interne planningstool**
-(aanvragen beheren, boekingen opvolgen) — de koppeling met de website
-(aanvraagformulier op belair-fun.be) komt in een latere fase.
+Focus van deze eerste versie: het **interne planningstool** (aanvragen beheren,
+boekingen opvolgen) — de koppeling met de website (aanvraagformulier op
+belair-fun.be) komt in een latere fase.
 
 ## Wat zit erin
 
@@ -13,10 +13,10 @@ Dit is de backend/API. Focus van deze eerste versie: het **interne planningstool
 - `src/utils/beschikbaarheid.js` — de beschikbaarheidslogica (max. boekingen per dag +
   buffer-dagen tussen boekingen)
 - `scripts/migrate.js` — voert de migraties uit tegen je database
-
-Dit is **enkel de backend/API**. Er is nog geen beheerscherm (front-end) — dat is de
-volgende stap. Je kan de API nu al testen met een tool als Postman/Insomnia, of met
-`curl`.
+- `public/` — het beheerscherm zelf (inloggen, aanvragen-inbox, boekingenoverzicht,
+  nieuwe boeking aanmaken). Gewone HTML/CSS/JS, geen framework — wordt automatisch
+  mee geserveerd door dezelfde server. Gewoon naar de hoofd-URL surfen (lokaal
+  `http://localhost:3000`) opent het inlogscherm.
 
 ## Lokaal opzetten
 
@@ -49,9 +49,25 @@ volgende stap. Je kan de API nu al testen met een tool als Postman/Insomnia, of 
    curl http://localhost:3000/api/gezondheid
    ```
 
+## Naar je eigen GitHub-repo pushen
+
+Deze map is al een git-repository (met de volledige historiek van de bouw). Je hoeft
+dus geen `git init` te doen — enkel een nieuwe, lege repository aanmaken op GitHub
+(geen README/`.gitignore` aanvinken bij het aanmaken, anders krijg je een conflict)
+en die te koppelen:
+
+```
+git remote add origin https://github.com/<jouw-gebruikersnaam>/belair-boekingsplatform.git
+git branch -M main
+git push -u origin main
+```
+
+(Vervang de URL door de exacte URL die GitHub je toont bij het aanmaken van de repo —
+gebruik de SSH-URL in plaats van https als je daarmee gewend bent te werken.)
+
 ## Deployen op Render.com
 
-1. Push deze repo naar GitHub.
+1. Zorg dat de repo op GitHub staat (zie hierboven).
 2. Op Render.com: **New > PostgreSQL** — kies de starter-tier, noteer de "Internal
    Database URL".
 3. **New > Web Service** — koppel je GitHub-repo.
@@ -100,7 +116,6 @@ Bij overgang naar `geaccepteerd` wordt automatisch een leveringsrecord aangemaak
 
 ## Wat nog moet gebeuren (zie de openstaande taken)
 
-- Beheerscherm (front-end webapp): aanvragen-inbox, accepteren/weigeren, boekingenoverzicht
 - Verdere koppeling met de leveringen-app (nu enkel een leeg leveringsrecord)
 - E-mailtemplates versturen bij statuswijziging
 - Betaal-/factuuropvolging (tabel bestaat al, nog geen UI/logica)
