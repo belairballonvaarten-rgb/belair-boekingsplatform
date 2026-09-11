@@ -36,7 +36,7 @@ async function api(pad, opties = {}) {
   });
   let data = null;
   try { data = await resp.json(); } catch (_) { /* geen JSON-body */ }
-  if (resp.status === 401 && pad !== '/api/auth/me') {
+  if (resp.status === 401 && pad !== '/api/auth/me' && pad !== '/api/auth/login') {
     // Sessie is (ondertussen) verlopen of ongeldig: toon meteen het inlogscherm
     // opnieuw, in plaats van dat de rest van de pagina stil blijft hangen of leeg lijkt.
     document.getElementById('login-fout').textContent = 'Je sessie is verlopen. Log opnieuw in.';
