@@ -53,12 +53,16 @@ async function checkBeschikbaarheid(productId, datumStart, datumEinde, gevraagdA
   const zoekStart = voegDagenToe(datumStart, -buffer);
   const zoekEinde = voegDagenToe(datumEinde, buffer);
 
+  // Placeholders dynamisch nummeren i.p.v. hardcoded, zodat de tekst en de
+  // parameterlijst altijd overeenkomen (ongeacht of exclBoekingId is meegegeven).
   const params = [productId, zoekEinde.toISOString().slice(0, 10), zoekStart.toISOString().slice(0, 10)];
   let exclClause = '';
   if (exclBoekingId) {
-    exclClause = 'AND b.id <> $4';
     params.push(exclBoekingId);
+    exclClause = `AND b.id <> $${params.length}`;
   }
+  params.push(BLOKKERENDE_STATUSSEN);
+  const statusPlaceholder = `$${params.length}`;
 
   const { rows: overlappendeBoekingen } = await db.query(
     `
@@ -66,12 +70,12 @@ async function checkBeschikbaarheid(productId, datumStart, datumEinde, gevraagdA
     FROM boekingen b
     JOIN boeking_producten bp ON bp.boeking_id = b.id
     WHERE bp.product_id = $1
-      AND b.status = ANY($5)
+      AND b.status = ANY(${statusPlaceholder})
       AND b.gewenste_datum_start <= $2
       AND b.gewenste_datum_einde >= $3
       ${exclClause}
     `,
-    exclBoekingId ? [...params.slice(0, 3), exclBoekingId, BLOKKERENDE_STATUSSEN] : [...params, BLOKKERENDE_STATUSSEN]
+    params
   );
 
   // Per dag in de aangevraagde periode (zonder buffer) tellen hoeveel er al bezet is,

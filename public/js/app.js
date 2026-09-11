@@ -61,6 +61,25 @@ function fmtEuro(bedrag) {
   return `€ ${Number(bedrag || 0).toFixed(2)}`;
 }
 
+// Tijdstip-dropdown voor levering/afhaling (zoals in het oude bookingonline.co.uk-
+// systeem): vaste tijdsloten per 15 minuten, met bovenaan een gratis flexibel tijdsvak.
+const TIJDSTIP_FLEXIBEL_WAARDE = 'Tussen 07:00 en 12:00 uur (gratis)';
+
+function bouwTijdstipOpties(selectEl) {
+  if (!selectEl) return;
+  const opties = [
+    '<option value="">Geen voorkeur</option>',
+    `<option value="${TIJDSTIP_FLEXIBEL_WAARDE}">Tussen 07:00 en 12:00 uur (GRATIS)</option>`,
+  ];
+  for (let m = 0; m < 24 * 60; m += 15) {
+    const uur = String(Math.floor(m / 60)).padStart(2, '0');
+    const minuut = String(m % 60).padStart(2, '0');
+    const tijd = `${uur}:${minuut}`;
+    opties.push(`<option value="${tijd}">${tijd}</option>`);
+  }
+  selectEl.innerHTML = opties.join('');
+}
+
 function naarISO(datum) {
   const jaar = datum.getFullYear();
   const maand = String(datum.getMonth() + 1).padStart(2, '0');
@@ -922,4 +941,6 @@ async function openProductDetail(productId) {
 // ============================================================
 // START
 // ============================================================
+bouwTijdstipOpties(document.getElementById('voorkeur-levering'));
+bouwTijdstipOpties(document.getElementById('voorkeur-afhaling'));
 checkSessie();
