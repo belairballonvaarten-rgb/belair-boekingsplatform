@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { checkBeschikbaarheid } = require('../utils/beschikbaarheid');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -20,8 +21,24 @@ const TOEGELATEN_OVERGANGEN = {
   gefactureerd: [],
 };
 
+// Let op: deze route moet vóór '/:id' staan
+router.post('/beschikbaarheid-check', asyncHandler(async (req, res) => {
+  const { product_id, gewenste_datum_start, gewenste_datum_einde, aantal, excl_boeking_id } = req.body;
+  if (!product_id || !gewenste_datum_start) {
+    return res.status(400).json({ fout: 'product_id en gewenste_datum_start zijn verplicht' });
+  }
+  const resultaat = await checkBeschikbaarheid(
+    product_id,
+    gewenste_datum_start,
+    gewenste_datum_einde || gewenste_datum_start,
+    aantal || 1,
+    excl_boeking_id || null
+  );
+  res.json(resultaat);
+}));
+
 // Lijst met filters: status, datum-range, klant
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { status, vanaf, tot, klant_id } = req.query;
   const condities = [];
   const params = [];
@@ -52,9 +69,9 @@ router.get('/', async (req, res) => {
     params
   );
   res.json(rows);
-});
+}));
 
-router.get('/:id', async (req, res) => {
+router.get('/:id', asyncHandler(async (req, res) => {
   const { rows } = await db.query(
     `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email, k.telefoon AS klant_telefoon
      FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
@@ -75,10 +92,10 @@ router.get('/:id', async (req, res) => {
   const { rows: betaling } = await db.query('SELECT * FROM betalingen WHERE boeking_id = $1', [req.params.id]);
 
   res.json({ ...rows[0], producten, historiek, levering: levering[0] || null, betaling: betaling[0] || null });
-});
+}));
 
 // Nieuwe aanvraag/boeking aanmaken (manueel door Jonas, of later via website)
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const {
     klant_id, producten, gewenste_datum_start, gewenste_datum_einde,
     leveringswijze, leveringsadres, type_ondergrond, toegankelijkheid,
@@ -144,10 +161,10 @@ router.post('/', async (req, res) => {
   } finally {
     client.release();
   }
-});
+}));
 
 // Status wijzigen (accepteren/weigeren/inplannen/...)
-router.post('/:id/status', async (req, res) => {
+router.post('/:id/status', asyncHandler(async (req, res) => {
   const { status: nieuweStatus, opmerking } = req.body;
   const { rows } = await db.query('SELECT status FROM boekingen WHERE id = $1', [req.params.id]);
   const boeking = rows[0];
@@ -193,22 +210,6 @@ router.post('/:id/status', async (req, res) => {
   } finally {
     client.release();
   }
-});
-
-// Beschikbaarheid opvragen zonder een boeking aan te maken (handig voor de admin-UI)
-router.post('/beschikbaarheid-check', async (req, res) => {
-  const { product_id, gewenste_datum_start, gewenste_datum_einde, aantal, excl_boeking_id } = req.body;
-  if (!product_id || !gewenste_datum_start) {
-    return res.status(400).json({ fout: 'product_id en gewenste_datum_start zijn verplicht' });
-  }
-  const resultaat = await checkBeschikbaarheid(
-    product_id,
-    gewenste_datum_start,
-    gewenste_datum_einde || gewenste_datum_start,
-    aantal || 1,
-    excl_boeking_id || null
-  );
-  res.json(resultaat);
-});
+}));
 
 module.exports = router;

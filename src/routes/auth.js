@@ -1,10 +1,11 @@
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const db = require('../db');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 
-router.post('/login', async (req, res) => {
+router.post('/login', asyncHandler(async (req, res) => {
   const { email, wachtwoord } = req.body;
   if (!email || !wachtwoord) {
     return res.status(400).json({ fout: 'Email en wachtwoord zijn verplicht' });
@@ -23,7 +24,7 @@ router.post('/login', async (req, res) => {
 
   req.session.adminId = admin.id;
   res.json({ id: admin.id, email: admin.email, naam: admin.naam });
-});
+}));
 
 router.post('/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));

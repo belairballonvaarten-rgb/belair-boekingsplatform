@@ -1,4 +1,5 @@
 require('dotenv').config();
+const path = require('path');
 const express = require('express');
 const cors = require('cors');
 const session = require('express-session');
@@ -37,6 +38,9 @@ app.use('/api/auth', authRoutes);
 app.use('/api/klanten', klantenRoutes);
 app.use('/api/producten', productenRoutes);
 app.use('/api/boekingen', boekingenRoutes);
+
+// Beheerscherm (statische front-end) — public/index.html is het startpunt
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // Centrale foutafhandeling
 app.use((err, req, res, next) => {

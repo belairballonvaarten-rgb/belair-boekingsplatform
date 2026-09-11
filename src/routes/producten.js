@@ -1,11 +1,12 @@
 const express = require('express');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
+const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
 router.use(vereistIngelogd);
 
-router.get('/', async (req, res) => {
+router.get('/', asyncHandler(async (req, res) => {
   const { zichtbaarheid, categorie } = req.query;
   const condities = [];
   const params = [];
@@ -20,9 +21,22 @@ router.get('/', async (req, res) => {
   const where = condities.length ? `WHERE ${condities.join(' AND ')}` : '';
   const { rows } = await db.query(`SELECT * FROM producten ${where} ORDER BY naam`, params);
   res.json(rows);
-});
+}));
 
-router.get('/:id', async (req, res) => {
+// Let op: deze route moet vóór '/:id' staan, anders vangt '/:id' dit pad ook af
+router.get('/waarschuwingen/vervalt-binnenkort', asyncHandler(async (req, res) => {
+  const { dagen = 30 } = req.query;
+  const { rows } = await db.query(
+    `SELECT k.*, p.naam AS product_naam FROM keuringen k
+     JOIN producten p ON p.id = k.product_id
+     WHERE k.vervaldatum <= (CURRENT_DATE + $1::int)
+     ORDER BY k.vervaldatum`,
+    [dagen]
+  );
+  res.json(rows);
+}));
+
+router.get('/:id', asyncHandler(async (req, res) => {
   const { rows } = await db.query('SELECT * FROM producten WHERE id = $1', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
 
@@ -31,9 +45,9 @@ router.get('/:id', async (req, res) => {
     [req.params.id]
   );
   res.json({ ...rows[0], keuringen });
-});
+}));
 
-router.post('/', async (req, res) => {
+router.post('/', asyncHandler(async (req, res) => {
   const {
     naam, categorieen, sku, prijs, weekdagprijs, meerdaagse_prijstabel,
     max_boekingen_per_dag, availability_buffer_dagen, overnachting_mogelijk,
@@ -59,9 +73,9 @@ router.post('/', async (req, res) => {
     ]
   );
   res.status(201).json(rows[0]);
-});
+}));
 
-router.put('/:id', async (req, res) => {
+router.put('/:id', asyncHandler(async (req, res) => {
   const velden = [
     'naam', 'categorieen', 'sku', 'prijs', 'weekdagprijs', 'meerdaagse_prijstabel',
     'max_boekingen_per_dag', 'availability_buffer_dagen', 'overnachting_mogelijk',
@@ -85,10 +99,10 @@ router.put('/:id', async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
   res.json(rows[0]);
-});
+}));
 
 // Keuringen beheren
-router.post('/:id/keuringen', async (req, res) => {
+router.post('/:id/keuringen', asyncHandler(async (req, res) => {
   const { type_keuring, vervaldatum } = req.body;
   if (!type_keuring || !vervaldatum) {
     return res.status(400).json({ fout: 'type_keuring en vervaldatum zijn verplicht' });
@@ -98,18 +112,6 @@ router.post('/:id/keuringen', async (req, res) => {
     [req.params.id, type_keuring, vervaldatum]
   );
   res.status(201).json(rows[0]);
-});
-
-router.get('/waarschuwingen/vervalt-binnenkort', async (req, res) => {
-  const { dagen = 30 } = req.query;
-  const { rows } = await db.query(
-    `SELECT k.*, p.naam AS product_naam FROM keuringen k
-     JOIN producten p ON p.id = k.product_id
-     WHERE k.vervaldatum <= (CURRENT_DATE + $1::int)
-     ORDER BY k.vervaldatum`,
-    [dagen]
-  );
-  res.json(rows);
-});
+}));
 
 module.exports = router;
