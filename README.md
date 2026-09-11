@@ -57,13 +57,10 @@ dus geen `git init` te doen — enkel een nieuwe, lege repository aanmaken op Gi
 en die te koppelen:
 
 ```
-git remote add origin https://github.com/<jouw-gebruikersnaam>/belair-boekingsplatform.git
+git remote add origin https://github.com/belairballonvaarten-rgb/belair-boekingsplatform.git
 git branch -M main
 git push -u origin main
 ```
-
-(Vervang de URL door de exacte URL die GitHub je toont bij het aanmaken van de repo —
-gebruik de SSH-URL in plaats van https als je daarmee gewend bent te werken.)
 
 ## Deployen op Render.com
 
