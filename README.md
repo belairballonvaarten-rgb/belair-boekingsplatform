@@ -76,8 +76,11 @@ git push -u origin main
    - `ADMIN_EMAIL`, `ADMIN_PASSWORD` = jouw inloggegevens voor het beheerscherm
    - `CORS_ORIGIN` = `https://belair-fun.be` (pas aan zodra de website-koppeling
      aan bod komt)
-5. Na de eerste deploy: open een Render "Shell" op de service en voer éénmalig
-   `npm run migrate` uit (of voeg dit tijdelijk toe als build-stap).
+5. Migraties gebeuren automatisch: `npm start` voert eerst `scripts/migrate.js` uit
+   en start daarna pas de server (zie `package.json`). Handig, want Render's gratis
+   compute-tier heeft geen Shell-toegang — je hoeft dus niets manueel te draaien.
+   De eerste opstart zal wél nog steeds even loggen dat de migratie bezig is;
+   dat is normaal.
 
 ## API-overzicht
 
@@ -117,4 +120,3 @@ Bij overgang naar `geaccepteerd` wordt automatisch een leveringsrecord aangemaak
 - E-mailtemplates versturen bij statuswijziging
 - Betaal-/factuuropvolging (tabel bestaat al, nog geen UI/logica)
 - Website-integratie (aanvraagformulier + WordPress-plugin) — **bewust uitgesteld**
-# belair-boekingsplatform
