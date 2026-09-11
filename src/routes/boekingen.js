@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { checkBeschikbaarheid } = require('../utils/beschikbaarheid');
+const { berekenAfstandKm, berekenTransportkost } = require('../utils/afstand');
 const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
@@ -61,8 +62,10 @@ router.get('/', asyncHandler(async (req, res) => {
   const where = condities.length ? `WHERE ${condities.join(' AND ')}` : '';
   const { rows } = await db.query(
     `SELECT b.*, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
+            k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
             COALESCE(bp_totaal.waarde, 0) AS waarde,
-            COALESCE(bet.betaald_bedrag, 0) AS betaling_ontvangen
+            COALESCE(bet.betaald_bedrag, 0) AS betaling_ontvangen,
+            bp_namen.producten_namen
      FROM boekingen b
      JOIN klanten k ON k.id = b.klant_id
      LEFT JOIN (
@@ -70,6 +73,13 @@ router.get('/', asyncHandler(async (req, res) => {
        FROM boeking_producten GROUP BY boeking_id
      ) bp_totaal ON bp_totaal.boeking_id = b.id
      LEFT JOIN betalingen bet ON bet.boeking_id = b.id
+     LEFT JOIN (
+       SELECT bp.boeking_id,
+              string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen
+       FROM boeking_producten bp
+       JOIN producten p ON p.id = bp.product_id
+       GROUP BY bp.boeking_id
+     ) bp_namen ON bp_namen.boeking_id = b.id
      ${where}
      ORDER BY b.gewenste_datum_start DESC
      LIMIT 200`,
@@ -118,6 +128,41 @@ async function berekenPrijstabel(boekingId) {
   };
 }
 
+// Volledig adres van een boeking samenstellen (plaatsingsadres, of anders dat van de klant).
+function bepaalVolledigAdres(boeking) {
+  return boeking.leveringsadres
+    || [boeking.klant_adres, [boeking.klant_postcode, boeking.klant_gemeente].filter(Boolean).join(' ')]
+      .filter(Boolean).join(', ');
+}
+
+// Automatisch de afstand (en een voorgestelde transportkost bij levering) berekenen
+// zodra dat nog niet gebeurd is voor deze boeking. Resultaat wordt opgeslagen zodat
+// dit maar één keer per boeking gebeurt (spaarzaam met de gratis Google-quota).
+// Faalt dit (geen sleutel, adres niet gevonden, ...), dan blijft het dossier gewoon
+// werken en kan de afstand/transportkost nog manueel ingevuld worden.
+async function zorgVoorAutomatischeAfstand(boeking) {
+  if (boeking.afstand_km != null) return boeking;
+  if (!process.env.GOOGLE_MAPS_API_KEY) return boeking;
+
+  const adres = bepaalVolledigAdres(boeking);
+  if (!adres) return boeking;
+
+  try {
+    const afstandKm = await berekenAfstandKm(adres);
+    const transportkost = boeking.transportkost != null
+      ? boeking.transportkost
+      : berekenTransportkost(afstandKm, boeking.leveringswijze);
+    const { rows } = await db.query(
+      'UPDATE boekingen SET afstand_km = $1, transportkost = $2, bijgewerkt_op = now() WHERE id = $3 RETURNING *',
+      [afstandKm, transportkost, boeking.id]
+    );
+    return { ...boeking, ...rows[0] };
+  } catch (err) {
+    console.warn(`[afstand] kon afstand niet automatisch berekenen voor boeking ${boeking.id}:`, err.message);
+    return boeking;
+  }
+}
+
 router.get('/:id', asyncHandler(async (req, res) => {
   const { rows } = await db.query(
     `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email, k.telefoon AS klant_telefoon,
@@ -126,6 +171,8 @@ router.get('/:id', asyncHandler(async (req, res) => {
     [req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+
+  const boeking = await zorgVoorAutomatischeAfstand(rows[0]);
 
   const { rows: producten } = await db.query(
     `SELECT bp.*, p.naam AS product_naam FROM boeking_producten bp
@@ -148,7 +195,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const prijstabel = await berekenPrijstabel(req.params.id);
 
   res.json({
-    ...rows[0],
+    ...boeking,
     producten,
     historiek,
     levering: levering[0] || null,
@@ -156,6 +203,32 @@ router.get('/:id', asyncHandler(async (req, res) => {
     communicatie,
     prijstabel,
   });
+}));
+
+// Afstand (en transportkost-suggestie) manueel laten herberekenen — bv. na een
+// adreswijziging, of als de automatische berekening niet klopte.
+router.post('/:id/herbereken-afstand', asyncHandler(async (req, res) => {
+  const { rows } = await db.query(
+    `SELECT b.*, k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente
+     FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
+    [req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+  if (!process.env.GOOGLE_MAPS_API_KEY) {
+    return res.status(400).json({ fout: 'Google Maps-sleutel is nog niet geconfigureerd' });
+  }
+
+  const adres = bepaalVolledigAdres(rows[0]);
+  if (!adres) return res.status(400).json({ fout: 'Geen adres gekend voor deze boeking' });
+
+  const afstandKm = await berekenAfstandKm(adres);
+  const transportkostSuggestie = berekenTransportkost(afstandKm, rows[0].leveringswijze);
+  const { rows: updated } = await db.query(
+    'UPDATE boekingen SET afstand_km = $1, transportkost = $2, bijgewerkt_op = now() WHERE id = $3 RETURNING *',
+    [afstandKm, transportkostSuggestie, req.params.id]
+  );
+  const prijstabel = await berekenPrijstabel(req.params.id);
+  res.json({ ...updated[0], prijstabel });
 }));
 
 // Algemene velden van het dossier bewerken (opmerkingen, transportkost, toeslag/korting, afstand)

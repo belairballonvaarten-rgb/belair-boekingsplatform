@@ -65,17 +65,17 @@ function fmtEuro(bedrag) {
 // systeem): vaste tijdsloten per 15 minuten, met bovenaan een gratis flexibel tijdsvak.
 const TIJDSTIP_FLEXIBEL_WAARDE = 'Tussen 07:00 en 12:00 uur (gratis)';
 
-function bouwTijdstipOpties(selectEl) {
+function bouwTijdstipOpties(selectEl, standaardTijd) {
   if (!selectEl) return;
   const opties = [
-    '<option value="">Geen voorkeur</option>',
+    `<option value=""${standaardTijd === undefined ? ' selected' : ''}>Geen voorkeur</option>`,
     `<option value="${TIJDSTIP_FLEXIBEL_WAARDE}">Tussen 07:00 en 12:00 uur (GRATIS)</option>`,
   ];
   for (let m = 0; m < 24 * 60; m += 15) {
     const uur = String(Math.floor(m / 60)).padStart(2, '0');
     const minuut = String(m % 60).padStart(2, '0');
     const tijd = `${uur}:${minuut}`;
-    opties.push(`<option value="${tijd}">${tijd}</option>`);
+    opties.push(`<option value="${tijd}"${tijd === standaardTijd ? ' selected' : ''}>${tijd}</option>`);
   }
   selectEl.innerHTML = opties.join('');
 }
@@ -137,7 +137,11 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['aanvragen', 'boekingen', 'nieuwe-boeking', 'producten'];
+const views = ['aanvragen', 'boekingen', 'nieuwe-boeking', 'producten', 'boeking-detail'];
+
+function huidigeViewNaam() {
+  return views.find((v) => v !== 'boeking-detail' && !document.getElementById(`view-${v}`).hidden) || 'boekingen';
+}
 
 function wisselView(naam) {
   views.forEach((v) => {
@@ -227,7 +231,7 @@ async function wijzigStatus(boekingId, nieuweStatus, opmerking) {
     });
     laadAanvragen();
     if (!document.getElementById('view-boekingen').hidden) laadBoekingenOverzicht();
-    sluitModal();
+    if (!document.getElementById('view-boeking-detail').hidden) wisselView(boekingDetailVorigeView);
   } catch (err) {
     alert(err.message);
   }
@@ -260,17 +264,23 @@ async function laadBoekingenOverzicht() {
   const tbody = document.getElementById('tabel-boekingen');
   tbody.innerHTML = '';
   if (!boekingen.length) {
-    tbody.innerHTML = '<tr><td colspan="6" class="leeg-bericht">Geen boekingen gevonden.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="7" class="leeg-bericht">Geen boekingen gevonden.</td></tr>';
     return;
   }
   for (const b of boekingen) {
+    const locatie = b.leveringswijze === 'afhaling'
+      ? 'Afhaling'
+      : (b.leveringsadres
+        || [b.klant_adres, [b.klant_postcode, b.klant_gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+        || '—');
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${fmtDatum(b.gewenste_datum_start)}</td>
+      <td>${b.producten_namen || '—'}</td>
+      <td>${locatie}</td>
       <td>${b.klant_naam}</td>
       <td>${fmtEuro(b.waarde)}</td>
       <td><span class="status-pill">${STATUS_LABELS[b.status]}</span></td>
-      <td>${b.leveringsadres || '—'}</td>
       <td>Bekijk →</td>
     `;
     tr.addEventListener('click', () => openDetail(b.id));
@@ -338,20 +348,21 @@ document.querySelectorAll('#snelfilters button').forEach((btn) => {
 });
 
 // ============================================================
-// BOEKING DETAIL (modal)
+// BOEKING DETAIL (volledige pagina)
 // ============================================================
-const modal = document.getElementById('modal-detail');
-document.getElementById('btn-modal-sluiten').addEventListener('click', sluitModal);
-modal.addEventListener('click', (e) => { if (e.target === modal) sluitModal(); });
-
-function sluitModal() { modal.hidden = true; }
+let boekingDetailVorigeView = 'boekingen';
+document.getElementById('btn-boeking-detail-terug').addEventListener('click', () => wisselView(boekingDetailVorigeView));
 
 const COMMUNICATIE_TYPE_LABELS = { email: 'E-mail', telefoon: 'Telefoon', sms: 'SMS', notitie: 'Notitie' };
 const COMMUNICATIE_RICHTING_LABELS = { uitgaand: 'Uitgaand', inkomend: 'Inkomend', intern: 'Intern' };
 
 async function openDetail(boekingId) {
+  // Onthoud van welke pagina we komen, zodat "Terug naar overzicht" daar naartoe gaat.
+  if (document.getElementById('view-boeking-detail').hidden) {
+    boekingDetailVorigeView = huidigeViewNaam();
+  }
   const b = await api(`/api/boekingen/${boekingId}`);
-  const inhoud = document.getElementById('modal-detail-inhoud');
+  const inhoud = document.getElementById('boeking-detail-inhoud');
 
   const productenHtml = b.producten
     .map((p) => `<div class="detail-rij"><span>${p.product_naam} × ${p.aantal}</span><span>€ ${Number(p.prijs).toFixed(2)}</span></div>`)
@@ -401,9 +412,11 @@ async function openDetail(boekingId) {
     <div class="detail-rij"><span>Adres</span><span>${adresVolledig || '—'}</span></div>
     ${mapsUrl ? `<div class="detail-rij"><span></span><span><a href="${mapsUrl}" target="_blank" rel="noopener">Bekijk op Google Maps ↗</a></span></div>` : ''}
     <form id="form-locatie" class="grid-2">
-      <label>Afstand tot Overmere (km)<input type="number" id="dd-afstand-km" step="0.1" min="0" value="${b.afstand_km != null ? b.afstand_km : ''}" placeholder="manueel in te vullen" /></label>
+      <label>Afstand tot Overmere (km)<input type="number" id="dd-afstand-km" step="0.1" min="0" value="${b.afstand_km != null ? b.afstand_km : ''}" placeholder="automatisch of manueel" /></label>
     </form>
-    <p class="uitleg" style="margin-top:0.3rem">Automatische afstandsberekening via Google Maps komt in een latere fase; vul voorlopig manueel in.</p>
+    <button type="button" id="btn-herbereken-afstand" class="secundair">↻ Afstand herberekenen via Google Maps</button>
+    <p id="herbereken-afstand-status" class="uitleg" style="margin-top:0.3rem"></p>
+    <p class="uitleg">De afstand wordt automatisch berekend en de transportkost verderop in de prijstabel voorgesteld (eerste 10km gratis, dan € 0,50/km x4 voor levering + ophaling). Klopt het niet, pas dan gerust manueel aan.</p>
 
     <h4>Producten</h4>
     ${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}
@@ -501,6 +514,21 @@ async function openDetail(boekingId) {
     });
   });
 
+  document.getElementById('btn-herbereken-afstand').addEventListener('click', async (e) => {
+    const btn = e.target;
+    const elStatus = document.getElementById('herbereken-afstand-status');
+    btn.disabled = true;
+    elStatus.textContent = 'Bezig met berekenen via Google Maps...';
+    try {
+      await api(`/api/boekingen/${boekingId}/herbereken-afstand`, { method: 'POST' });
+      openDetail(boekingId);
+      laadBoekingenOverzicht();
+    } catch (err) {
+      elStatus.textContent = err.message;
+      btn.disabled = false;
+    }
+  });
+
   document.getElementById('form-nieuwe-betaling').addEventListener('submit', (e) => e.preventDefault());
   document.getElementById('np-betaling-bedrag').addEventListener('keydown', async (e) => {
     if (e.key !== 'Enter') return;
@@ -539,7 +567,7 @@ async function openDetail(boekingId) {
     openDetail(boekingId);
   });
 
-  modal.hidden = false;
+  wisselView('boeking-detail');
 }
 
 // ============================================================
@@ -941,6 +969,6 @@ async function openProductDetail(productId) {
 // ============================================================
 // START
 // ============================================================
-bouwTijdstipOpties(document.getElementById('voorkeur-levering'));
-bouwTijdstipOpties(document.getElementById('voorkeur-afhaling'));
+bouwTijdstipOpties(document.getElementById('voorkeur-levering'), '10:00');
+bouwTijdstipOpties(document.getElementById('voorkeur-afhaling'), '20:00');
 checkSessie();

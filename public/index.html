@@ -85,10 +85,16 @@
       </div>
       <table class="tabel">
         <thead>
-          <tr><th>Datum</th><th>Klant</th><th>Waarde</th><th>Status</th><th>Adres</th><th></th></tr>
+          <tr><th>Datum</th><th>Product</th><th>Locatie</th><th>Klant</th><th>Waarde</th><th>Status</th><th></th></tr>
         </thead>
         <tbody id="tabel-boekingen"></tbody>
       </table>
+    </section>
+
+    <!-- BOEKING DETAIL (volledige pagina) -->
+    <section id="view-boeking-detail" class="pagina" hidden>
+      <button type="button" id="btn-boeking-detail-terug" class="linkbtn">← Terug naar overzicht</button>
+      <div id="boeking-detail-inhoud"></div>
     </section>
 
     <!-- NIEUWE BOEKING -->
@@ -215,14 +221,6 @@
 
       <div id="producten-secties"></div>
     </section>
-
-    <!-- BOEKING DETAIL (modal) -->
-    <div id="modal-detail" class="modal" hidden>
-      <div class="modal-inhoud">
-        <button id="btn-modal-sluiten" class="modal-sluiten">&times;</button>
-        <div id="modal-detail-inhoud"></div>
-      </div>
-    </div>
 
     <!-- PRODUCT DETAIL (modal) -->
     <div id="modal-product" class="modal" hidden>

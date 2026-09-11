@@ -260,6 +260,13 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
   font-size: 1.4rem; color: var(--grijs); cursor: pointer;
 }
 .modal-inhoud h3 { color: var(--blauw-donker); }
+
+/* BOEKING DETAIL (volledige pagina) */
+#btn-boeking-detail-terug { margin-bottom: 1rem; font-size: 0.95rem; }
+#boeking-detail-inhoud { max-width: 720px; }
+#boeking-detail-inhoud h3 { color: var(--blauw-donker); margin-top: 0; }
+#boeking-detail-inhoud h4 { color: var(--blauw-donker); margin-bottom: 0.4rem; }
+
 .detail-rij { display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid var(--grijs-licht); font-size: 0.9rem; }
 .detail-rij span:first-child { color: var(--grijs); }
 .status-acties { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
