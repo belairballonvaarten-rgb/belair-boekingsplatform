@@ -78,9 +78,50 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json(rows);
 }));
 
+// Berekent de prijstabel (producten, levering, toeslag/korting, totaal, btw, betaald, saldo)
+// voor één boeking. Wordt gebruikt in het dossier én bij het registreren van betalingen.
+const BTW_PERCENTAGE = 21; // prijzen worden verondersteld inclusief BTW te zijn
+
+async function berekenPrijstabel(boekingId) {
+  const { rows: boekingRows } = await db.query(
+    'SELECT transportkost, toeslag_korting FROM boekingen WHERE id = $1',
+    [boekingId]
+  );
+  const boeking = boekingRows[0] || {};
+
+  const { rows: prodRows } = await db.query(
+    'SELECT COALESCE(SUM(prijs * aantal), 0) AS subtotaal FROM boeking_producten WHERE boeking_id = $1',
+    [boekingId]
+  );
+  const subtotaalProducten = Number(prodRows[0].subtotaal) || 0;
+  const transportkost = Number(boeking.transportkost) || 0;
+  const toeslagKorting = Number(boeking.toeslag_korting) || 0;
+  const totaal = subtotaalProducten + transportkost + toeslagKorting;
+  const btwBedrag = Math.round(((totaal * BTW_PERCENTAGE) / (100 + BTW_PERCENTAGE)) * 100) / 100;
+
+  const { rows: betaaldRows } = await db.query(
+    'SELECT COALESCE(SUM(bedrag), 0) AS betaald FROM betaling_transacties WHERE boeking_id = $1',
+    [boekingId]
+  );
+  const betaaldBedrag = Number(betaaldRows[0].betaald) || 0;
+  const saldoOpenstaand = Math.round((totaal - betaaldBedrag) * 100) / 100;
+
+  return {
+    subtotaal_producten: subtotaalProducten,
+    transportkost,
+    toeslag_korting: toeslagKorting,
+    totaal,
+    btw_percentage: BTW_PERCENTAGE,
+    btw_bedrag: btwBedrag,
+    betaald_bedrag: betaaldBedrag,
+    saldo_openstaand: saldoOpenstaand,
+  };
+}
+
 router.get('/:id', asyncHandler(async (req, res) => {
   const { rows } = await db.query(
-    `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email, k.telefoon AS klant_telefoon
+    `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email, k.telefoon AS klant_telefoon,
+            k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente
      FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
     [req.params.id]
   );
@@ -96,9 +137,101 @@ router.get('/:id', asyncHandler(async (req, res) => {
     [req.params.id]
   );
   const { rows: levering } = await db.query('SELECT * FROM leveringen WHERE boeking_id = $1', [req.params.id]);
-  const { rows: betaling } = await db.query('SELECT * FROM betalingen WHERE boeking_id = $1', [req.params.id]);
+  const { rows: betalingTransacties } = await db.query(
+    'SELECT * FROM betaling_transacties WHERE boeking_id = $1 ORDER BY aangemaakt_op',
+    [req.params.id]
+  );
+  const { rows: communicatie } = await db.query(
+    'SELECT * FROM communicatie WHERE boeking_id = $1 ORDER BY aangemaakt_op DESC',
+    [req.params.id]
+  );
+  const prijstabel = await berekenPrijstabel(req.params.id);
 
-  res.json({ ...rows[0], producten, historiek, levering: levering[0] || null, betaling: betaling[0] || null });
+  res.json({
+    ...rows[0],
+    producten,
+    historiek,
+    levering: levering[0] || null,
+    betaling_transacties: betalingTransacties,
+    communicatie,
+    prijstabel,
+  });
+}));
+
+// Algemene velden van het dossier bewerken (opmerkingen, transportkost, toeslag/korting, afstand)
+router.put('/:id', asyncHandler(async (req, res) => {
+  const velden = ['notities', 'transportkost', 'toeslag_korting', 'afstand_km'];
+  const updates = [];
+  const params = [];
+  for (const veld of velden) {
+    if (req.body[veld] !== undefined) {
+      params.push(req.body[veld]);
+      updates.push(`${veld} = $${params.length}`);
+    }
+  }
+  if (!updates.length) return res.status(400).json({ fout: 'Geen velden om te updaten' });
+
+  params.push(req.params.id);
+  const { rows } = await db.query(
+    `UPDATE boekingen SET ${updates.join(', ')}, bijgewerkt_op = now() WHERE id = $${params.length} RETURNING *`,
+    params
+  );
+  if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+  const prijstabel = await berekenPrijstabel(req.params.id);
+  res.json({ ...rows[0], prijstabel });
+}));
+
+// Betaling registreren (telt op bij eerder ontvangen bedragen -> saldo wordt herberekend)
+router.post('/:id/betaling', asyncHandler(async (req, res) => {
+  const { bedrag, opmerking } = req.body;
+  const bedragNum = Number(bedrag);
+  if (!bedragNum || bedragNum <= 0) {
+    return res.status(400).json({ fout: 'Geef een geldig positief bedrag op' });
+  }
+  const { rows: boekingRows } = await db.query('SELECT id FROM boekingen WHERE id = $1', [req.params.id]);
+  if (!boekingRows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+
+  await db.query(
+    'INSERT INTO betaling_transacties (boeking_id, bedrag, opmerking) VALUES ($1, $2, $3)',
+    [req.params.id, bedragNum, opmerking || null]
+  );
+
+  const prijstabel = await berekenPrijstabel(req.params.id);
+
+  // De 'betalingen'-rij (bestaand overzichtsrecord) mee synchroniseren, zodat
+  // bestaande rapportages die tabel raadplegen up-to-date blijven.
+  const betaalstatus = prijstabel.saldo_openstaand <= 0
+    ? 'volledig'
+    : (prijstabel.betaald_bedrag > 0 ? 'deels' : 'open');
+  await db.query(
+    `INSERT INTO betalingen (boeking_id, bedrag, betaald_bedrag, betaalstatus)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (boeking_id) DO UPDATE
+       SET bedrag = EXCLUDED.bedrag, betaald_bedrag = EXCLUDED.betaald_bedrag,
+           betaalstatus = EXCLUDED.betaalstatus, bijgewerkt_op = now()`,
+    [req.params.id, prijstabel.totaal, prijstabel.betaald_bedrag, betaalstatus]
+  );
+
+  res.status(201).json({ prijstabel });
+}));
+
+// Communicatie loggen (mail/telefoon/sms/notitie) bij een boeking
+router.get('/:id/communicatie', asyncHandler(async (req, res) => {
+  const { rows } = await db.query(
+    'SELECT * FROM communicatie WHERE boeking_id = $1 ORDER BY aangemaakt_op DESC',
+    [req.params.id]
+  );
+  res.json(rows);
+}));
+
+router.post('/:id/communicatie', asyncHandler(async (req, res) => {
+  const { type, richting, onderwerp, inhoud } = req.body;
+  const { rows } = await db.query(
+    `INSERT INTO communicatie (boeking_id, type, richting, onderwerp, inhoud)
+     VALUES ($1, COALESCE($2, 'notitie'), COALESCE($3, 'intern'), $4, $5) RETURNING *`,
+    [req.params.id, type, richting, onderwerp || null, inhoud || null]
+  );
+  res.status(201).json(rows[0]);
 }));
 
 // Nieuwe aanvraag/boeking aanmaken (manueel door Jonas, of later via website)

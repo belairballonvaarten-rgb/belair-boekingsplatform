@@ -49,7 +49,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
 router.post('/', asyncHandler(async (req, res) => {
   const {
-    naam, categorieen, sku, prijs, weekdagprijs, meerdaagse_prijstabel,
+    naam, categorieen, sku, prijs, weekendprijs, afhaalprijs, weekdagprijs, meerdaagse_prijstabel,
     max_boekingen_per_dag, availability_buffer_dagen, overnachting_mogelijk,
     overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid,
     afbeeldingen, afmetingen, leeftijdscategorie, kostprijs,
@@ -59,14 +59,15 @@ router.post('/', asyncHandler(async (req, res) => {
 
   const { rows } = await db.query(
     `INSERT INTO producten (
-       naam, categorieen, sku, prijs, weekdagprijs, meerdaagse_prijstabel,
+       naam, categorieen, sku, prijs, weekendprijs, afhaalprijs, weekdagprijs, meerdaagse_prijstabel,
        max_boekingen_per_dag, availability_buffer_dagen, overnachting_mogelijk,
        overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid,
        afbeeldingen, afmetingen, leeftijdscategorie, kostprijs
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
      RETURNING *`,
     [
-      naam, categorieen || [], sku || null, prijs || 0, weekdagprijs, meerdaagse_prijstabel || {},
+      naam, categorieen || [], sku || null, prijs || 0, weekendprijs || null, afhaalprijs || null,
+      weekdagprijs, meerdaagse_prijstabel || {},
       max_boekingen_per_dag || 1, availability_buffer_dagen || 0, overnachting_mogelijk || false,
       overnachting_toeslag, parent_id || null, korting_toegelaten !== false, zichtbaarheid || 'bookbaar',
       afbeeldingen || [], afmetingen, leeftijdscategorie, kostprijs,
@@ -77,7 +78,7 @@ router.post('/', asyncHandler(async (req, res) => {
 
 router.put('/:id', asyncHandler(async (req, res) => {
   const velden = [
-    'naam', 'categorieen', 'sku', 'prijs', 'weekdagprijs', 'meerdaagse_prijstabel',
+    'naam', 'categorieen', 'sku', 'prijs', 'weekendprijs', 'afhaalprijs', 'weekdagprijs', 'meerdaagse_prijstabel',
     'max_boekingen_per_dag', 'availability_buffer_dagen', 'overnachting_mogelijk',
     'overnachting_toeslag', 'parent_id', 'korting_toegelaten', 'zichtbaarheid',
     'afbeeldingen', 'afmetingen', 'leeftijdscategorie', 'kostprijs', 'staat',

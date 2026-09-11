@@ -222,6 +222,7 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .product-kaart-inhoud { padding: 0.7rem 0.9rem; display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
 .product-kaart-inhoud h4 { margin: 0; font-size: 0.95rem; }
 .product-kaart-inhoud .prijs { font-weight: 700; color: var(--blauw-donker); }
+.product-kaart-inhoud .prijs.prijs-tiers { font-weight: 600; font-size: 0.82rem; line-height: 1.4; display: flex; flex-direction: column; gap: 0.05rem; }
 .product-kaart-inhoud .afmetingen { font-size: 0.82rem; color: var(--grijs); }
 .staat-badge {
   align-self: flex-start; font-size: 0.75rem; font-weight: 600;
@@ -264,6 +265,25 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .status-acties { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-top: 1rem; }
 .status-acties button { border: 1px solid var(--blauw); color: var(--blauw); background: white; border-radius: 6px; padding: 0.5rem 0.9rem; font-weight: 600; }
 .historiek-item { font-size: 0.82rem; color: var(--grijs); padding: 0.2rem 0; }
+
+/* PRIJSTABEL (boekingsdossier) */
+.prijstabel { border: 1px solid var(--grijs-licht); border-radius: 8px; padding: 0.6rem 0.9rem; margin-bottom: 0.6rem; }
+.prijstabel-rij { display: flex; justify-content: space-between; align-items: center; padding: 0.3rem 0; font-size: 0.9rem; gap: 0.6rem; }
+.prijstabel-rij input { width: 110px; text-align: right; padding: 0.3rem 0.5rem; }
+.prijstabel-totaal { border-top: 1px solid var(--grijs-licht); margin-top: 0.2rem; padding-top: 0.5rem; font-weight: 700; color: var(--blauw-donker); }
+.prijstabel-sub { color: var(--grijs); font-size: 0.8rem; }
+.prijstabel-saldo { font-weight: 700; }
+.prijstabel-saldo span:last-child { color: #b5390a; }
+.prijstabel-saldo.voldaan span:last-child { color: #1a7a3c; }
+button.secundair { border: 1px solid var(--blauw); color: var(--blauw); background: white; border-radius: 6px; padding: 0.4rem 0.8rem; font-weight: 600; font-size: 0.82rem; margin: 0.2rem 0 0.6rem; }
+.betaling-log { max-height: 110px; overflow-y: auto; margin-bottom: 1rem; }
+
+/* COMMUNICATIE */
+.communicatie-lijst { max-height: 220px; overflow-y: auto; }
+.communicatie-item { border: 1px solid var(--grijs-licht); border-radius: 6px; padding: 0.5rem 0.7rem; margin-bottom: 0.5rem; font-size: 0.85rem; }
+.communicatie-item-kop { display: flex; justify-content: space-between; font-weight: 600; color: var(--blauw-donker); font-size: 0.8rem; }
+.communicatie-item-onderwerp { font-weight: 600; margin-top: 0.2rem; }
+.communicatie-item-inhoud { color: var(--grijs); margin-top: 0.15rem; }
 
 @media (max-width: 700px) {
   .grid-2 { grid-template-columns: 1fr; }

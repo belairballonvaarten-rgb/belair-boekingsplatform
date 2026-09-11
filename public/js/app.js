@@ -327,6 +327,9 @@ modal.addEventListener('click', (e) => { if (e.target === modal) sluitModal(); }
 
 function sluitModal() { modal.hidden = true; }
 
+const COMMUNICATIE_TYPE_LABELS = { email: 'E-mail', telefoon: 'Telefoon', sms: 'SMS', notitie: 'Notitie' };
+const COMMUNICATIE_RICHTING_LABELS = { uitgaand: 'Uitgaand', inkomend: 'Inkomend', intern: 'Intern' };
+
 async function openDetail(boekingId) {
   const b = await api(`/api/boekingen/${boekingId}`);
   const inhoud = document.getElementById('modal-detail-inhoud');
@@ -344,22 +347,100 @@ async function openDetail(boekingId) {
     .map((s) => `<button data-status="${s}">${STATUS_LABELS[s]}</button>`)
     .join('');
 
+  // Volledig adres samenstellen voor de Google Maps-link (geen API-sleutel nodig voor
+  // een eenvoudige "bekijk op kaart"-link — enkel een echte afstandsberekening vergt er een).
+  const adresVolledig = b.leveringsadres || [b.klant_adres, [b.klant_postcode, b.klant_gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+  const mapsUrl = adresVolledig ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(adresVolledig)}` : null;
+
+  const p = b.prijstabel;
+  const betalingLogHtml = (b.betaling_transacties || [])
+    .slice().reverse()
+    .map((t) => `<div class="historiek-item">${fmtDatum(t.aangemaakt_op)} — ${fmtEuro(t.bedrag)} ontvangen${t.opmerking ? ' (' + t.opmerking + ')' : ''}</div>`)
+    .join('') || '<p class="leeg-bericht">Nog geen betalingen geregistreerd.</p>';
+
+  const communicatieHtml = (b.communicatie || [])
+    .map((c) => `<div class="communicatie-item">
+        <div class="communicatie-item-kop"><span>${COMMUNICATIE_TYPE_LABELS[c.type] || c.type} · ${COMMUNICATIE_RICHTING_LABELS[c.richting] || c.richting}</span><span>${fmtDatum(c.aangemaakt_op)}</span></div>
+        ${c.onderwerp ? `<div class="communicatie-item-onderwerp">${c.onderwerp}</div>` : ''}
+        ${c.inhoud ? `<div class="communicatie-item-inhoud">${c.inhoud}</div>` : ''}
+      </div>`)
+    .join('') || '<p class="leeg-bericht">Nog geen communicatie gelogd.</p>';
+
   inhoud.innerHTML = `
     <h3>${b.klant_naam} <span class="status-pill">${STATUS_LABELS[b.status]}</span></h3>
     <div class="detail-rij"><span>Periode</span><span>${fmtDatum(b.gewenste_datum_start)} – ${fmtDatum(b.gewenste_datum_einde)}</span></div>
     <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
     <div class="detail-rij"><span>E-mail</span><span>${b.klant_email || '—'}</span></div>
     <div class="detail-rij"><span>Leveringswijze</span><span>${b.leveringswijze || '—'}</span></div>
-    <div class="detail-rij"><span>Adres</span><span>${b.leveringsadres || '—'}</span></div>
     <div class="detail-rij"><span>Ondergrond</span><span>${b.type_ondergrond || '—'}</span></div>
     <div class="detail-rij"><span>Toegankelijkheid</span><span>${b.toegankelijkheid || '—'}</span></div>
     <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
     <div class="detail-rij"><span>Voorkeur afhaling</span><span>${b.voorkeur_tijdstip_afhaling || '—'}</span></div>
     <div class="detail-rij"><span>Huurvoorwaarden</span><span>${b.huurvoorwaarden_geaccepteerd ? 'Geaccepteerd' : 'Niet geaccepteerd'}</span></div>
-    <div class="detail-rij"><span>Notities</span><span>${b.notities || '—'}</span></div>
+
+    <h4>Locatie</h4>
+    <div class="detail-rij"><span>Adres</span><span>${adresVolledig || '—'}</span></div>
+    ${mapsUrl ? `<div class="detail-rij"><span></span><span><a href="${mapsUrl}" target="_blank" rel="noopener">Bekijk op Google Maps ↗</a></span></div>` : ''}
+    <form id="form-locatie" class="grid-2">
+      <label>Afstand tot Overmere (km)<input type="number" id="dd-afstand-km" step="0.1" min="0" value="${b.afstand_km != null ? b.afstand_km : ''}" placeholder="manueel in te vullen" /></label>
+    </form>
+    <p class="uitleg" style="margin-top:0.3rem">Automatische afstandsberekening via Google Maps komt in een latere fase; vul voorlopig manueel in.</p>
 
     <h4>Producten</h4>
     ${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}
+
+    <h4>Prijstabel &amp; betaling</h4>
+    <div class="prijstabel">
+      <div class="prijstabel-rij"><span>Producten</span><span>${fmtEuro(p.subtotaal_producten)}</span></div>
+      <div class="prijstabel-rij">
+        <span>Levering / transport</span>
+        <span><input type="number" id="dd-transportkost" step="0.01" min="0" value="${b.transportkost != null ? b.transportkost : ''}" placeholder="0.00" /></span>
+      </div>
+      <div class="prijstabel-rij">
+        <span>Toeslag / korting</span>
+        <span><input type="number" id="dd-toeslag-korting" step="0.01" value="${b.toeslag_korting != null ? b.toeslag_korting : ''}" placeholder="0.00" /></span>
+      </div>
+      <button type="button" id="btn-prijstabel-opslaan" class="secundair">Levering/toeslag opslaan</button>
+      <div class="prijstabel-rij prijstabel-totaal"><span>Totaal</span><span>${fmtEuro(p.totaal)}</span></div>
+      <div class="prijstabel-rij prijstabel-sub"><span>Incl. BTW (${p.btw_percentage}%)</span><span>${fmtEuro(p.btw_bedrag)}</span></div>
+      <div class="prijstabel-rij"><span>Reeds betaald</span><span>${fmtEuro(p.betaald_bedrag)}</span></div>
+      <div class="prijstabel-rij prijstabel-saldo ${p.saldo_openstaand <= 0 ? 'voldaan' : ''}"><span>Openstaand saldo</span><span>${fmtEuro(p.saldo_openstaand)}</span></div>
+    </div>
+    <form id="form-nieuwe-betaling" class="grid-2">
+      <label>Nieuwe betaling (€)<input type="number" id="np-betaling-bedrag" step="0.01" min="0.01" placeholder="bedrag, Enter om op te slaan" /></label>
+      <label>Opmerking<input type="text" id="np-betaling-opmerking" placeholder="optioneel, bv. 'overschrijving'" /></label>
+    </form>
+    <div class="betaling-log">${betalingLogHtml}</div>
+
+    <h4>Opmerkingen</h4>
+    <form id="form-notities">
+      <textarea id="dd-notities" rows="3" placeholder="Interne opmerkingen over deze boeking...">${b.notities || ''}</textarea>
+      <button type="submit">Opmerkingen opslaan</button>
+    </form>
+
+    <h4>Communicatie</h4>
+    <form id="form-communicatie" class="grid-2">
+      <label>Type
+        <select id="cm-type">
+          <option value="email">E-mail</option>
+          <option value="telefoon">Telefoon</option>
+          <option value="sms">SMS</option>
+          <option value="notitie">Notitie</option>
+        </select>
+      </label>
+      <label>Richting
+        <select id="cm-richting">
+          <option value="uitgaand">Uitgaand</option>
+          <option value="inkomend">Inkomend</option>
+          <option value="intern">Intern</option>
+        </select>
+      </label>
+      <label>Onderwerp<input type="text" id="cm-onderwerp" placeholder="bv. Bevestigingsmail" /></label>
+      <label>Inhoud/notitie<input type="text" id="cm-inhoud" placeholder="korte samenvatting" /></label>
+      <button type="submit">+ Toevoegen aan log</button>
+    </form>
+    <p class="uitleg" style="margin-top:0.3rem">Mails automatisch versturen vanuit dit dossier komt in een latere fase — voorlopig log je hier manueel wat je verstuurd/besproken hebt.</p>
+    <div class="communicatie-lijst">${communicatieHtml}</div>
 
     <h4>Statusovergangen</h4>
     <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen overgangen meer mogelijk</p>'}</div>
@@ -376,6 +457,67 @@ async function openDetail(boekingId) {
       }
       wijzigStatus(b.id, btn.dataset.status, opmerking);
     });
+  });
+
+  document.getElementById('btn-prijstabel-opslaan').addEventListener('click', async () => {
+    const transportkost = document.getElementById('dd-transportkost').value;
+    const toeslagKorting = document.getElementById('dd-toeslag-korting').value;
+    await api(`/api/boekingen/${boekingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({
+        transportkost: transportkost !== '' ? parseFloat(transportkost) : null,
+        toeslag_korting: toeslagKorting !== '' ? parseFloat(toeslagKorting) : null,
+      }),
+    });
+    openDetail(boekingId);
+    laadBoekingenOverzicht();
+  });
+
+  document.getElementById('form-locatie').addEventListener('change', async (e) => {
+    if (e.target.id !== 'dd-afstand-km') return;
+    const afstand = e.target.value;
+    await api(`/api/boekingen/${boekingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ afstand_km: afstand !== '' ? parseFloat(afstand) : null }),
+    });
+  });
+
+  document.getElementById('form-nieuwe-betaling').addEventListener('submit', (e) => e.preventDefault());
+  document.getElementById('np-betaling-bedrag').addEventListener('keydown', async (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const bedrag = parseFloat(e.target.value);
+    if (!bedrag || bedrag <= 0) return;
+    const opmerking = document.getElementById('np-betaling-opmerking').value.trim();
+    await api(`/api/boekingen/${boekingId}/betaling`, {
+      method: 'POST',
+      body: JSON.stringify({ bedrag, opmerking: opmerking || null }),
+    });
+    openDetail(boekingId);
+    laadBoekingenOverzicht();
+  });
+
+  document.getElementById('form-notities').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await api(`/api/boekingen/${boekingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ notities: document.getElementById('dd-notities').value }),
+    });
+    openDetail(boekingId);
+  });
+
+  document.getElementById('form-communicatie').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await api(`/api/boekingen/${boekingId}/communicatie`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: document.getElementById('cm-type').value,
+        richting: document.getElementById('cm-richting').value,
+        onderwerp: document.getElementById('cm-onderwerp').value.trim() || null,
+        inhoud: document.getElementById('cm-inhoud').value.trim() || null,
+      }),
+    });
+    openDetail(boekingId);
   });
 
   modal.hidden = false;
@@ -609,7 +751,11 @@ function productKaartHtml(p) {
         : '<div class="product-kaart-afbeelding"></div>'}
       <div class="product-kaart-inhoud">
         <h4>${p.naam}</h4>
-        <span class="prijs">${fmtEuro(p.prijs)}</span>
+        <span class="prijs prijs-tiers">
+          <span>Dag: ${fmtEuro(p.prijs)}</span>
+          <span>Weekend: ${p.weekendprijs != null ? fmtEuro(p.weekendprijs) : '–'}</span>
+          <span>Afhaal: ${p.afhaalprijs != null ? fmtEuro(p.afhaalprijs) : '–'}</span>
+        </span>
         <span class="afmetingen">${p.afmetingen || ''}</span>
         <span class="staat-badge ${staat}">${staat === 'proper' ? 'Proper' : 'Nat/vuil'}</span>
         <button type="button" class="staat-knop" data-staat-toggle="${p.id}" data-huidige-staat="${staat}">
@@ -665,6 +811,8 @@ document.getElementById('form-nieuw-product').addEventListener('submit', async (
         naam: document.getElementById('np-naam').value.trim(),
         categorieen: [document.getElementById('np-categorie').value],
         prijs: parseFloat(document.getElementById('np-prijs').value) || 0,
+        weekendprijs: document.getElementById('np-weekendprijs').value !== '' ? parseFloat(document.getElementById('np-weekendprijs').value) : null,
+        afhaalprijs: document.getElementById('np-afhaalprijs').value !== '' ? parseFloat(document.getElementById('np-afhaalprijs').value) : null,
         afmetingen: document.getElementById('np-afmetingen').value || null,
         afbeeldingen: afbeelding ? [afbeelding] : [],
         max_boekingen_per_dag: parseInt(document.getElementById('np-max-per-dag').value, 10) || 1,
@@ -699,7 +847,9 @@ async function openProductDetail(productId) {
     <form id="form-product-bewerken">
       <div class="grid-2">
         <label>Naam<input type="text" id="pb-naam" value="${p.naam}" /></label>
-        <label>Prijs (€)<input type="number" id="pb-prijs" step="0.01" min="0" value="${p.prijs}" /></label>
+        <label>Dagprijs (€)<input type="number" id="pb-prijs" step="0.01" min="0" value="${p.prijs}" /></label>
+        <label>Weekendprijs (€)<input type="number" id="pb-weekendprijs" step="0.01" min="0" value="${p.weekendprijs != null ? p.weekendprijs : ''}" /></label>
+        <label>Afhaalprijs (€)<input type="number" id="pb-afhaalprijs" step="0.01" min="0" value="${p.afhaalprijs != null ? p.afhaalprijs : ''}" /></label>
         <label>Afmetingen<input type="text" id="pb-afmetingen" value="${p.afmetingen || ''}" /></label>
         <label>Afbeelding (URL)<input type="text" id="pb-afbeelding" value="${(p.afbeeldingen && p.afbeeldingen[0]) || ''}" /></label>
         <label>Max. boekingen per dag<input type="number" id="pb-max-per-dag" min="1" value="${p.max_boekingen_per_dag}" /></label>
@@ -737,6 +887,8 @@ async function openProductDetail(productId) {
         body: JSON.stringify({
           naam: document.getElementById('pb-naam').value,
           prijs: parseFloat(document.getElementById('pb-prijs').value) || 0,
+          weekendprijs: document.getElementById('pb-weekendprijs').value !== '' ? parseFloat(document.getElementById('pb-weekendprijs').value) : null,
+          afhaalprijs: document.getElementById('pb-afhaalprijs').value !== '' ? parseFloat(document.getElementById('pb-afhaalprijs').value) : null,
           afmetingen: document.getElementById('pb-afmetingen').value || null,
           afbeeldingen: afbeelding ? [afbeelding] : [],
           max_boekingen_per_dag: parseInt(document.getElementById('pb-max-per-dag').value, 10) || 1,
