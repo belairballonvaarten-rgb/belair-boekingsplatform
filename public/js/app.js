@@ -137,7 +137,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['aanvragen', 'boekingen', 'nieuwe-boeking', 'producten', 'boeking-detail'];
+const views = ['aanvragen', 'boekingen', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'boeking-detail'];
 
 function huidigeViewNaam() {
   return views.find((v) => v !== 'boeking-detail' && !document.getElementById(`view-${v}`).hidden) || 'boekingen';
@@ -152,6 +152,7 @@ function wisselView(naam) {
   });
   if (naam === 'aanvragen') laadAanvragen();
   if (naam === 'boekingen') laadBoekingenOverzicht();
+  if (naam === 'beschikbaarheid') laadBeschikbaarheidsoverzicht();
   if (naam === 'nieuwe-boeking' && !document.getElementById('producten-rijen').children.length) nieuweProductRij();
   if (naam === 'producten') laadProductenOverzicht();
 }
@@ -385,8 +386,19 @@ async function openDetail(boekingId) {
   const p = b.prijstabel;
   const betalingLogHtml = (b.betaling_transacties || [])
     .slice().reverse()
-    .map((t) => `<div class="historiek-item">${fmtDatum(t.aangemaakt_op)} — ${fmtEuro(t.bedrag)} ontvangen${t.opmerking ? ' (' + t.opmerking + ')' : ''}</div>`)
+    .map((t) => `<div class="historiek-item betaling-item">
+        <span>${fmtDatum(t.aangemaakt_op)} — ${fmtEuro(t.bedrag)} ontvangen${t.opmerking ? ' (' + t.opmerking + ')' : ''}</span>
+        <button type="button" class="linkbtn gevaar btn-betaling-verwijderen" data-id="${t.id}" title="Betaling verwijderen">✕</button>
+      </div>`)
     .join('') || '<p class="leeg-bericht">Nog geen betalingen geregistreerd.</p>';
+
+  // Voorgestelde transportkost (o.b.v. de gekende afstand) tonen zolang die nog niet
+  // (of niet meer, na een adreswijziging) overeenkomt met de bevestigde transportkost.
+  const voorgesteldeTransportkost = b.voorgestelde_transportkost;
+  const huidigeTransportkost = b.transportkost != null ? Number(b.transportkost) : null;
+  const toonBevestigBalk = b.leveringswijze === 'levering'
+    && voorgesteldeTransportkost != null
+    && (huidigeTransportkost == null || Math.round(voorgesteldeTransportkost * 100) !== Math.round(huidigeTransportkost * 100));
 
   const communicatieHtml = (b.communicatie || [])
     .map((c) => `<div class="communicatie-item">
@@ -416,7 +428,13 @@ async function openDetail(boekingId) {
     </form>
     <button type="button" id="btn-herbereken-afstand" class="secundair">↻ Afstand herberekenen via Google Maps</button>
     <p id="herbereken-afstand-status" class="uitleg" style="margin-top:0.3rem"></p>
-    <p class="uitleg">De afstand wordt automatisch berekend en de transportkost verderop in de prijstabel voorgesteld (eerste 10km gratis, dan € 0,50/km x4 voor levering + ophaling). Klopt het niet, pas dan gerust manueel aan.</p>
+    <p class="uitleg">De afstand wordt automatisch berekend (eerste 10km gratis, dan € 0,50/km x4 voor levering + ophaling). De voorgestelde transportkost telt pas mee in het totaal nadat je die hieronder bevestigt.</p>
+    ${toonBevestigBalk ? `
+      <div class="bevestig-balk">
+        <span>Voorgestelde transportkost o.b.v. ${b.afstand_km} km: <strong>${fmtEuro(voorgesteldeTransportkost)}</strong></span>
+        <button type="button" id="btn-bevestig-transportkost" class="secundair">✓ Bevestig transportkost</button>
+      </div>
+    ` : ''}
 
     <h4>Producten</h4>
     ${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}
@@ -426,7 +444,10 @@ async function openDetail(boekingId) {
       <div class="prijstabel-rij"><span>Producten</span><span>${fmtEuro(p.subtotaal_producten)}</span></div>
       <div class="prijstabel-rij">
         <span>Levering / transport</span>
-        <span><input type="number" id="dd-transportkost" step="0.01" min="0" value="${b.transportkost != null ? b.transportkost : ''}" placeholder="0.00" /></span>
+        <span class="veld-met-wissen">
+          <input type="number" id="dd-transportkost" step="0.01" min="0" value="${b.transportkost != null ? b.transportkost : ''}" placeholder="0.00" />
+          <button type="button" id="btn-transportkost-wissen" class="linkbtn gevaar" title="Transportkost wissen">✕</button>
+        </span>
       </div>
       <div class="prijstabel-rij">
         <span>Toeslag / korting</span>
@@ -503,6 +524,36 @@ async function openDetail(boekingId) {
     });
     openDetail(boekingId);
     laadBoekingenOverzicht();
+  });
+
+  document.getElementById('btn-transportkost-wissen').addEventListener('click', async () => {
+    await api(`/api/boekingen/${boekingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ transportkost: null }),
+    });
+    openDetail(boekingId);
+    laadBoekingenOverzicht();
+  });
+
+  const btnBevestigTransportkost = document.getElementById('btn-bevestig-transportkost');
+  if (btnBevestigTransportkost) {
+    btnBevestigTransportkost.addEventListener('click', async () => {
+      await api(`/api/boekingen/${boekingId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ transportkost: voorgesteldeTransportkost }),
+      });
+      openDetail(boekingId);
+      laadBoekingenOverzicht();
+    });
+  }
+
+  inhoud.querySelectorAll('.btn-betaling-verwijderen').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Deze betaling verwijderen?')) return;
+      await api(`/api/boekingen/${boekingId}/betaling/${btn.dataset.id}`, { method: 'DELETE' });
+      openDetail(boekingId);
+      laadBoekingenOverzicht();
+    });
   });
 
   document.getElementById('form-locatie').addEventListener('change', async (e) => {
@@ -618,7 +669,8 @@ document.getElementById('adres-idem-klant').addEventListener('change', (e) => {
 const PRODUCT_CATEGORIE_VOLGORDE = ['Springkastelen', 'Attracties', 'Obstakelbanen', 'Feestmaterialen', 'Servies/Bestek/glazen'];
 let onbeschikbareProductIds = new Set();
 
-function bouwProductOpties() {
+// Producten gegroepeerd per categorie (in de vaste volgorde, rest onder "Overige").
+function productenPerCategorie() {
   const groepen = new Map();
   PRODUCT_CATEGORIE_VOLGORDE.forEach((c) => groepen.set(c, []));
   groepen.set('Overige', []);
@@ -628,39 +680,57 @@ function bouwProductOpties() {
     const gekozenCategorie = PRODUCT_CATEGORIE_VOLGORDE.find((c) => categorieen.includes(c)) || 'Overige';
     groepen.get(gekozenCategorie).push(p);
   });
+  return groepen;
+}
 
+// Eerste categorie die effectief producten bevat (fallback voor een nieuwe rij).
+function eersteCategorieMetProducten() {
+  const groepen = productenPerCategorie();
+  for (const [categorie, producten] of groepen) {
+    if (producten.length) return categorie;
+  }
+  return '';
+}
+
+function bouwCategorieOpties(geselecteerdeCategorie) {
+  const groepen = productenPerCategorie();
   let html = '';
   groepen.forEach((producten, categorie) => {
     if (!producten.length) return;
-    const opties = producten
-      .map((p) => {
-        const onbeschikbaar = onbeschikbareProductIds.has(p.id);
-        return `<option value="${p.id}" ${onbeschikbaar ? 'disabled' : ''}>${p.naam}${onbeschikbaar ? ' (niet beschikbaar op deze datum)' : ''}</option>`;
-      })
-      .join('');
-    html += `<optgroup label="${categorie}">${opties}</optgroup>`;
+    const selected = categorie === geselecteerdeCategorie ? 'selected' : '';
+    html += `<option value="${categorie}" ${selected}>${categorie}</option>`;
   });
   return html;
 }
 
+// Modellen (producten) binnen één categorie — geen optgroups meer nodig, dus geen
+// eindeloos scrollen door alle producten om een model te kiezen.
+function bouwModelOpties(categorie, geselecteerdWaarde) {
+  const producten = productenPerCategorie().get(categorie) || [];
+  return producten
+    .map((p) => {
+      const onbeschikbaar = onbeschikbareProductIds.has(p.id);
+      const selected = p.id === geselecteerdWaarde ? 'selected' : '';
+      return `<option value="${p.id}" ${selected} ${onbeschikbaar ? 'disabled' : ''}>${p.naam}${onbeschikbaar ? ' (niet beschikbaar op deze datum)' : ''}</option>`;
+    })
+    .join('');
+}
+
 function herbouwAlleProductSelects() {
-  document.querySelectorAll('#producten-rijen .rij-product').forEach((select) => {
-    const huidigeWaarde = select.value;
-    select.innerHTML = bouwProductOpties();
+  document.querySelectorAll('#producten-rijen .product-rij').forEach((rij) => {
+    const categorieSelect = rij.querySelector('.rij-categorie');
+    const productSelect = rij.querySelector('.rij-product');
+    const huidigeWaarde = productSelect.value;
+    productSelect.innerHTML = bouwModelOpties(categorieSelect.value, huidigeWaarde);
     if (huidigeWaarde && !onbeschikbareProductIds.has(huidigeWaarde)) {
-      select.value = huidigeWaarde;
+      productSelect.value = huidigeWaarde;
     }
   });
 }
 
-async function verversBeschikbaarheid() {
-  const datumStart = document.getElementById('datum-start').value;
-  if (!datumStart) {
-    onbeschikbareProductIds = new Set();
-    herbouwAlleProductSelects();
-    return;
-  }
-  const datumEinde = document.getElementById('datum-einde').value || datumStart;
+// Voor een gegeven datum/periode: de product-id's die NIET beschikbaar zijn.
+// Gedeeld door het "Nieuwe boeking"-formulier en het Beschikbaarheid-overzicht.
+async function bepaalOnbeschikbareProductIds(datumStart, datumEinde) {
   const nieuweSet = new Set();
   await Promise.all(
     productenCache.map(async (p) => {
@@ -680,21 +750,115 @@ async function verversBeschikbaarheid() {
       }
     })
   );
-  onbeschikbareProductIds = nieuweSet;
+  return nieuweSet;
+}
+
+async function verversBeschikbaarheid() {
+  const datumStart = document.getElementById('datum-start').value;
+  if (!datumStart) {
+    onbeschikbareProductIds = new Set();
+    herbouwAlleProductSelects();
+    return;
+  }
+  const datumEinde = document.getElementById('datum-einde').value || datumStart;
+  onbeschikbareProductIds = await bepaalOnbeschikbareProductIds(datumStart, datumEinde);
   herbouwAlleProductSelects();
 }
 
 document.getElementById('datum-start').addEventListener('change', verversBeschikbaarheid);
 document.getElementById('datum-einde').addEventListener('change', verversBeschikbaarheid);
 
-function nieuweProductRij() {
+// ============================================================
+// BESCHIKBAARHEID-OVERZICHT (snel zien wat nog vrij is op een datum/periode,
+// bv. tijdens een telefonische aanvraag — met doorklik naar een nieuwe boeking)
+// ============================================================
+function groepeerLijstPerCategorie(lijst) {
+  const groepen = new Map();
+  PRODUCT_CATEGORIE_VOLGORDE.forEach((c) => groepen.set(c, []));
+  groepen.set('Overige', []);
+  lijst.forEach((p) => {
+    const categorieen = p.categorieen || [];
+    const gekozenCategorie = PRODUCT_CATEGORIE_VOLGORDE.find((c) => categorieen.includes(c)) || 'Overige';
+    groepen.get(gekozenCategorie).push(p);
+  });
+  return groepen;
+}
+
+function renderBeschikbaarheidKolom(containerId, producten, klikbaar) {
+  const container = document.getElementById(containerId);
+  const groepen = groepeerLijstPerCategorie(producten);
+  let html = '';
+  groepen.forEach((lijst, categorie) => {
+    if (!lijst.length) return;
+    html += `<div class="besch-categorie"><h4>${categorie}</h4>${lijst
+      .map((p) => `<div class="besch-item${klikbaar ? ' klikbaar' : ''}" data-id="${p.id}">${p.naam}</div>`)
+      .join('')}</div>`;
+  });
+  container.innerHTML = html || '<p class="leeg-bericht">Geen producten in deze lijst.</p>';
+  if (klikbaar) {
+    container.querySelectorAll('.besch-item').forEach((el) => {
+      el.addEventListener('click', () => {
+        startNieuweBoekingVoorProduct(
+          el.dataset.id,
+          document.getElementById('besch-datum-start').value,
+          document.getElementById('besch-datum-einde').value
+        );
+      });
+    });
+  }
+}
+
+async function ververBeschikbaarheidsoverzicht() {
+  const datumStart = document.getElementById('besch-datum-start').value;
+  if (!datumStart) {
+    document.getElementById('besch-beschikbaar').innerHTML = '<p class="leeg-bericht">Kies eerst een datum.</p>';
+    document.getElementById('besch-bezet').innerHTML = '';
+    return;
+  }
+  const datumEinde = document.getElementById('besch-datum-einde').value || datumStart;
+  const onbeschikbaar = await bepaalOnbeschikbareProductIds(datumStart, datumEinde);
+  const beschikbaar = productenCache.filter((p) => !onbeschikbaar.has(p.id));
+  const bezet = productenCache.filter((p) => onbeschikbaar.has(p.id));
+  renderBeschikbaarheidKolom('besch-beschikbaar', beschikbaar, true);
+  renderBeschikbaarheidKolom('besch-bezet', bezet, false);
+}
+
+function laadBeschikbaarheidsoverzicht() {
+  const elStart = document.getElementById('besch-datum-start');
+  if (!elStart.value) elStart.value = naarISO(new Date());
+  ververBeschikbaarheidsoverzicht();
+}
+
+document.getElementById('besch-datum-start').addEventListener('change', ververBeschikbaarheidsoverzicht);
+document.getElementById('besch-datum-einde').addEventListener('change', ververBeschikbaarheidsoverzicht);
+
+// Vanuit het beschikbaarheidsoverzicht meteen een nieuwe boeking starten met het
+// aangeklikte product en de gekozen datum/periode al ingevuld.
+function startNieuweBoekingVoorProduct(productId, datumStart, datumEinde) {
+  wisselView('nieuwe-boeking');
+  document.getElementById('producten-rijen').innerHTML = '';
+  nieuweProductRij(productId);
+  document.getElementById('datum-start').value = datumStart;
+  document.getElementById('datum-einde').value = (datumEinde && datumEinde !== datumStart) ? datumEinde : '';
+  verversBeschikbaarheid();
+}
+
+function nieuweProductRij(voorkeurProductId) {
   const rij = document.createElement('div');
   rij.className = 'product-rij';
+  const voorkeurProduct = voorkeurProductId ? productenCache.find((p) => p.id === voorkeurProductId) : null;
+  const categorieen = voorkeurProduct ? (voorkeurProduct.categorieen || []) : [];
+  const startCategorie = (voorkeurProduct && PRODUCT_CATEGORIE_VOLGORDE.find((c) => categorieen.includes(c)))
+    || (voorkeurProduct ? 'Overige' : eersteCategorieMetProducten());
   rij.innerHTML = `
-    <label>Product<select class="rij-product">${bouwProductOpties()}</select></label>
+    <label>Categorie<select class="rij-categorie">${bouwCategorieOpties(startCategorie)}</select></label>
+    <label>Model<select class="rij-product">${bouwModelOpties(startCategorie, voorkeurProductId)}</select></label>
     <label>Aantal<input type="number" class="rij-aantal" value="1" min="1" /></label>
     <button type="button" class="verwijder">✕</button>
   `;
+  rij.querySelector('.rij-categorie').addEventListener('change', (e) => {
+    rij.querySelector('.rij-product').innerHTML = bouwModelOpties(e.target.value);
+  });
   rij.querySelector('.verwijder').addEventListener('click', () => rij.remove());
   document.getElementById('producten-rijen').appendChild(rij);
 }

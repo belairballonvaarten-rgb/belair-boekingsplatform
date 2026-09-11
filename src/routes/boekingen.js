@@ -135,11 +135,14 @@ function bepaalVolledigAdres(boeking) {
       .filter(Boolean).join(', ');
 }
 
-// Automatisch de afstand (en een voorgestelde transportkost bij levering) berekenen
-// zodra dat nog niet gebeurd is voor deze boeking. Resultaat wordt opgeslagen zodat
-// dit maar één keer per boeking gebeurt (spaarzaam met de gratis Google-quota).
-// Faalt dit (geen sleutel, adres niet gevonden, ...), dan blijft het dossier gewoon
-// werken en kan de afstand/transportkost nog manueel ingevuld worden.
+// Automatisch de afstand berekenen zodra dat nog niet gebeurd is voor deze boeking.
+// Resultaat wordt opgeslagen zodat dit maar één keer per boeking gebeurt (spaarzaam
+// met de gratis Google-quota). Faalt dit (geen sleutel, adres niet gevonden, ...),
+// dan blijft het dossier gewoon werken en kan de afstand nog manueel ingevuld worden.
+//
+// Let op: dit vult NIET automatisch de (officiële) transportkost in — dat gebeurt
+// pas nadat Jonas de voorgestelde transportkost expliciet bevestigt, zodat de
+// prijstabel/het totaal nooit een bedrag toont dat hij niet zelf heeft goedgekeurd.
 async function zorgVoorAutomatischeAfstand(boeking) {
   if (boeking.afstand_km != null) return boeking;
   if (!process.env.GOOGLE_MAPS_API_KEY) return boeking;
@@ -149,18 +152,23 @@ async function zorgVoorAutomatischeAfstand(boeking) {
 
   try {
     const afstandKm = await berekenAfstandKm(adres);
-    const transportkost = boeking.transportkost != null
-      ? boeking.transportkost
-      : berekenTransportkost(afstandKm, boeking.leveringswijze);
     const { rows } = await db.query(
-      'UPDATE boekingen SET afstand_km = $1, transportkost = $2, bijgewerkt_op = now() WHERE id = $3 RETURNING *',
-      [afstandKm, transportkost, boeking.id]
+      'UPDATE boekingen SET afstand_km = $1, bijgewerkt_op = now() WHERE id = $2 RETURNING *',
+      [afstandKm, boeking.id]
     );
     return { ...boeking, ...rows[0] };
   } catch (err) {
     console.warn(`[afstand] kon afstand niet automatisch berekenen voor boeking ${boeking.id}:`, err.message);
     return boeking;
   }
+}
+
+// Voorgestelde transportkost o.b.v. de gekende afstand — louter informatief zolang
+// dit niet bevestigd is (via PUT /:id met transportkost). Pas na bevestiging telt
+// dit bedrag mee in de prijstabel/het totaal.
+function berekenVoorgesteldeTransportkost(boeking) {
+  if (boeking.afstand_km == null) return null;
+  return berekenTransportkost(boeking.afstand_km, boeking.leveringswijze);
 }
 
 router.get('/:id', asyncHandler(async (req, res) => {
@@ -202,11 +210,14 @@ router.get('/:id', asyncHandler(async (req, res) => {
     betaling_transacties: betalingTransacties,
     communicatie,
     prijstabel,
+    voorgestelde_transportkost: berekenVoorgesteldeTransportkost(boeking),
   });
 }));
 
 // Afstand (en transportkost-suggestie) manueel laten herberekenen — bv. na een
-// adreswijziging, of als de automatische berekening niet klopte.
+// adreswijziging, of als de automatische berekening niet klopte. De officiële
+// transportkost (die meetelt in het totaal) wordt hier NIET aangepast — enkel
+// de afstand en de bijhorende suggestie, die Jonas nog moet bevestigen.
 router.post('/:id/herbereken-afstand', asyncHandler(async (req, res) => {
   const { rows } = await db.query(
     `SELECT b.*, k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente
@@ -222,16 +233,17 @@ router.post('/:id/herbereken-afstand', asyncHandler(async (req, res) => {
   if (!adres) return res.status(400).json({ fout: 'Geen adres gekend voor deze boeking' });
 
   const afstandKm = await berekenAfstandKm(adres);
-  const transportkostSuggestie = berekenTransportkost(afstandKm, rows[0].leveringswijze);
   const { rows: updated } = await db.query(
-    'UPDATE boekingen SET afstand_km = $1, transportkost = $2, bijgewerkt_op = now() WHERE id = $3 RETURNING *',
-    [afstandKm, transportkostSuggestie, req.params.id]
+    'UPDATE boekingen SET afstand_km = $1, bijgewerkt_op = now() WHERE id = $2 RETURNING *',
+    [afstandKm, req.params.id]
   );
   const prijstabel = await berekenPrijstabel(req.params.id);
-  res.json({ ...updated[0], prijstabel });
+  res.json({ ...updated[0], prijstabel, voorgestelde_transportkost: berekenVoorgesteldeTransportkost(updated[0]) });
 }));
 
-// Algemene velden van het dossier bewerken (opmerkingen, transportkost, toeslag/korting, afstand)
+// Algemene velden van het dossier bewerken (opmerkingen, transportkost, toeslag/korting, afstand).
+// Dit is ook de manier om een bevestigde transportkost (of toeslag/korting) weer te
+// wissen: geef gewoon `null` mee voor dat veld.
 router.put('/:id', asyncHandler(async (req, res) => {
   const velden = ['notities', 'transportkost', 'toeslag_korting', 'afstand_km'];
   const updates = [];
@@ -251,7 +263,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
   const prijstabel = await berekenPrijstabel(req.params.id);
-  res.json({ ...rows[0], prijstabel });
+  res.json({ ...rows[0], prijstabel, voorgestelde_transportkost: berekenVoorgesteldeTransportkost(rows[0]) });
 }));
 
 // Betaling registreren (telt op bij eerder ontvangen bedragen -> saldo wordt herberekend)
@@ -286,6 +298,32 @@ router.post('/:id/betaling', asyncHandler(async (req, res) => {
   );
 
   res.status(201).json({ prijstabel });
+}));
+
+// Een eerder geregistreerde betaling weer verwijderen (bv. foutief ingegeven bedrag).
+// Het saldo/de prijstabel wordt meteen herberekend.
+router.delete('/:id/betaling/:betalingId', asyncHandler(async (req, res) => {
+  const { rows } = await db.query(
+    'DELETE FROM betaling_transacties WHERE id = $1 AND boeking_id = $2 RETURNING *',
+    [req.params.betalingId, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ fout: 'Betaling niet gevonden' });
+
+  const prijstabel = await berekenPrijstabel(req.params.id);
+
+  const betaalstatus = prijstabel.saldo_openstaand <= 0
+    ? 'volledig'
+    : (prijstabel.betaald_bedrag > 0 ? 'deels' : 'open');
+  await db.query(
+    `INSERT INTO betalingen (boeking_id, bedrag, betaald_bedrag, betaalstatus)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (boeking_id) DO UPDATE
+       SET bedrag = EXCLUDED.bedrag, betaald_bedrag = EXCLUDED.betaald_bedrag,
+           betaalstatus = EXCLUDED.betaalstatus, bijgewerkt_op = now()`,
+    [req.params.id, prijstabel.totaal, prijstabel.betaald_bedrag, betaalstatus]
+  );
+
+  res.json({ prijstabel });
 }));
 
 // Communicatie loggen (mail/telefoon/sms/notitie) bij een boeking

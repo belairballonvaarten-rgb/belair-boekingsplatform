@@ -84,6 +84,7 @@ button[type="submit"]:hover, .login-box button:hover, .primaire-actie:hover { ba
   font-weight: 600;
   padding: 0.3rem 0;
 }
+.linkbtn.gevaar { color: var(--rood); }
 
 .foutmelding { color: var(--rood); font-size: 0.9rem; min-height: 1.2rem; }
 .succesmelding { color: var(--groen); font-size: 0.9rem; }
@@ -200,8 +201,25 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 }
 .zoekresultaten .resultaat:hover { background: var(--grijs-licht); }
 .geselecteerd { background: #e6f4ea; color: var(--groen); padding: 0.5rem 0.7rem; border-radius: 6px; font-weight: 600; }
-.product-rij { display: grid; grid-template-columns: 2fr 1fr auto; gap: 0.6rem; align-items: end; margin-bottom: 0.6rem; }
+.product-rij { display: grid; grid-template-columns: 1.1fr 1.6fr 0.6fr auto; gap: 0.6rem; align-items: end; margin-bottom: 0.6rem; }
 .product-rij .verwijder { color: var(--rood); background: none; border: none; font-weight: 700; }
+
+/* BESCHIKBAARHEID-OVERZICHT */
+.beschikbaarheid-kolommen { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-top: 1rem; }
+.beschikbaarheid-kolom { border-radius: 8px; padding: 0.8rem 1rem; }
+.beschikbaarheid-kolom h3 { margin-top: 0; font-size: 1rem; }
+.beschikbaarheid-kolom.groen { background: #e6f4ea; }
+.beschikbaarheid-kolom.groen h3 { color: var(--groen); }
+.beschikbaarheid-kolom.rood { background: #fdecea; }
+.beschikbaarheid-kolom.rood h3 { color: var(--rood); }
+.besch-categorie h4 { margin: 0.6rem 0 0.3rem; font-size: 0.82rem; color: var(--grijs); text-transform: uppercase; letter-spacing: 0.02em; }
+.besch-categorie:first-child h4 { margin-top: 0; }
+.besch-item { background: white; border-radius: 6px; padding: 0.45rem 0.6rem; margin-bottom: 0.35rem; font-size: 0.9rem; }
+.besch-item.klikbaar { cursor: pointer; border: 1px solid transparent; }
+.besch-item.klikbaar:hover { border-color: var(--groen); font-weight: 600; }
+@media (max-width: 700px) {
+  .beschikbaarheid-kolommen { grid-template-columns: 1fr; }
+}
 
 /* PRODUCTEN */
 .producten-sectie { margin-bottom: 1.8rem; }
@@ -283,7 +301,17 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .prijstabel-saldo span:last-child { color: #b5390a; }
 .prijstabel-saldo.voldaan span:last-child { color: #1a7a3c; }
 button.secundair { border: 1px solid var(--blauw); color: var(--blauw); background: white; border-radius: 6px; padding: 0.4rem 0.8rem; font-weight: 600; font-size: 0.82rem; margin: 0.2rem 0 0.6rem; }
+.veld-met-wissen { display: flex; align-items: center; gap: 0.2rem; }
+.veld-met-wissen .linkbtn { padding: 0.3rem 0.2rem; font-size: 0.9rem; }
 .betaling-log { max-height: 110px; overflow-y: auto; margin-bottom: 1rem; }
+.betaling-item { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }
+.betaling-item .linkbtn { padding: 0 0.2rem; font-size: 0.85rem; }
+.bevestig-balk {
+  display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.6rem;
+  background: #fff8e1; border: 1px solid #f0c93c; border-radius: 6px; padding: 0.6rem 0.9rem; margin: 0.5rem 0;
+  font-size: 0.88rem;
+}
+.bevestig-balk button { margin: 0; }
 
 /* COMMUNICATIE */
 .communicatie-lijst { max-height: 220px; overflow-y: auto; }

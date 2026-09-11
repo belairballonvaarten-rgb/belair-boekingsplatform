@@ -29,6 +29,7 @@
     <nav>
       <button class="navbtn" data-view="aanvragen">Aanvragen-inbox <span id="badge-aanvragen" class="badge" hidden>0</span></button>
       <button class="navbtn" data-view="boekingen">Boekingenoverzicht</button>
+      <button class="navbtn" data-view="beschikbaarheid">Beschikbaarheid</button>
       <button class="navbtn" data-view="nieuwe-boeking">+ Nieuwe boeking</button>
       <button class="navbtn" data-view="producten">Producten</button>
     </nav>
@@ -95,6 +96,26 @@
     <section id="view-boeking-detail" class="pagina" hidden>
       <button type="button" id="btn-boeking-detail-terug" class="linkbtn">← Terug naar overzicht</button>
       <div id="boeking-detail-inhoud"></div>
+    </section>
+
+    <!-- BESCHIKBAARHEID (snel overzicht: wat is nog vrij op een datum/periode) -->
+    <section id="view-beschikbaarheid" class="pagina" hidden>
+      <h2>Beschikbaarheid</h2>
+      <p class="uitleg">Kies een datum (of periode) en zie in één oogopslag wat nog vrij is — handig bij een telefonische aanvraag. Klik op een beschikbaar product om er meteen een nieuwe boeking mee te starten.</p>
+      <div class="grid-2">
+        <label>Datum (of startdatum periode)<input type="date" id="besch-datum-start" /></label>
+        <label>Tot en met (optioneel, voor een periode)<input type="date" id="besch-datum-einde" /></label>
+      </div>
+      <div class="beschikbaarheid-kolommen">
+        <div class="beschikbaarheid-kolom groen">
+          <h3>Nog beschikbaar</h3>
+          <div id="besch-beschikbaar"></div>
+        </div>
+        <div class="beschikbaarheid-kolom rood">
+          <h3>Reeds bezet</h3>
+          <div id="besch-bezet"></div>
+        </div>
+      </div>
     </section>
 
     <!-- NIEUWE BOEKING -->
