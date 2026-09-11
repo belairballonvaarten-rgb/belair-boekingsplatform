@@ -152,6 +152,26 @@ main { padding: 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
 .btn-behandeling { color: var(--blauw) !important; border-color: var(--blauw) !important; }
 .leeg-bericht { color: var(--grijs); font-style: italic; }
 
+/* SNELFILTERS & STATS */
+.snelfilters { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.snelfilters button {
+  border: 1px solid var(--rand); background: white; color: var(--blauw);
+  border-radius: 999px; padding: 0.4rem 1rem; font-size: 0.85rem; font-weight: 600;
+}
+.snelfilters button.actief { background: var(--blauw); color: white; border-color: var(--blauw); }
+.statsbalk {
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.8rem; margin-bottom: 1.2rem;
+}
+.stat {
+  background: white; border: 1px solid var(--rand); border-radius: 8px;
+  padding: 0.8rem 1rem; display: flex; flex-direction: column; gap: 0.2rem;
+}
+.stat-label { font-size: 0.78rem; color: var(--grijs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.02em; }
+.stat-waarde { font-size: 1.25rem; font-weight: 700; color: var(--blauw-donker); }
+@media (max-width: 900px) {
+  .statsbalk { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* FILTERS & TABEL */
 .filterbalk { display: flex; gap: 1rem; align-items: flex-end; margin-bottom: 1rem; flex-wrap: wrap; }
 .filterbalk label { margin-bottom: 0; }
@@ -182,6 +202,44 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .geselecteerd { background: #e6f4ea; color: var(--groen); padding: 0.5rem 0.7rem; border-radius: 6px; font-weight: 600; }
 .product-rij { display: grid; grid-template-columns: 2fr 1fr auto; gap: 0.6rem; align-items: end; margin-bottom: 0.6rem; }
 .product-rij .verwijder { color: var(--rood); background: none; border: none; font-weight: 700; }
+
+/* PRODUCTEN */
+.producten-sectie { margin-bottom: 1.8rem; }
+.producten-sectie h3 { color: var(--blauw-donker); border-bottom: 1px solid var(--rand); padding-bottom: 0.4rem; }
+.product-kaarten-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+.product-kaart {
+  background: white; border: 1px solid var(--rand); border-radius: 8px;
+  overflow: hidden; cursor: pointer; display: flex; flex-direction: column;
+}
+.product-kaart:hover { border-color: var(--blauw); }
+.product-kaart-afbeelding {
+  width: 100%; height: 130px; object-fit: cover; background: var(--grijs-licht);
+}
+.product-kaart-inhoud { padding: 0.7rem 0.9rem; display: flex; flex-direction: column; gap: 0.25rem; flex: 1; }
+.product-kaart-inhoud h4 { margin: 0; font-size: 0.95rem; }
+.product-kaart-inhoud .prijs { font-weight: 700; color: var(--blauw-donker); }
+.product-kaart-inhoud .afmetingen { font-size: 0.82rem; color: var(--grijs); }
+.staat-badge {
+  align-self: flex-start; font-size: 0.75rem; font-weight: 600;
+  padding: 0.1rem 0.55rem; border-radius: 999px; margin-top: 0.2rem;
+}
+.staat-badge.proper { background: #e6f4ea; color: var(--groen); }
+.staat-badge.vuil { background: #fdecea; color: var(--rood); }
+.staat-knop {
+  margin-top: 0.4rem; border: 1px solid var(--rand); background: white;
+  border-radius: 6px; padding: 0.35rem 0.6rem; font-size: 0.8rem; font-weight: 600; color: var(--tekst);
+}
+.keuringen-lijst { margin: 0.5rem 0 1rem 0; }
+.keuringen-lijst .keuring-item {
+  display: flex; justify-content: space-between; font-size: 0.85rem;
+  padding: 0.3rem 0; border-bottom: 1px solid var(--grijs-licht);
+}
+.form-keuring-toevoegen { display: flex; gap: 0.6rem; align-items: end; flex-wrap: wrap; margin-bottom: 1rem; }
+.form-keuring-toevoegen label { margin-bottom: 0; }
 
 /* MODAL */
 .modal {

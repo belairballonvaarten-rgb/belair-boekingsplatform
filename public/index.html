@@ -30,6 +30,7 @@
       <button class="navbtn" data-view="aanvragen">Aanvragen-inbox <span id="badge-aanvragen" class="badge" hidden>0</span></button>
       <button class="navbtn" data-view="boekingen">Boekingenoverzicht</button>
       <button class="navbtn" data-view="nieuwe-boeking">+ Nieuwe boeking</button>
+      <button class="navbtn" data-view="producten">Producten</button>
     </nav>
     <button id="btn-uitloggen" class="linkbtn">Uitloggen</button>
   </header>
@@ -45,6 +46,23 @@
     <!-- BOEKINGENOVERZICHT -->
     <section id="view-boekingen" class="pagina" hidden>
       <h2>Boekingenoverzicht</h2>
+      <div class="snelfilters" id="snelfilters">
+        <button type="button" data-range="vandaag">Vandaag</button>
+        <button type="button" data-range="deze-week">Deze week</button>
+        <button type="button" data-range="deze-maand">Deze maand</button>
+        <button type="button" data-range="volgende-maand">Volgende maand</button>
+        <button type="button" data-range="vorige-maand">Vorige maand</button>
+        <button type="button" data-range="komende-6-maanden">Komende 6 maanden</button>
+        <button type="button" data-range="dit-jaar">Dit jaar</button>
+        <button type="button" data-range="alles" class="actief">Alles</button>
+      </div>
+      <div class="statsbalk" id="statsbalk">
+        <div class="stat"><span class="stat-label">Boekingen</span><span class="stat-waarde" id="stat-aantal">0</span></div>
+        <div class="stat"><span class="stat-label">Totale waarde</span><span class="stat-waarde" id="stat-totaal">€ 0</span></div>
+        <div class="stat"><span class="stat-label">Openstaand saldo</span><span class="stat-waarde" id="stat-openstaand">€ 0</span></div>
+        <div class="stat"><span class="stat-label">Ontvangen betalingen</span><span class="stat-waarde" id="stat-ontvangen">€ 0</span></div>
+        <div class="stat"><span class="stat-label">Gemiddelde waarde</span><span class="stat-waarde" id="stat-gemiddeld">€ 0</span></div>
+      </div>
       <div class="filterbalk">
         <label>Status
           <select id="filter-status">
@@ -61,13 +79,13 @@
             <option value="geweigerd">Geweigerd</option>
           </select>
         </label>
-        <label>Vanaf <input type="date" id="filter-vanaf" /></label>
-        <label>Tot <input type="date" id="filter-tot" /></label>
+        <label>Vanaf (aangepast) <input type="date" id="filter-vanaf" /></label>
+        <label>Tot (aangepast) <input type="date" id="filter-tot" /></label>
         <button id="btn-filter-toepassen">Filteren</button>
       </div>
       <table class="tabel">
         <thead>
-          <tr><th>Datum</th><th>Klant</th><th>Producten</th><th>Status</th><th>Adres</th><th></th></tr>
+          <tr><th>Datum</th><th>Klant</th><th>Waarde</th><th>Status</th><th>Adres</th><th></th></tr>
         </thead>
         <tbody id="tabel-boekingen"></tbody>
       </table>
@@ -130,11 +148,17 @@
                 <option value="afhaling">Afhaling door klant</option>
               </select>
             </label>
-            <label>Plaatsingsadres<input type="text" id="leveringsadres" /></label>
             <label>Type ondergrond<input type="text" id="type-ondergrond" placeholder="bv. steen, gras" /></label>
             <label>Toegankelijkheid<input type="text" id="toegankelijkheid" placeholder="bv. vrije doorgang" /></label>
-            <label>Voorkeur tijdstip levering<input type="text" id="voorkeur-levering" placeholder="bv. tussen 07:00-09:00" /></label>
-            <label>Voorkeur tijdstip afhaling<input type="text" id="voorkeur-afhaling" placeholder="bv. tussen 17:00-19:00" /></label>
+            <label>Tijdstip levering (per 30 min)<input type="time" id="voorkeur-levering" step="1800" /></label>
+            <label>Tijdstip afhaling (per 30 min)<input type="time" id="voorkeur-afhaling" step="1800" /></label>
+          </div>
+
+          <label class="checkbox">
+            <input type="checkbox" id="adres-idem-klant" /> Plaatsingsadres is hetzelfde als het adres van de klant
+          </label>
+          <div id="veld-leveringsadres">
+            <label>Plaatsingsadres<input type="text" id="leveringsadres" /></label>
           </div>
         </fieldset>
 
@@ -150,11 +174,59 @@
       </form>
     </section>
 
+    <!-- PRODUCTEN -->
+    <section id="view-producten" class="pagina" hidden>
+      <h2>Producten</h2>
+      <p class="uitleg">Springkastelen, attracties en ander materiaal. Klik op een product om het te bewerken, de staat te wijzigen of een certificaat/keuring toe te voegen.</p>
+
+      <details id="nieuw-product-details">
+        <summary>+ Nieuw product toevoegen</summary>
+        <form id="form-nieuw-product">
+          <div class="grid-2">
+            <label>Naam*<input type="text" id="np-naam" required /></label>
+            <label>Categorie
+              <select id="np-categorie">
+                <option value="Springkastelen">Springkastelen</option>
+                <option value="Attracties">Attracties</option>
+                <option value="Obstakelbanen">Obstakelbanen</option>
+                <option value="Feestmaterialen">Feestmaterialen</option>
+                <option value="Servies/Bestek/glazen">Servies/Bestek/glazen</option>
+              </select>
+            </label>
+            <label>Prijs (€)<input type="number" id="np-prijs" min="0" step="0.01" /></label>
+            <label>Afmetingen<input type="text" id="np-afmetingen" placeholder="bv. 5m x 5m x 4m" /></label>
+            <label>Afbeelding (URL)<input type="text" id="np-afbeelding" placeholder="https://..." /></label>
+            <label>Max. boekingen per dag<input type="number" id="np-max-per-dag" min="1" value="1" /></label>
+            <label>Buffer-dagen tussen boekingen<input type="number" id="np-buffer-dagen" min="0" value="0" /></label>
+            <label>Zichtbaarheid
+              <select id="np-zichtbaarheid">
+                <option value="bookbaar">Bookbaar</option>
+                <option value="featured">Featured</option>
+                <option value="hidden">Verborgen</option>
+              </select>
+            </label>
+          </div>
+          <button type="submit">Product toevoegen</button>
+          <p id="nieuw-product-fout" class="foutmelding"></p>
+        </form>
+      </details>
+
+      <div id="producten-secties"></div>
+    </section>
+
     <!-- BOEKING DETAIL (modal) -->
     <div id="modal-detail" class="modal" hidden>
       <div class="modal-inhoud">
         <button id="btn-modal-sluiten" class="modal-sluiten">&times;</button>
         <div id="modal-detail-inhoud"></div>
+      </div>
+    </div>
+
+    <!-- PRODUCT DETAIL (modal) -->
+    <div id="modal-product" class="modal" hidden>
+      <div class="modal-inhoud">
+        <button id="btn-modal-product-sluiten" class="modal-sluiten">&times;</button>
+        <div id="modal-product-inhoud"></div>
       </div>
     </div>
   </main>

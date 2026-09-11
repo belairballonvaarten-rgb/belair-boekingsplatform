@@ -66,7 +66,7 @@ router.post('/', asyncHandler(async (req, res) => {
      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
      RETURNING *`,
     [
-      naam, categorieen || [], sku, prijs || 0, weekdagprijs, meerdaagse_prijstabel || {},
+      naam, categorieen || [], sku || null, prijs || 0, weekdagprijs, meerdaagse_prijstabel || {},
       max_boekingen_per_dag || 1, availability_buffer_dagen || 0, overnachting_mogelijk || false,
       overnachting_toeslag, parent_id || null, korting_toegelaten !== false, zichtbaarheid || 'bookbaar',
       afbeeldingen || [], afmetingen, leeftijdscategorie, kostprijs,
@@ -80,7 +80,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
     'naam', 'categorieen', 'sku', 'prijs', 'weekdagprijs', 'meerdaagse_prijstabel',
     'max_boekingen_per_dag', 'availability_buffer_dagen', 'overnachting_mogelijk',
     'overnachting_toeslag', 'parent_id', 'korting_toegelaten', 'zichtbaarheid',
-    'afbeeldingen', 'afmetingen', 'leeftijdscategorie', 'kostprijs',
+    'afbeeldingen', 'afmetingen', 'leeftijdscategorie', 'kostprijs', 'staat',
   ];
   const updates = [];
   const params = [];
@@ -91,6 +91,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
     }
   }
   if (!updates.length) return res.status(400).json({ fout: 'Geen velden om te updaten' });
+  if (req.body.staat !== undefined) updates.push('staat_bijgewerkt_op = now()');
 
   params.push(req.params.id);
   const { rows } = await db.query(

@@ -60,9 +60,16 @@ router.get('/', asyncHandler(async (req, res) => {
   }
   const where = condities.length ? `WHERE ${condities.join(' AND ')}` : '';
   const { rows } = await db.query(
-    `SELECT b.*, k.naam AS klant_naam, k.telefoon AS klant_telefoon
+    `SELECT b.*, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
+            COALESCE(bp_totaal.waarde, 0) AS waarde,
+            COALESCE(bet.betaald_bedrag, 0) AS betaling_ontvangen
      FROM boekingen b
      JOIN klanten k ON k.id = b.klant_id
+     LEFT JOIN (
+       SELECT boeking_id, SUM(prijs * aantal) AS waarde
+       FROM boeking_producten GROUP BY boeking_id
+     ) bp_totaal ON bp_totaal.boeking_id = b.id
+     LEFT JOIN betalingen bet ON bet.boeking_id = b.id
      ${where}
      ORDER BY b.gewenste_datum_start DESC
      LIMIT 200`,
@@ -98,7 +105,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 router.post('/', asyncHandler(async (req, res) => {
   const {
     klant_id, producten, gewenste_datum_start, gewenste_datum_einde,
-    leveringswijze, leveringsadres, type_ondergrond, toegankelijkheid,
+    leveringswijze, leveringsadres, adres_idem_klant, type_ondergrond, toegankelijkheid,
     voorkeur_tijdstip_levering, voorkeur_tijdstip_afhaling,
     huurvoorwaarden_geaccepteerd, notities, bron,
   } = req.body;
@@ -107,6 +114,21 @@ router.post('/', asyncHandler(async (req, res) => {
     return res.status(400).json({ fout: 'klant_id, producten en gewenste_datum_start zijn verplicht' });
   }
   const datumEinde = gewenste_datum_einde || gewenste_datum_start;
+
+  // "Plaatsingsadres is hetzelfde als het adres van de klant" -> adres van de klant opzoeken
+  let uiteindelijkAdres = leveringsadres || null;
+  if (adres_idem_klant) {
+    const { rows: klantRows } = await db.query(
+      'SELECT adres, postcode, gemeente FROM klanten WHERE id = $1',
+      [klant_id]
+    );
+    const k = klantRows[0];
+    if (k) {
+      uiteindelijkAdres = [k.adres, [k.postcode, k.gemeente].filter(Boolean).join(' ')]
+        .filter(Boolean)
+        .join(', ') || null;
+    }
+  }
 
   // Beschikbaarheid controleren voor elk gevraagd product
   for (const p of producten) {
@@ -131,7 +153,7 @@ router.post('/', asyncHandler(async (req, res) => {
        RETURNING *`,
       [
         klant_id, gewenste_datum_start, datumEinde,
-        leveringswijze, leveringsadres, type_ondergrond, toegankelijkheid,
+        leveringswijze, uiteindelijkAdres, type_ondergrond, toegankelijkheid,
         voorkeur_tijdstip_levering, voorkeur_tijdstip_afhaling,
         huurvoorwaarden_geaccepteerd || false,
         notities, bron,
