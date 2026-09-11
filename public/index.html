@@ -47,6 +47,13 @@
     <!-- BOEKINGENOVERZICHT -->
     <section id="view-boekingen" class="pagina" hidden>
       <h2>Boekingenoverzicht</h2>
+      <div class="kleuren-legende">
+        <span><span class="legende-stip rood"></span>Wacht op bevestiging klant</span>
+        <span><span class="legende-stip oranje"></span>Bevestigd, betaling loopt</span>
+        <span><span class="legende-stip groen"></span>Betaald, klaar voor planning</span>
+        <span><span class="legende-stip grijs"></span>Geweigerd</span>
+        <span><span class="legende-stip paars"></span>Speciaal verzoek</span>
+      </div>
       <div class="snelfilters" id="snelfilters">
         <button type="button" data-range="vandaag">Vandaag</button>
         <button type="button" data-range="deze-week">Deze week</button>
@@ -91,7 +98,7 @@
       </div>
       <table class="tabel">
         <thead>
-          <tr><th>Datum</th><th>Product</th><th>Locatie</th><th>Klant</th><th>Waarde</th><th>Status</th><th></th></tr>
+          <tr><th>Datum</th><th>Product</th><th>Straat + nr</th><th>Postcode</th><th>Gemeente</th><th>Klant</th><th>Waarde</th><th>Status</th><th></th></tr>
         </thead>
         <tbody id="tabel-boekingen"></tbody>
       </table>

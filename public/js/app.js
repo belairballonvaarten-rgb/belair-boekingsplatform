@@ -13,6 +13,26 @@ const STATUS_LABELS = {
   gefactureerd: 'Gefactureerd',
 };
 
+// Kleurcode per status, voor snel visueel overzicht: rood = nog niet bevestigd
+// door de klant, oranje = bevestigd maar betaling nog niet volledig binnen,
+// groen = volledig betaald en klaar voor transportplanning, grijs = geweigerd.
+const STATUS_KLEUR = {
+  nieuw: 'rood',
+  in_behandeling: 'rood',
+  geaccepteerd: 'rood',
+  ingepland: 'rood',
+  bevestigd: 'oranje',
+  betaalverzoek_verstuurd: 'oranje',
+  betaald_deels: 'oranje',
+  betaald_volledig: 'groen',
+  gefactureerd: 'groen',
+  geweigerd: 'grijs',
+};
+
+function statusPillHtml(status) {
+  return `<span class="status-pill status-${STATUS_KLEUR[status] || 'grijs'}">${STATUS_LABELS[status]}</span>`;
+}
+
 // Zelfde toegelaten overgangen als in src/routes/boekingen.js — enkel voor de UI,
 // de server is en blijft de bron van waarheid (valideert dit ook zelf).
 const TOEGELATEN_OVERGANGEN = {
@@ -201,10 +221,10 @@ async function laadAanvragen() {
   container.innerHTML = '';
   for (const b of aanvragen) {
     const kaart = document.createElement('div');
-    kaart.className = 'kaart';
+    kaart.className = 'kaart' + (b.speciaal_verzoek ? ' speciaal-verzoek' : '');
     kaart.innerHTML = `
       <div class="kaart-info">
-        <h3>${b.klant_naam} <span class="status-pill">${STATUS_LABELS[b.status]}</span></h3>
+        <h3>${b.klant_naam} ${statusPillHtml(b.status)}</h3>
         <p>📅 ${fmtDatum(b.gewenste_datum_start)}${b.gewenste_datum_start !== b.gewenste_datum_einde ? ' – ' + fmtDatum(b.gewenste_datum_einde) : ''}</p>
         <p>📍 ${b.leveringsadres || '—'}</p>
         <p>📞 ${b.klant_telefoon || '—'}</p>
@@ -267,6 +287,27 @@ function huidigeBoekingenFilterParams() {
   return params;
 }
 
+// Ontleedt het (vrije-tekst) leveringsadres of het klantadres in 3 kolommen:
+// straat + nr, postcode, gemeente (zie dezelfde helper server-side in boekingen.js
+// voor de CSV-export — beide moeten identiek splitsen).
+function ontleedAdres(b) {
+  if (b.leveringswijze === 'afhaling') {
+    return { straat: 'Afhaling', postcode: '', gemeente: '' };
+  }
+  if (b.leveringsadres) {
+    const match = b.leveringsadres.match(/^(.*?),?\s*(\d{4})\s+(.+)$/);
+    if (match) {
+      return { straat: match[1].trim(), postcode: match[2], gemeente: match[3].trim() };
+    }
+    return { straat: b.leveringsadres, postcode: '', gemeente: '' };
+  }
+  return {
+    straat: b.klant_adres || '—',
+    postcode: b.klant_postcode || '',
+    gemeente: b.klant_gemeente || '',
+  };
+}
+
 async function laadBoekingenOverzicht() {
   const params = huidigeBoekingenFilterParams();
   const boekingen = await api(`/api/boekingen?${params.toString()}`);
@@ -284,23 +325,22 @@ async function laadBoekingenOverzicht() {
   const tbody = document.getElementById('tabel-boekingen');
   tbody.innerHTML = '';
   if (!boekingen.length) {
-    tbody.innerHTML = '<tr><td colspan="7" class="leeg-bericht">Geen boekingen gevonden.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" class="leeg-bericht">Geen boekingen gevonden.</td></tr>';
     return;
   }
   for (const b of boekingen) {
-    const locatie = b.leveringswijze === 'afhaling'
-      ? 'Afhaling'
-      : (b.leveringsadres
-        || [b.klant_adres, [b.klant_postcode, b.klant_gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ')
-        || '—');
+    const adres = ontleedAdres(b);
     const tr = document.createElement('tr');
+    if (b.speciaal_verzoek) tr.classList.add('speciaal-verzoek');
     tr.innerHTML = `
       <td>${fmtDatum(b.gewenste_datum_start)}</td>
       <td>${b.producten_namen || '—'}</td>
-      <td>${locatie}</td>
+      <td>${adres.straat}</td>
+      <td>${adres.postcode}</td>
+      <td>${adres.gemeente}</td>
       <td>${b.klant_naam}</td>
       <td>${fmtEuro(b.waarde)}</td>
-      <td><span class="status-pill">${STATUS_LABELS[b.status]}</span></td>
+      <td>${statusPillHtml(b.status)}</td>
       <td>Bekijk →</td>
     `;
     tr.addEventListener('click', () => openDetail(b.id));
@@ -439,7 +479,8 @@ async function openDetail(boekingId) {
     .join('') || '<p class="leeg-bericht">Nog geen communicatie gelogd.</p>';
 
   inhoud.innerHTML = `
-    <h3>${b.klant_naam} <span class="status-pill">${STATUS_LABELS[b.status]}</span></h3>
+    <h3>${b.klant_naam} ${statusPillHtml(b.status)}</h3>
+    ${b.speciaal_verzoek ? `<div class="speciaal-verzoek-banner">⭑ Speciaal verzoek${b.speciaal_verzoek_notitie ? ': ' + b.speciaal_verzoek_notitie : ''}</div>` : ''}
     <button type="button" id="btn-klantgegevens-bewerken" class="linkbtn">✎ Klant-/boekinggegevens bewerken</button>
 
     <div id="klantgegevens-weergave">
@@ -453,6 +494,7 @@ async function openDetail(boekingId) {
       <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
       <div class="detail-rij"><span>Voorkeur afhaling</span><span>${b.voorkeur_tijdstip_afhaling || '—'}</span></div>
       <div class="detail-rij"><span>Huurvoorwaarden</span><span>${b.huurvoorwaarden_geaccepteerd ? 'Geaccepteerd' : 'Niet geaccepteerd'}</span></div>
+      <div class="detail-rij"><span>Speciaal verzoek</span><span>${b.speciaal_verzoek ? (b.speciaal_verzoek_notitie || 'Ja') : '—'}</span></div>
     </div>
 
     <form id="form-klantgegevens-bewerken" class="grid-2" hidden>
@@ -470,6 +512,10 @@ async function openDetail(boekingId) {
       <label>Toegankelijkheid<input type="text" id="kg-toegankelijkheid" value="${b.toegankelijkheid || ''}" /></label>
       <label>Tijdstip levering<select id="kg-tijdstip-levering"></select></label>
       <label>Tijdstip afhaling<select id="kg-tijdstip-afhaling"></select></label>
+      <label class="checkbox" style="grid-column: 1 / -1;">
+        <input type="checkbox" id="kg-speciaal-verzoek" ${b.speciaal_verzoek ? 'checked' : ''} /> Speciaal verzoek voor deze boeking (paars accent in de overzichten)
+      </label>
+      <label style="grid-column: 1 / -1;">Toelichting speciaal verzoek<input type="text" id="kg-speciaal-verzoek-notitie" value="${b.speciaal_verzoek_notitie || ''}" placeholder="bv. allergie, extra toegangscode, moeilijke locatie, ..." /></label>
       <div class="form-acties">
         <button type="submit">Opslaan</button>
         <button type="button" id="btn-klantgegevens-annuleren" class="linkbtn">Annuleren</button>
@@ -596,6 +642,8 @@ async function openDetail(boekingId) {
             toegankelijkheid: document.getElementById('kg-toegankelijkheid').value.trim() || null,
             voorkeur_tijdstip_levering: document.getElementById('kg-tijdstip-levering').value || null,
             voorkeur_tijdstip_afhaling: document.getElementById('kg-tijdstip-afhaling').value || null,
+            speciaal_verzoek: document.getElementById('kg-speciaal-verzoek').checked,
+            speciaal_verzoek_notitie: document.getElementById('kg-speciaal-verzoek-notitie').value.trim() || null,
           }),
         }),
       ]);

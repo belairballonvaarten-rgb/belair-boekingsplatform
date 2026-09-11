@@ -104,6 +104,29 @@ function csvVeld(waarde) {
   return /[";\n]/.test(tekst) ? `"${tekst.replace(/"/g, '""')}"` : tekst;
 }
 
+// Ontleedt het (vrije-tekst) leveringsadres of het klantadres in 3 kolommen:
+// straat + nr, postcode, gemeente — zodat Jonas het overzicht kan sorteren/lezen
+// per gemeente/straat i.p.v. één lange adrestekst. Belgische postcodes zijn
+// steevast 4 cijfers, dus dat is het betrouwbaarste ankerpunt om vrije tekst
+// ("Léon Bekaertlaan 32, 9880 Aalter") te splitsen.
+function ontleedAdres(b) {
+  if (b.leveringswijze === 'afhaling') {
+    return { straat: 'Afhaling', postcode: '', gemeente: '' };
+  }
+  if (b.leveringsadres) {
+    const match = b.leveringsadres.match(/^(.*?),?\s*(\d{4})\s+(.+)$/);
+    if (match) {
+      return { straat: match[1].trim(), postcode: match[2], gemeente: match[3].trim() };
+    }
+    return { straat: b.leveringsadres, postcode: '', gemeente: '' };
+  }
+  return {
+    straat: b.klant_adres || '—',
+    postcode: b.klant_postcode || '',
+    gemeente: b.klant_gemeente || '',
+  };
+}
+
 router.get('/export.csv', asyncHandler(async (req, res) => {
   const { where, params } = bouwBoekingenFilter(req.query);
   const { rows } = await db.query(
@@ -111,18 +134,16 @@ router.get('/export.csv', asyncHandler(async (req, res) => {
     params
   );
 
-  const kolommen = ['Datum start', 'Datum einde', 'Product(en)', 'Locatie', 'Klant', 'Telefoon', 'Status', 'Waarde', 'Betaald', 'Openstaand'];
+  const kolommen = ['Datum start', 'Datum einde', 'Product(en)', 'Straat + nr', 'Postcode', 'Gemeente', 'Klant', 'Telefoon', 'Status', 'Waarde', 'Betaald', 'Openstaand'];
   const regels = [kolommen.join(';')];
   for (const b of rows) {
-    const locatie = b.leveringswijze === 'afhaling'
-      ? 'Afhaling'
-      : (b.leveringsadres
-        || [b.klant_adres, [b.klant_postcode, b.klant_gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', '));
+    const adres = ontleedAdres(b);
     const waarde = Number(b.waarde) || 0;
     const betaald = Number(b.betaling_ontvangen) || 0;
     const naarBedrag = (n) => n.toFixed(2).replace('.', ',');
     regels.push([
-      b.gewenste_datum_start, b.gewenste_datum_einde, b.producten_namen || '', locatie || '',
+      b.gewenste_datum_start, b.gewenste_datum_einde, b.producten_namen || '',
+      adres.straat, adres.postcode, adres.gemeente,
       b.klant_naam, b.klant_telefoon || '', b.status,
       naarBedrag(waarde), naarBedrag(betaald), naarBedrag(waarde - betaald),
     ].map(csvVeld).join(';'));
@@ -298,6 +319,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
     'notities', 'transportkost', 'toeslag_korting', 'afstand_km',
     'leveringsadres', 'type_ondergrond', 'toegankelijkheid', 'leveringswijze',
     'voorkeur_tijdstip_levering', 'voorkeur_tijdstip_afhaling',
+    'speciaal_verzoek', 'speciaal_verzoek_notitie',
   ];
   const updates = [];
   const params = [];

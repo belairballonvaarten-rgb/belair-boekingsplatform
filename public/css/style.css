@@ -7,6 +7,8 @@
   --grijs-licht: #f3f4f6;
   --rand: #e2e5ea;
   --tekst: #1f2933;
+  --oranje: #b8590a;
+  --paars: #7c3aed;
 }
 
 * { box-sizing: border-box; }
@@ -185,6 +187,25 @@ main { padding: 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
 .tabel th { background: var(--grijs-licht); color: #374151; }
 .tabel tr:hover td { background: #f9fafb; cursor: pointer; }
 .status-pill { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: var(--grijs-licht); color: #374151; }
+.status-pill.status-rood { background: #fdecea; color: var(--rood); }
+.status-pill.status-oranje { background: #fff4e5; color: var(--oranje); }
+.status-pill.status-groen { background: #e6f4ea; color: var(--groen); }
+.status-pill.status-grijs { background: var(--grijs-licht); color: var(--grijs); }
+
+/* Kleuren-legende + paars accent voor "speciaal verzoek" */
+.kleuren-legende { display: flex; gap: 1.2rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--grijs); margin-bottom: 0.8rem; }
+.legende-stip { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 0.35rem; vertical-align: middle; }
+.legende-stip.rood { background: var(--rood); }
+.legende-stip.oranje { background: var(--oranje); }
+.legende-stip.groen { background: var(--groen); }
+.legende-stip.grijs { background: var(--grijs); }
+.legende-stip.paars { background: var(--paars); }
+.tabel tbody tr.speciaal-verzoek td:first-child { box-shadow: inset 4px 0 0 var(--paars); }
+.kaart.speciaal-verzoek { box-shadow: inset 4px 0 0 var(--paars); }
+.speciaal-verzoek-banner {
+  background: #f3e8ff; color: var(--paars); border: 1px solid var(--paars);
+  border-radius: 6px; padding: 0.5rem 0.8rem; font-weight: 600; font-size: 0.88rem; margin: 0.5rem 0;
+}
 
 /* FORMULIER NIEUWE BOEKING */
 fieldset { border: 1px solid var(--rand); border-radius: 8px; margin-bottom: 1.2rem; padding: 1rem 1.2rem; background: white; }
@@ -332,8 +353,8 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 
 /* AFDRUKKEN (bv. Boekingenoverzicht) — enkel de tabel, geen navigatie/filters/knoppen */
 @media print {
-  .topbar, .snelfilters, .filterbalk, .overzicht-acties,
-  .status-acties, #btn-boeking-detail-terug, .navbtn {
+  .topbar, .snelfilters, .filterbalk, .overzicht-acties, .kleuren-legende, .statsbalk,
+  .status-acties, #btn-boeking-detail-terug, .navbtn, #view-boekingen > h2 {
     display: none !important;
   }
   .tabel th:last-child, .tabel td:last-child { display: none; }
