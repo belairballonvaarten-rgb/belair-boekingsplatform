@@ -26,6 +26,37 @@ function normaliseerTekst(s) {
 // Jonas kiest zelf de naam van elk veld bij het instellen van de webhook in
 // Gravity Forms — we proberen daarom de meest voor de hand liggende varianten
 // i.p.v. exact één vaste veldnaam te verwachten.
+//
+// In de praktijk blijkt de webhook echter de RUWE Gravity Forms-inzending door
+// te sturen (zoals GF die intern bijhoudt): de velden staan dan onder hun
+// numeriek veld-ID (bv. "6") i.p.v. een leesbare naam (bv. "Voornaam"), samen
+// met interne metadata zoals id/ip/form_id/source_url/user_agent. Herkenbaar
+// aan die metadata-velden. GF_FORM_17_VELD_IDS is de (enige gekende) mapping
+// voor Jonas' eigen "Offerte aanvragen"-formulier (form_id 17) — enkel gebruikt
+// als er geen leesbare naam gevonden werd. Wijzigt Jonas ooit de volgorde/
+// opbouw van dat formulier (velden toevoegen, verwijderen, verplaatsen), dan
+// kunnen deze ID's verschuiven en moet deze lijst opnieuw nagekeken worden
+// (herkenbaar aan: aanvragen die weer als "onherkend" gemarkeerd staan terwijl
+// de gegevens wel degelijk ingevuld waren).
+const GF_FORM_17_VELD_IDS = {
+  Voornaam: '6',
+  Achternaam: '7',
+  'Particulier of Bedrijf?': '8',
+  Telefoonnummer: '9',
+  'E-mailadres': '10',
+  Plaatsingsadres: '16',
+  Stad: '17',
+  Postcode: '18',
+  'Type ondergrond': '19',
+  Datum: '23',
+  Toegankelijkheid: '30',
+  Product: '31',
+  'Voorkeur tijdstip van levering': '34',
+  'Voorkeur tijdstip van afhaling': '35',
+  'Levering of afhaling': '39',
+  Huurvoorwaarden: '37.2',
+};
+
 function zoekVeld(data, ...mogelijkeNamen) {
   const sleutels = Object.keys(data || {}).map((k) => ({ orig: k, genorm: normaliseerTekst(k) }));
   for (const naam of mogelijkeNamen) {
@@ -33,6 +64,15 @@ function zoekVeld(data, ...mogelijkeNamen) {
     const gevonden = sleutels.find((s) => s.genorm === genorm);
     if (gevonden && data[gevonden.orig] !== undefined && data[gevonden.orig] !== null && String(data[gevonden.orig]).trim() !== '') {
       return String(data[gevonden.orig]).trim();
+    }
+    // Enkel toepassen op form_id 17 (Jonas' "Offerte aanvragen"-formulier) —
+    // bij een ander/onbekend formulier zouden dezelfde nummers iets heel
+    // anders kunnen betekenen.
+    if (String(data.form_id) === '17') {
+      const veldId = GF_FORM_17_VELD_IDS[naam];
+      if (veldId && data[veldId] !== undefined && data[veldId] !== null && String(data[veldId]).trim() !== '') {
+        return String(data[veldId]).trim();
+      }
     }
   }
   return null;
