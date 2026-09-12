@@ -256,7 +256,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['aanvragen', 'boekingen', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'boeking-detail'];
+const views = ['aanvragen', 'boekingen', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'boeking-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -1607,25 +1607,35 @@ function groepeerLijstPerCategorie(lijst) {
   return groepen;
 }
 
+// Per categorie een dropdown i.p.v. een lange opsomming van alle producten
+// onder elkaar — met 107+ producten werd die lijst anders veel te lang.
 function renderBeschikbaarheidKolom(containerId, producten, klikbaar) {
   const container = document.getElementById(containerId);
   const groepen = groepeerLijstPerCategorie(producten);
   let html = '';
   groepen.forEach((lijst, categorie) => {
     if (!lijst.length) return;
-    html += `<div class="besch-categorie"><h4>${categorie}</h4>${lijst
-      .map((p) => `<div class="besch-item${klikbaar ? ' klikbaar' : ''}" data-id="${p.id}">${p.naam}</div>`)
-      .join('')}</div>`;
+    const opties = lijst.map((p) => `<option value="${p.id}">${p.naam}</option>`).join('');
+    html += `
+      <div class="besch-categorie">
+        <h4>${categorie} (${lijst.length})</h4>
+        <select class="besch-categorie-select" data-klikbaar="${klikbaar ? '1' : '0'}">
+          <option value="">— kies een product —</option>
+          ${opties}
+        </select>
+      </div>`;
   });
   container.innerHTML = html || '<p class="leeg-bericht">Geen producten in deze lijst.</p>';
   if (klikbaar) {
-    container.querySelectorAll('.besch-item').forEach((el) => {
-      el.addEventListener('click', () => {
+    container.querySelectorAll('.besch-categorie-select').forEach((el) => {
+      el.addEventListener('change', () => {
+        if (!el.value) return;
         startNieuweBoekingVoorProduct(
-          el.dataset.id,
+          el.value,
           document.getElementById('besch-datum-start').value,
           document.getElementById('besch-datum-einde').value
         );
+        el.value = '';
       });
     });
   }
@@ -1951,7 +1961,10 @@ async function openProductDetail(productId) {
           </select>
         </label>
       </div>
-      <button type="submit">Wijzigingen opslaan</button>
+      <div class="form-acties">
+        <button type="submit">Wijzigingen opslaan</button>
+        <button type="button" id="btn-product-verwijderen" class="linkbtn gevaar">✕ Product verwijderen</button>
+      </div>
       <p id="product-bewerken-fout" class="foutmelding"></p>
     </form>
 
@@ -1986,6 +1999,20 @@ async function openProductDetail(productId) {
           zichtbaarheid: document.getElementById('pb-zichtbaarheid').value,
         }),
       });
+      modalProduct.hidden = true;
+      laadProductenOverzicht();
+      laadProductenCache();
+    } catch (err) {
+      elFout.textContent = err.message;
+    }
+  });
+
+  document.getElementById('btn-product-verwijderen').addEventListener('click', async () => {
+    const elFout = document.getElementById('product-bewerken-fout');
+    elFout.textContent = '';
+    if (!confirm(`"${p.naam}" definitief verwijderen? Dit kan niet ongedaan gemaakt worden.`)) return;
+    try {
+      await api(`/api/producten/${productId}`, { method: 'DELETE' });
       modalProduct.hidden = true;
       laadProductenOverzicht();
       laadProductenCache();
@@ -2081,6 +2108,211 @@ async function laadWebinzendingen() {
     btn.addEventListener('click', () => openDetail(btn.dataset.boekingId));
   });
 }
+
+// ============================================================
+// RESERVATIES IMPORTEREN (bulk, uit een Excel-export)
+// Het bestand wordt hier in de browser ingelezen (met SheetJS, via CDN) —
+// enkel de al ontlede gegevens per rij gaan naar de server voor matching
+// tegen de productenlijst en het opsporen van mogelijke dubbels.
+// ============================================================
+const RI_KOLOM_VARIANTEN = {
+  datumStart: ['delivery date'],
+  tijdstipLevering: ['drop off'],
+  datumEinde: ['collection date'],
+  tijdstipAfhaling: ['collection'],
+  klantNaam: ['customer name'],
+  telefoon: ['mobile'],
+  email: ['email'],
+  adres: ['delivery address 1', 'delivery address'],
+  gemeente: ['delivery town'],
+  postcode: ['delivery postcode'],
+  itemsTekst: ['item'],
+  balance: ['balance'],
+  ondergrondRuw: ['surface'],
+  notities: ['customer notes'],
+};
+
+function riNormaliseerHeader(s) {
+  return (s || '').toString().trim().toLowerCase();
+}
+
+// De echte kopregel staat niet noodzakelijk op de eerste rij (bv. als er een
+// titel boven staat, zoals in Jonas' eigen exports) — we zoeken de eerste rij
+// die "customer name" bevat.
+function riVindHeaderRij(ruweRijen) {
+  for (let i = 0; i < ruweRijen.length; i++) {
+    const rij = (ruweRijen[i] || []).map(riNormaliseerHeader);
+    if (rij.includes('customer name')) return i;
+  }
+  return -1;
+}
+
+function riBouwKolomIndex(headerRij) {
+  const genormaliseerd = headerRij.map(riNormaliseerHeader);
+  const index = {};
+  Object.entries(RI_KOLOM_VARIANTEN).forEach(([veld, varianten]) => {
+    const i = genormaliseerd.findIndex((h) => varianten.includes(h));
+    if (i !== -1) index[veld] = i;
+  });
+  return index;
+}
+
+function riParseDatum(ruw) {
+  const t = (ruw || '').toString().trim();
+  if (!t) return null;
+  const iso = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (iso) return iso[0].slice(0, 10);
+  const eu = t.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})/);
+  if (eu) return `${eu[3]}-${eu[2].padStart(2, '0')}-${eu[1].padStart(2, '0')}`;
+  return null;
+}
+
+function riParseTijd(ruw) {
+  const t = (ruw || '').toString().trim();
+  if (!t || t === '00:00') return null; // "00:00" komt hier steeds voor als "niet ingevuld", niet als een echt tijdstip
+  return t;
+}
+
+async function riLeesBestand(file) {
+  const data = await file.arrayBuffer();
+  const werkboek = XLSX.read(data, { type: 'array' });
+  const blad = werkboek.Sheets[werkboek.SheetNames[0]];
+  const ruweRijen = XLSX.utils.sheet_to_json(blad, { header: 1, defval: null, raw: false });
+
+  const headerRijIndex = riVindHeaderRij(ruweRijen);
+  if (headerRijIndex === -1) {
+    throw new Error('Kon de kopregel niet vinden (verwacht o.a. een kolom "Customer Name"). Is dit het juiste bestand?');
+  }
+  const kolomIndex = riBouwKolomIndex(ruweRijen[headerRijIndex]);
+  if (kolomIndex.klantNaam === undefined || kolomIndex.datumStart === undefined) {
+    throw new Error('Kolommen "Customer Name" en/of "Delivery Date" niet gevonden in de kopregel.');
+  }
+
+  const veld = (rij, naam) => (kolomIndex[naam] !== undefined ? rij[kolomIndex[naam]] : null);
+  const rijen = [];
+  for (let i = headerRijIndex + 1; i < ruweRijen.length; i++) {
+    const rij = ruweRijen[i] || [];
+    if (!rij.some((c) => c != null && String(c).trim() !== '')) continue; // lege regel overslaan
+    const itemsTekst = veld(rij, 'itemsTekst') || '';
+    rijen.push({
+      rijnummer: rijen.length + 1,
+      klantNaam: veld(rij, 'klantNaam'),
+      telefoon: veld(rij, 'telefoon'),
+      email: veld(rij, 'email'),
+      adres: veld(rij, 'adres'),
+      gemeente: veld(rij, 'gemeente'),
+      postcode: veld(rij, 'postcode'),
+      datumStart: riParseDatum(veld(rij, 'datumStart')),
+      datumEinde: riParseDatum(veld(rij, 'datumEinde')),
+      tijdstipLevering: riParseTijd(veld(rij, 'tijdstipLevering')),
+      tijdstipAfhaling: riParseTijd(veld(rij, 'tijdstipAfhaling')),
+      ondergrondRuw: veld(rij, 'ondergrondRuw'),
+      notities: veld(rij, 'notities'),
+      balance: veld(rij, 'balance'),
+      itemsRuw: itemsTekst.split('/').map((s) => s.trim()).filter(Boolean),
+    });
+  }
+  return rijen;
+}
+
+const RI_STATUS_LABEL = {
+  nieuw: '<span class="status-pill status-groen">nieuw</span>',
+  mogelijk_dubbel: '<span class="status-pill status-geel">mogelijke dubbel</span>',
+  fout: '<span class="status-pill status-rood">niet importeerbaar</span>',
+};
+const RI_RIJ_KLEUR = { nieuw: 'groen', mogelijk_dubbel: 'geel', fout: 'rood' };
+
+let riLaatsteRijen = [];
+
+function riRenderTabel(rijen) {
+  riLaatsteRijen = rijen;
+  const container = document.getElementById('ri-tabel');
+  container.innerHTML = `
+    <table class="tabel">
+      <thead>
+        <tr>
+          <th></th><th>Klant</th><th>Periode</th><th>Producten</th><th>Saldo</th><th>Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${rijen.map((r, i) => {
+          const productenTekst = (r.producten || []).map((p) => `${p.naam}${p.aantal > 1 ? ' ×' + p.aantal : ''}`).join(', ')
+            || '<em>geen</em>';
+          const kanNiet = r.status === 'fout';
+          const magStandaardAan = r.status === 'nieuw';
+          const waarschuwingen = (r.waarschuwingen || []).concat(r.problemen || []);
+          return `
+            <tr class="rij-kleur-${RI_RIJ_KLEUR[r.status] || 'grijs'}">
+              <td><input type="checkbox" class="ri-check" data-idx="${i}" ${magStandaardAan ? 'checked' : ''} ${kanNiet ? 'disabled' : ''} /></td>
+              <td>${r.klantNaam || '<em>onbekend</em>'}<br><span class="uitleg">${r.email || r.telefoon || ''}</span></td>
+              <td>${r.datumStart || '?'}${r.datumEinde && r.datumEinde !== r.datumStart ? ' t.e.m. ' + r.datumEinde : ''}</td>
+              <td>${productenTekst}</td>
+              <td>${fmtEuro(r.saldoOpenstaand)}</td>
+              <td>
+                ${RI_STATUS_LABEL[r.status] || r.status}
+                ${r.dubbel ? `<div class="uitleg">lijkt op boeking van ${r.dubbel.klant_naam} (status: ${r.dubbel.status})</div>` : ''}
+                ${waarschuwingen.map((w) => `<div class="uitleg">⚠ ${w}</div>`).join('')}
+              </td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+document.getElementById('ri-bestand').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  const elStatus = document.getElementById('ri-laad-status');
+  const elResultaat = document.getElementById('ri-resultaat');
+  elResultaat.hidden = true;
+  elStatus.textContent = '';
+  if (!file) return;
+  try {
+    elStatus.textContent = 'Bestand inlezen...';
+    const rijen = await riLeesBestand(file);
+    if (!rijen.length) throw new Error('Geen bruikbare rijen gevonden in dit bestand.');
+    elStatus.textContent = `${rijen.length} rij(en) gevonden — bezig met controleren tegen de productenlijst en bestaande boekingen...`;
+    const res = await api('/api/reservatie-import/preview', {
+      method: 'POST',
+      body: JSON.stringify({ rijen }),
+    });
+    elStatus.textContent = `${res.rijen.length} rij(en) klaar om te bekijken hieronder.`;
+    riRenderTabel(res.rijen);
+    elResultaat.hidden = false;
+  } catch (err) {
+    elStatus.textContent = '';
+    alert('Kon het bestand niet verwerken: ' + err.message);
+  }
+});
+
+document.getElementById('ri-alles-aan').addEventListener('click', () => {
+  document.querySelectorAll('.ri-check:not(:disabled)').forEach((el) => { el.checked = true; });
+});
+document.getElementById('ri-alles-uit').addEventListener('click', () => {
+  document.querySelectorAll('.ri-check').forEach((el) => { el.checked = false; });
+});
+
+document.getElementById('ri-importeer-knop').addEventListener('click', async () => {
+  const elStatus = document.getElementById('ri-import-status');
+  const geselecteerd = Array.from(document.querySelectorAll('.ri-check:checked')).map((el) => riLaatsteRijen[Number(el.dataset.idx)]);
+  if (!geselecteerd.length) { elStatus.textContent = 'Vink minstens één rij aan om te importeren.'; return; }
+  if (!confirm(`${geselecteerd.length} reservatie(s) importeren?`)) return;
+  elStatus.textContent = 'Bezig met importeren...';
+  try {
+    const res = await api('/api/reservatie-import/bevestig', {
+      method: 'POST',
+      body: JSON.stringify({ rijen: geselecteerd }),
+    });
+    elStatus.textContent = `Klaar: ${res.aangemaakt} reservatie(s) aangemaakt.`
+      + (res.overgeslagen.length ? ` ${res.overgeslagen.length} overgeslagen (zie console).` : '');
+    if (res.overgeslagen.length) console.warn('Overgeslagen rijen bij reservatie-import:', res.overgeslagen);
+    document.getElementById('ri-resultaat').hidden = true;
+    document.getElementById('ri-bestand').value = '';
+    laadBoekingenOverzicht();
+  } catch (err) {
+    elStatus.textContent = 'Fout: ' + err.message;
+  }
+});
 
 // ============================================================
 // START

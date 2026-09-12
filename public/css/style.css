@@ -340,6 +340,9 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .besch-item { background: white; border-radius: 6px; padding: 0.45rem 0.6rem; margin-bottom: 0.35rem; font-size: 0.9rem; }
 .besch-item.klikbaar { cursor: pointer; border: 1px solid transparent; }
 .besch-item.klikbaar:hover { border-color: var(--groen); font-weight: 600; }
+.besch-categorie-select { width: 100%; margin-bottom: 0.5rem; }
+
+.ri-acties { display: flex; gap: 0.6rem; align-items: center; margin: 0.8rem 0; flex-wrap: wrap; }
 @media (max-width: 700px) {
   .beschikbaarheid-kolommen { grid-template-columns: 1fr; }
 }

@@ -204,6 +204,27 @@ router.put('/:id', asyncHandler(async (req, res) => {
   res.json(rows[0]);
 }));
 
+// Product verwijderen — enkel mogelijk als het nooit in een boeking gebruikt is
+// (de databank beschermt dit zelf via een foreign-key), zodat de historiek van
+// bestaande boekingen nooit kan verwijzen naar een verdwenen product. Is een
+// product al gebruikt, dan krijg je een duidelijke melding i.p.v. een rauwe
+// databankfout — je kan het product dan wel op "Verborgen" zetten.
+router.delete('/:id', asyncHandler(async (req, res) => {
+  try {
+    const { rows } = await db.query('DELETE FROM producten WHERE id = $1 RETURNING id', [req.params.id]);
+    if (!rows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
+    res.status(204).end();
+  } catch (err) {
+    if (err.code === '23503') { // foreign_key_violation
+      return res.status(409).json({
+        fout: 'Dit product is al gebruikt in minstens één boeking en kan daarom niet verwijderd worden. '
+          + 'Zet het in plaats daarvan op zichtbaarheid "Verborgen" als het niet meer verhuurd wordt.',
+      });
+    }
+    throw err;
+  }
+}));
+
 // Keuringen beheren
 router.post('/:id/keuringen', asyncHandler(async (req, res) => {
   const { type_keuring, vervaldatum } = req.body;
