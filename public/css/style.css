@@ -61,6 +61,11 @@ input, select, textarea {
   font-size: 0.95rem;
   font-family: inherit;
 }
+/* Zonder dit wint de "display: block" hierboven van de standaard-styling die bij
+   het [hidden]-attribuut hoort, waardoor een verborgen invoerveld (bv. het
+   aantal-veld dat enkel bij bepaalde categorieën verschijnt) toch zichtbaar
+   zou blijven staan. */
+input[hidden], select[hidden], textarea[hidden] { display: none; }
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--blauw);
@@ -424,16 +429,24 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 }
 .paneel > h4:first-child { margin-top: 0; }
 
-/* Indeling van het dossier: periode+producten | financieel naast elkaar, en
-   klantgegevens daaronder over de volledige breedte (met zijn velden in 2
-   kolommen) — dat blok heeft immers meer velden dan de smalle kolom toeliet. */
+/* Indeling van het dossier: linkerkolom (Klantgegevens + Producten, elk hun
+   eigen kaart) naast de rechterkolom (Periode + Prijstabel & betaling, ook elk
+   een eigen kaart). Elke kolom is een verticale stapel losse .paneel-kaarten
+   met wat ruimte ertussen, zodat de secties duidelijk apart blijven i.p.v.
+   aan elkaar te hangen zoals voorheen. Klantgegevens staat bewust even breed
+   als de Producten-kaart (dus niet meer over de volle breedte); de velden
+   staan er daarom in 1 kolom i.p.v. 2. */
 .detail-layout { display: grid; grid-template-columns: 1.6fr 1fr; gap: 1.2rem; align-items: start; margin-bottom: 1.2rem; }
-.detail-kolom { min-width: 0; }
+.detail-kolom { min-width: 0; display: flex; flex-direction: column; gap: 1.2rem; }
+.detail-kolom > .paneel { margin-bottom: 0; }
 .detail-kolom-kop { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
 .detail-kolom-kop h4 { margin-bottom: 0; margin-top: 0; }
-.detail-kolom-klant .grid-2 .detail-rij { padding: 0.25rem 0; }
+.detail-kolom-klant .detail-rij { padding: 0.25rem 0; }
 .product-regel { align-items: center; }
 .product-regel .btn-product-verwijderen { margin-left: 0.4rem; }
+/* Klein voorbeeldfoto'tje van het product naast de naam — enkel zichtbaar als
+   er een afbeelding is ingesteld bij het product zelf (Producten-beheer). */
+.product-thumbnail { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; margin-right: 0.5rem; vertical-align: middle; }
 .product-prijs-invoer { width: 4.5rem; text-align: right; padding: 0.15rem 0.3rem; }
 /* De periode-kalender in het dossier staat in een krapper kolomblok -> iets
    minder interne padding dan de volle-breedte kalenders elders in de app. */

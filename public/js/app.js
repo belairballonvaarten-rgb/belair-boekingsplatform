@@ -461,13 +461,24 @@ function ontleedAdresVoorFormulier(adres) {
 const ONDERGROND_OPTIES = ['Gras', 'Steen', 'Braakliggend', 'Zand', 'Klinkers'];
 const TOEGANKELIJKHEID_OPTIES = ['Vrije doorgang', 'Smalle doorgang', 'Trappen aanwezig', 'Moeilijk bereikbaar'];
 
-// Korte code voor de "Ondergrond"-kolom in het boekingenoverzicht — enkel het
-// onderscheid dat er praktisch toe doet bij het plaatsen (vastpinnen met
-// grondpinnen kan op gras, op een harde ondergrond (steen/klinkers/...) niet).
-// "O/G" = ondergrond gras, "O/H" = ondergrond hard (alle andere types).
+// Korte code per type ondergrond voor de "Ondergrond"-kolom in het
+// boekingenoverzicht — één afkorting per keuze uit ONDERGROND_OPTIES i.p.v.
+// enkel het binaire gras/hard-onderscheid van voorheen.
+const ONDERGROND_AFKORTINGEN = {
+  Gras: 'O/G',
+  Steen: 'O/S',
+  Braakliggend: 'O/B',
+  Zand: 'O/Z',
+  Klinkers: 'O/K',
+};
 function ondergrondAfkorting(type) {
   if (!type) return '—';
-  return type.trim().toLowerCase() === 'gras' ? 'O/G' : 'O/H';
+  const waarde = type.trim();
+  if (ONDERGROND_AFKORTINGEN[waarde]) return ONDERGROND_AFKORTINGEN[waarde];
+  // Oudere vrije-tekst-waarde van vóór de dropdown-conversie, of een type dat
+  // niet in de lijst staat: toon toch een korte afkorting o.b.v. de eerste
+  // letter i.p.v. niets te tonen.
+  return waarde ? 'O/' + waarde.charAt(0).toUpperCase() : '—';
 }
 
 // Bouwt <option>-elementen voor een vaste keuzelijst, met een lege eerste optie
@@ -631,8 +642,16 @@ async function openDetail(boekingId) {
   // De prijs zelf wordt niet meer hier, maar in de Prijstabel hiernaast getoond/
   // bewerkt (zie prijstabelProductenHtml) — hier enkel welke producten (en
   // hoeveel) er op deze boeking staan, en de mogelijkheid om er één te verwijderen.
+  // Klein thumbnailtje van het product (indien er één is ingesteld bij het
+  // product zelf) zodat een springkasteel meteen visueel herkenbaar is — ook
+  // handig voor de laadlijsten/routeplanner die hier later op verder bouwen.
+  const productThumbnailHtml = (p) => {
+    const url = p.product_afbeeldingen && p.product_afbeeldingen[0];
+    return url ? `<img class="product-thumbnail" src="${url}" alt="" />` : '';
+  };
+
   const productenHtml = b.producten
-    .map((p) => `<div class="detail-rij product-regel"><span><strong>${p.product_naam}</strong>${p.aantal > 1 ? ' × ' + p.aantal : ''}</span><span>${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`)
+    .map((p) => `<div class="detail-rij product-regel"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${p.aantal > 1 ? ' × ' + p.aantal : ''}</span><span>${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`)
     .join('');
 
   // In de Prijstabel zelf staat elk product als aparte, manueel bij te sturen
@@ -698,102 +717,109 @@ async function openDetail(boekingId) {
     </div>
 
     <div class="detail-layout">
-      <div class="detail-kolom detail-kolom-producten paneel">
-        <h4>Producten</h4>
-        <div id="detail-producten-lijst">${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}</div>
-        <div class="product-toevoegen-rij">
-          <select id="dp-categorie">${bouwCategorieOpties(dpEersteCategorie)}</select>
-          <select id="dp-product">${bouwModelOpties(dpEersteCategorie, undefined, dpOnbeschikbaar)}</select>
-          <button type="button" id="btn-product-toevoegen" class="secundair">+ Toevoegen</button>
-        </div>
-        <p id="product-toevoegen-fout" class="foutmelding"></p>
-      </div>
-
-      <div class="detail-kolom detail-kolom-financieel paneel">
-        <h4>Periode</h4>
-        <div id="kalender-dossier-periode" class="kalender-widget kalender-widget-compact"></div>
-        <p id="periode-fout" class="foutmelding"></p>
-
-        <h4>Prijstabel &amp; betaling</h4>
-        <div class="prijstabel">
-          ${prijstabelProductenHtml}
-          <div class="prijstabel-rij prijstabel-sub"><span>Subtotaal producten</span><span>${fmtEuro(p.subtotaal_producten)}</span></div>
-          <div class="prijstabel-rij"><span>Levering / transport</span><span>${fmtEuro(p.transportkost)}</span></div>
-          <div class="prijstabel-rij">
-            <span>Toeslag / korting</span>
-            <span class="toeslag-invoer">
-              <input type="number" id="dd-toeslag-korting" step="0.01" value="${b.toeslag_korting != null ? b.toeslag_korting : ''}" placeholder="0.00" />
-              <select id="dd-toeslag-type" title="Vast bedrag (€) of percentage (%) van het productensubtotaal">
-                <option value="bedrag" ${(b.toeslag_korting_type || 'bedrag') === 'bedrag' ? 'selected' : ''}>€</option>
-                <option value="percentage" ${b.toeslag_korting_type === 'percentage' ? 'selected' : ''}>%</option>
-              </select>
-            </span>
+      <div class="detail-kolom detail-kolom-links">
+        <div class="detail-kolom-klant paneel">
+          <div class="detail-kolom-kop">
+            <h4>Klantgegevens</h4>
+            <button type="button" id="btn-klantgegevens-bewerken" class="linkbtn">✎ Bewerken</button>
           </div>
-          ${b.toeslag_korting_type === 'percentage' && b.toeslag_korting != null
-            ? `<div class="prijstabel-rij prijstabel-sub"><span></span><span>= ${fmtEuro(p.toeslag_korting)}</span></div>`
-            : ''}
-          <button type="button" id="btn-toeslag-opslaan" class="secundair">Toeslag/korting opslaan</button>
-          <div class="prijstabel-rij prijstabel-totaal"><span>Totaal</span><span>${fmtEuro(p.totaal)}</span></div>
-          <div class="prijstabel-rij prijstabel-sub"><span>Incl. BTW (${p.btw_percentage}%)</span><span>${fmtEuro(p.btw_bedrag)}</span></div>
-          <div class="prijstabel-rij"><span>Reeds betaald</span><span>${fmtEuro(p.betaald_bedrag)}</span></div>
-          <div class="prijstabel-rij prijstabel-saldo ${p.saldo_openstaand <= 0 ? 'voldaan' : ''}"><span>Openstaand saldo</span><span>${fmtEuro(p.saldo_openstaand)}</span></div>
+
+          <div id="klantgegevens-weergave">
+            <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
+            <div class="detail-rij"><span>E-mail</span><span>${b.klant_email || '—'}</span></div>
+            <div class="detail-rij"><span>Leveringswijze</span><span>${b.leveringswijze || '—'}</span></div>
+            <div class="detail-rij"><span>Straat + nr</span><span>${adresOntleed.straat || '—'}</span></div>
+            <div class="detail-rij"><span>Postcode</span><span>${adresOntleed.postcode || '—'}</span></div>
+            <div class="detail-rij"><span>Gemeente</span><span>${adresOntleed.gemeente || '—'}</span></div>
+            <div class="detail-rij"><span>Ondergrond</span><span>${b.type_ondergrond || '—'}</span></div>
+            <div class="detail-rij"><span>Toegankelijkheid</span><span>${b.toegankelijkheid || '—'}</span></div>
+            <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
+            <div class="detail-rij"><span>Voorkeur afhaling</span><span>${b.voorkeur_tijdstip_afhaling || '—'}</span></div>
+            <div class="detail-rij"><span>Huurvoorwaarden</span><span>${b.huurvoorwaarden_geaccepteerd ? 'Geaccepteerd' : 'Niet geaccepteerd'}</span></div>
+            <div class="detail-rij"><span>Speciaal verzoek</span><span>${b.speciaal_verzoek ? (b.speciaal_verzoek_notitie || 'Ja') : '—'}</span></div>
+          </div>
+
+          <form id="form-klantgegevens-bewerken" hidden>
+            <label>Naam<input type="text" id="kg-naam" value="${b.klant_naam || ''}" /></label>
+            <label>Telefoon<input type="text" id="kg-telefoon" value="${b.klant_telefoon || ''}" /></label>
+            <label>E-mail<input type="email" id="kg-email" value="${b.klant_email || ''}" /></label>
+            <label>Leveringswijze
+              <select id="kg-leveringswijze">
+                <option value="levering" ${b.leveringswijze === 'levering' ? 'selected' : ''}>Levering door ons team</option>
+                <option value="afhaling" ${b.leveringswijze === 'afhaling' ? 'selected' : ''}>Afhaling door klant</option>
+              </select>
+            </label>
+            <label>Straat + nr<input type="text" id="kg-straat" value="${kgAdresOntleed.straat}" placeholder="leeg = adres van de klant" /></label>
+            <label>Postcode<input type="text" id="kg-postcode" value="${kgAdresOntleed.postcode}" /></label>
+            <label>Gemeente<input type="text" id="kg-gemeente" value="${kgAdresOntleed.gemeente}" /></label>
+            <label>Type ondergrond<select id="kg-ondergrond">${bouwKeuzeOpties(ONDERGROND_OPTIES, b.type_ondergrond)}</select></label>
+            <label>Toegankelijkheid<select id="kg-toegankelijkheid">${bouwKeuzeOpties(TOEGANKELIJKHEID_OPTIES, b.toegankelijkheid)}</select></label>
+            <label>Tijdstip levering<select id="kg-tijdstip-levering"></select></label>
+            <label>Tijdstip afhaling<select id="kg-tijdstip-afhaling"></select></label>
+            <label class="checkbox">
+              <input type="checkbox" id="kg-speciaal-verzoek" ${b.speciaal_verzoek ? 'checked' : ''} /> Speciaal verzoek voor deze boeking (paars sterretje in de overzichten)
+            </label>
+            <label>Toelichting speciaal verzoek<input type="text" id="kg-speciaal-verzoek-notitie" value="${b.speciaal_verzoek_notitie || ''}" placeholder="bv. allergie, extra toegangscode, moeilijke locatie, ..." /></label>
+            <div class="form-acties">
+              <button type="submit">Opslaan</button>
+              <button type="button" id="btn-klantgegevens-annuleren" class="linkbtn">Annuleren</button>
+            </div>
+            <p id="klantgegevens-fout" class="foutmelding"></p>
+          </form>
         </div>
-        <form id="form-nieuwe-betaling" class="grid-2">
-          <label>Bedrag (€)<input type="number" id="np-betaling-bedrag" step="0.01" min="0.01" placeholder="bedrag, Enter om op te slaan" /></label>
-          <label>Opmerking<input type="text" id="np-betaling-opmerking" placeholder="optioneel, bv. 'overschrijving'" /></label>
-        </form>
-        <div class="betaling-log">${betalingLogHtml}</div>
-      </div>
-    </div>
 
-    <div class="detail-kolom detail-kolom-klant paneel">
-      <div class="detail-kolom-kop">
-        <h4>Klantgegevens</h4>
-        <button type="button" id="btn-klantgegevens-bewerken" class="linkbtn">✎ Bewerken</button>
-      </div>
-
-      <div id="klantgegevens-weergave" class="grid-2">
-        <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
-        <div class="detail-rij"><span>E-mail</span><span>${b.klant_email || '—'}</span></div>
-        <div class="detail-rij"><span>Leveringswijze</span><span>${b.leveringswijze || '—'}</span></div>
-        <div class="detail-rij"><span>Straat + nr</span><span>${adresOntleed.straat || '—'}</span></div>
-        <div class="detail-rij"><span>Postcode</span><span>${adresOntleed.postcode || '—'}</span></div>
-        <div class="detail-rij"><span>Gemeente</span><span>${adresOntleed.gemeente || '—'}</span></div>
-        <div class="detail-rij"><span>Ondergrond</span><span>${b.type_ondergrond || '—'}</span></div>
-        <div class="detail-rij"><span>Toegankelijkheid</span><span>${b.toegankelijkheid || '—'}</span></div>
-        <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
-        <div class="detail-rij"><span>Voorkeur afhaling</span><span>${b.voorkeur_tijdstip_afhaling || '—'}</span></div>
-        <div class="detail-rij"><span>Huurvoorwaarden</span><span>${b.huurvoorwaarden_geaccepteerd ? 'Geaccepteerd' : 'Niet geaccepteerd'}</span></div>
-        <div class="detail-rij"><span>Speciaal verzoek</span><span>${b.speciaal_verzoek ? (b.speciaal_verzoek_notitie || 'Ja') : '—'}</span></div>
-      </div>
-
-      <form id="form-klantgegevens-bewerken" class="grid-2" hidden>
-        <label>Naam<input type="text" id="kg-naam" value="${b.klant_naam || ''}" /></label>
-        <label>Telefoon<input type="text" id="kg-telefoon" value="${b.klant_telefoon || ''}" /></label>
-        <label>E-mail<input type="email" id="kg-email" value="${b.klant_email || ''}" /></label>
-        <label>Leveringswijze
-          <select id="kg-leveringswijze">
-            <option value="levering" ${b.leveringswijze === 'levering' ? 'selected' : ''}>Levering door ons team</option>
-            <option value="afhaling" ${b.leveringswijze === 'afhaling' ? 'selected' : ''}>Afhaling door klant</option>
-          </select>
-        </label>
-        <label>Straat + nr<input type="text" id="kg-straat" value="${kgAdresOntleed.straat}" placeholder="leeg = adres van de klant" /></label>
-        <label>Postcode<input type="text" id="kg-postcode" value="${kgAdresOntleed.postcode}" /></label>
-        <label>Gemeente<input type="text" id="kg-gemeente" value="${kgAdresOntleed.gemeente}" /></label>
-        <label>Type ondergrond<select id="kg-ondergrond">${bouwKeuzeOpties(ONDERGROND_OPTIES, b.type_ondergrond)}</select></label>
-        <label>Toegankelijkheid<select id="kg-toegankelijkheid">${bouwKeuzeOpties(TOEGANKELIJKHEID_OPTIES, b.toegankelijkheid)}</select></label>
-        <label>Tijdstip levering<select id="kg-tijdstip-levering"></select></label>
-        <label>Tijdstip afhaling<select id="kg-tijdstip-afhaling"></select></label>
-        <label class="checkbox" style="grid-column: 1 / -1;">
-          <input type="checkbox" id="kg-speciaal-verzoek" ${b.speciaal_verzoek ? 'checked' : ''} /> Speciaal verzoek voor deze boeking (paars sterretje in de overzichten)
-        </label>
-        <label style="grid-column: 1 / -1;">Toelichting speciaal verzoek<input type="text" id="kg-speciaal-verzoek-notitie" value="${b.speciaal_verzoek_notitie || ''}" placeholder="bv. allergie, extra toegangscode, moeilijke locatie, ..." /></label>
-        <div class="form-acties">
-          <button type="submit">Opslaan</button>
-          <button type="button" id="btn-klantgegevens-annuleren" class="linkbtn">Annuleren</button>
+        <div class="detail-kolom-producten paneel">
+          <h4>Producten</h4>
+          <div id="detail-producten-lijst">${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}</div>
+          <div class="product-toevoegen-rij">
+            <select id="dp-categorie">${bouwCategorieOpties(dpEersteCategorie)}</select>
+            <select id="dp-product">${bouwModelOpties(dpEersteCategorie, undefined, dpOnbeschikbaar)}</select>
+            <input type="number" id="dp-aantal" value="1" min="1" title="Aantal" ${AANTAL_CATEGORIEEN.includes(dpEersteCategorie) ? '' : 'hidden'} />
+            <button type="button" id="btn-product-toevoegen" class="secundair">+ Toevoegen</button>
+          </div>
+          <p id="product-toevoegen-fout" class="foutmelding"></p>
         </div>
-        <p id="klantgegevens-fout" class="foutmelding"></p>
-      </form>
+      </div>
+
+      <div class="detail-kolom detail-kolom-financieel">
+        <div class="detail-kolom-periode paneel">
+          <h4>Periode</h4>
+          <div id="kalender-dossier-periode" class="kalender-widget kalender-widget-compact"></div>
+          <p id="periode-fout" class="foutmelding"></p>
+        </div>
+
+        <div class="detail-kolom-prijstabel paneel">
+          <h4>Prijstabel &amp; betaling</h4>
+          <div class="prijstabel">
+            ${prijstabelProductenHtml}
+            <div class="prijstabel-rij prijstabel-sub"><span>Subtotaal producten</span><span>${fmtEuro(p.subtotaal_producten)}</span></div>
+            <div class="prijstabel-rij"><span>Levering / transport</span><span>${fmtEuro(p.transportkost)}</span></div>
+            <div class="prijstabel-rij">
+              <span>Toeslag / korting</span>
+              <span class="toeslag-invoer">
+                <input type="number" id="dd-toeslag-korting" step="0.01" value="${b.toeslag_korting != null ? b.toeslag_korting : ''}" placeholder="0.00" />
+                <select id="dd-toeslag-type" title="Vast bedrag (€) of percentage (%) van het productensubtotaal">
+                  <option value="bedrag" ${(b.toeslag_korting_type || 'bedrag') === 'bedrag' ? 'selected' : ''}>€</option>
+                  <option value="percentage" ${b.toeslag_korting_type === 'percentage' ? 'selected' : ''}>%</option>
+                </select>
+              </span>
+            </div>
+            ${b.toeslag_korting_type === 'percentage' && b.toeslag_korting != null
+              ? `<div class="prijstabel-rij prijstabel-sub"><span></span><span>= ${fmtEuro(p.toeslag_korting)}</span></div>`
+              : ''}
+            <button type="button" id="btn-toeslag-opslaan" class="secundair">Toeslag/korting opslaan</button>
+            <div class="prijstabel-rij prijstabel-totaal"><span>Totaal</span><span>${fmtEuro(p.totaal)}</span></div>
+            <div class="prijstabel-rij prijstabel-sub"><span>Incl. BTW (${p.btw_percentage}%)</span><span>${fmtEuro(p.btw_bedrag)}</span></div>
+            <div class="prijstabel-rij"><span>Reeds betaald</span><span>${fmtEuro(p.betaald_bedrag)}</span></div>
+            <div class="prijstabel-rij prijstabel-saldo ${p.saldo_openstaand <= 0 ? 'voldaan' : ''}"><span>Openstaand saldo</span><span>${fmtEuro(p.saldo_openstaand)}</span></div>
+          </div>
+          <form id="form-nieuwe-betaling" class="grid-2">
+            <label>Bedrag (€)<input type="number" id="np-betaling-bedrag" step="0.01" min="0.01" placeholder="bedrag, Enter om op te slaan" /></label>
+            <label>Opmerking<input type="text" id="np-betaling-opmerking" placeholder="optioneel, bv. 'overschrijving'" /></label>
+          </form>
+          <div class="betaling-log">${betalingLogHtml}</div>
+        </div>
+      </div>
     </div>
 
     <details class="paneel" id="details-locatie-transport" ${(toonBevestigBalk || geopendeSecties.includes('details-locatie-transport')) ? 'open' : ''}>
@@ -1074,22 +1100,28 @@ async function openDetail(boekingId) {
   });
 
   // Product toevoegen aan deze bestaande boeking (bv. telefonisch bijbesteld).
+  // Het aantal-veld is enkel zichtbaar/bruikbaar bij categorieën waar een
+  // aantal > 1 effectief zin heeft (zie AANTAL_CATEGORIEEN hierboven) — bij
+  // Springkastelen/Attracties/Obstakelbanen kan een aanvraag maar 1 exemplaar
+  // van elk model kiezen, ook al staan er meerdere fysieke exemplaren in
+  // voorraad, dus daar blijft het simpelweg verborgen (en dus altijd 1).
   document.getElementById('dp-categorie').addEventListener('change', (e) => {
     document.getElementById('dp-product').innerHTML = bouwModelOpties(e.target.value, undefined, dpOnbeschikbaar);
+    const elAantal = document.getElementById('dp-aantal');
+    elAantal.hidden = !AANTAL_CATEGORIEEN.includes(e.target.value);
+    elAantal.value = '1';
   });
   document.getElementById('btn-product-toevoegen').addEventListener('click', async () => {
     const elFout = document.getElementById('product-toevoegen-fout');
     elFout.textContent = '';
     const productId = document.getElementById('dp-product').value;
     if (!productId) { elFout.textContent = 'Kies eerst een model.'; return; }
+    const elAantal = document.getElementById('dp-aantal');
+    const aantal = elAantal.hidden ? 1 : (parseInt(elAantal.value, 10) || 1);
     try {
-      // Aantal is hier altijd 1: van elk springkasteel-model kan een aanvraag
-      // maar 1 exemplaar kiezen (ook al hebben we van sommige modellen meerdere
-      // fysieke exemplaren in voorraad). Enkel bij later toegevoegd meubilair
-      // (waar een echt aantal zin heeft) komt er hier opnieuw een aantal-veld.
       await api(`/api/boekingen/${boekingId}/producten`, {
         method: 'POST',
-        body: JSON.stringify({ product_id: productId, aantal: 1 }),
+        body: JSON.stringify({ product_id: productId, aantal }),
       });
       openDetail(boekingId);
       laadBoekingenOverzicht();
@@ -1236,6 +1268,10 @@ document.getElementById('adres-idem-klant').addEventListener('change', (e) => {
 
 // Productrijen — ingedeeld in secties (categorieën), en met live beschikbaarheid
 const PRODUCT_CATEGORIE_VOLGORDE = ['Springkastelen', 'Attracties', 'Obstakelbanen', 'Feestmaterialen', 'Servies/Bestek/glazen'];
+// Categorieën waar een aantal > 1 wél zin heeft (tafels, stoelen, glazen, ...) —
+// bij Springkastelen/Attracties/Obstakelbanen kan een aanvraag maar 1 exemplaar
+// van elk model kiezen, ook al staan er meerdere fysieke exemplaren in voorraad.
+const AANTAL_CATEGORIEEN = ['Feestmaterialen', 'Servies/Bestek/glazen'];
 let onbeschikbareProductIds = new Set();
 
 // Producten gegroepeerd per categorie (in de vaste volgorde, rest onder "Overige").

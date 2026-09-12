@@ -269,7 +269,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const boeking = await zorgVoorAutomatischeAfstand(rows[0]);
 
   const { rows: producten } = await db.query(
-    `SELECT bp.*, p.naam AS product_naam FROM boeking_producten bp
+    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen FROM boeking_producten bp
      JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
     [req.params.id]
   );
@@ -447,7 +447,7 @@ router.put('/:id/producten/:regelId', asyncHandler(async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Productregel niet gevonden' });
   const { rows: producten } = await db.query(
-    `SELECT bp.*, p.naam AS product_naam FROM boeking_producten bp
+    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen FROM boeking_producten bp
      JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
     [req.params.id]
   );
@@ -486,7 +486,7 @@ router.post('/:id/producten', asyncHandler(async (req, res) => {
   );
 
   const { rows: producten } = await db.query(
-    `SELECT bp.*, p.naam AS product_naam FROM boeking_producten bp
+    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen FROM boeking_producten bp
      JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
     [req.params.id]
   );
@@ -503,7 +503,7 @@ router.delete('/:id/producten/:regelId', asyncHandler(async (req, res) => {
   if (!rows[0]) return res.status(404).json({ fout: 'Productregel niet gevonden' });
 
   const { rows: producten } = await db.query(
-    `SELECT bp.*, p.naam AS product_naam FROM boeking_producten bp
+    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen FROM boeking_producten bp
      JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
     [req.params.id]
   );
