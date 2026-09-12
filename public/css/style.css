@@ -9,6 +9,7 @@
   --tekst: #1f2933;
   --oranje: #b8590a;
   --paars: #7c3aed;
+  --geel: #d4a013;
 }
 
 * { box-sizing: border-box; }
@@ -40,6 +41,7 @@ h1, h2 { margin-top: 0; }
   width: 320px;
 }
 .login-box h1 { color: var(--blauw-donker); }
+.login-logo { display: block; height: 56px; width: auto; margin-bottom: 0.8rem; }
 .subtitel { color: var(--grijs); margin-top: -0.5rem; margin-bottom: 1.5rem; }
 
 label {
@@ -103,7 +105,7 @@ button[type="submit"]:hover, .login-box button:hover, .primaire-actie:hover { ba
   border-bottom: 1px solid var(--rand);
   padding: 0.8rem 1.5rem;
 }
-.topbar .logo { font-weight: 700; color: var(--blauw-donker); font-size: 1.1rem; }
+.topbar .logo { display: block; height: 34px; width: auto; }
 .topbar nav { display: flex; gap: 0.5rem; flex: 1; }
 .navbtn {
   background: none;
@@ -188,24 +190,52 @@ main { padding: 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
 .tabel tr:hover td { background: #f9fafb; cursor: pointer; }
 .status-pill { display: inline-block; padding: 0.15rem 0.6rem; border-radius: 999px; font-size: 0.78rem; font-weight: 600; background: var(--grijs-licht); color: #374151; }
 .status-pill.status-rood { background: #fdecea; color: var(--rood); }
+.status-pill.status-geel { background: #fef7e0; color: #92700c; }
 .status-pill.status-oranje { background: #fff4e5; color: var(--oranje); }
 .status-pill.status-groen { background: #e6f4ea; color: var(--groen); }
 .status-pill.status-grijs { background: var(--grijs-licht); color: var(--grijs); }
 
-/* Kleuren-legende + paars accent voor "speciaal verzoek" */
-.kleuren-legende { display: flex; gap: 1.2rem; flex-wrap: wrap; font-size: 0.82rem; color: var(--grijs); margin-bottom: 0.8rem; }
+/* Kleuren-legende + sterretje voor "speciaal verzoek" */
+.kleuren-legende { display: flex; gap: 1.2rem; flex-wrap: wrap; align-items: center; font-size: 0.82rem; color: var(--grijs); margin-bottom: 0.8rem; }
 .legende-stip { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 0.35rem; vertical-align: middle; }
 .legende-stip.rood { background: var(--rood); }
+.legende-stip.geel { background: var(--geel); }
 .legende-stip.oranje { background: var(--oranje); }
 .legende-stip.groen { background: var(--groen); }
 .legende-stip.grijs { background: var(--grijs); }
 .legende-stip.paars { background: var(--paars); }
-.tabel tbody tr.speciaal-verzoek td:first-child { box-shadow: inset 4px 0 0 var(--paars); }
-.kaart.speciaal-verzoek { box-shadow: inset 4px 0 0 var(--paars); }
+.ster-speciaal { color: var(--paars); margin-left: 0.3rem; font-size: 0.95em; }
 .speciaal-verzoek-banner {
   background: #f3e8ff; color: var(--paars); border: 1px solid var(--paars);
   border-radius: 6px; padding: 0.5rem 0.8rem; font-weight: 600; font-size: 0.88rem; margin: 0.5rem 0;
 }
+
+/* Lichte kleurtoets per rij in het Boekingenoverzicht — status in één oogopslag,
+   los van het sterretje voor een speciaal verzoek. */
+.tabel tbody tr.rij-kleur-rood { background: #fdf1ef; }
+.tabel tbody tr.rij-kleur-geel { background: #fdf8ea; }
+.tabel tbody tr.rij-kleur-oranje { background: #fff8ef; }
+.tabel tbody tr.rij-kleur-groen { background: #eef8f1; }
+.tabel tbody tr.rij-kleur-grijs { background: var(--grijs-licht); }
+.tabel tbody tr.rij-kleur-rood:hover td { background: #fbe4e0; }
+.tabel tbody tr.rij-kleur-geel:hover td { background: #faedc9; }
+.tabel tbody tr.rij-kleur-oranje:hover td { background: #ffedd6; }
+.tabel tbody tr.rij-kleur-groen:hover td { background: #dcf0e2; }
+.tabel tbody tr.rij-kleur-grijs:hover td { background: #e5e7eb; }
+
+/* Statusbalk (stepper) bovenaan het dossier */
+.status-stepper { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0.6rem 0 1rem; }
+.stepper-stap {
+  display: inline-block; padding: 0.35rem 0.8rem; border-radius: 999px; font-size: 0.85rem; font-weight: 600;
+  background: var(--grijs-licht); color: var(--grijs); border: 1px solid var(--rand);
+}
+.stepper-pijl { color: var(--grijs); font-size: 0.9rem; }
+.stepper-voltooid { background: #e6f4ea; color: var(--groen); border-color: #cdead6; }
+.stepper-actief.stepper-rood { background: var(--rood); color: white; border-color: var(--rood); }
+.stepper-actief.stepper-geel { background: var(--geel); color: white; border-color: var(--geel); }
+.stepper-actief.stepper-oranje { background: var(--oranje); color: white; border-color: var(--oranje); }
+.stepper-actief.stepper-groen { background: var(--groen); color: white; border-color: var(--groen); }
+.stepper-actief.stepper-grijs { background: var(--grijs); color: white; border-color: var(--grijs); }
 
 /* FORMULIER NIEUWE BOEKING */
 fieldset { border: 1px solid var(--rand); border-radius: 8px; margin-bottom: 1.2rem; padding: 1rem 1.2rem; background: white; }
@@ -312,15 +342,22 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .detail-rij { display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid var(--grijs-licht); font-size: 0.9rem; }
 .detail-rij span:first-child { color: var(--grijs); }
 .form-acties { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.8rem; }
-.status-acties { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.3rem 0 1.2rem; }
+.status-acties { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.3rem 0 0; }
 .status-acties button { border: 1px solid var(--blauw); color: var(--blauw); background: white; border-radius: 6px; padding: 0.5rem 0.9rem; font-weight: 600; }
 .historiek-item { font-size: 0.82rem; color: var(--grijs); padding: 0.2rem 0; }
-.gevaar-zone { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--rand); }
+.gevaar-zone { margin-top: 0; }
+
+/* Duidelijk afgebakende "kaart"-blokken op de dossierpagina, zodat de secties
+   niet in elkaar overlopen. */
+.paneel {
+  background: white; border: 1px solid var(--rand); border-radius: 10px;
+  padding: 1.1rem 1.3rem; margin-bottom: 1.2rem;
+}
+.paneel > h4:first-child { margin-top: 0; }
 
 /* Drieledige indeling van het dossier: klantgegevens | periode+producten | financieel */
-.detail-layout { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 0 1.8rem; align-items: start; }
-.detail-kolom { min-width: 0; border-right: 1px solid var(--grijs-licht); padding-right: 1.8rem; }
-.detail-kolom:last-child { border-right: none; padding-right: 0; }
+.detail-layout { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 1.2rem; align-items: start; margin-bottom: 1.2rem; }
+.detail-kolom { min-width: 0; }
 .detail-kolom-kop { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
 .detail-kolom-kop h4 { margin-bottom: 0; }
 .product-regel { align-items: center; }
@@ -329,10 +366,25 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .product-toevoegen-rij select { flex: 1 1 auto; min-width: 0; }
 .product-toevoegen-rij #dp-aantal { width: 4rem; flex: 0 0 auto; }
 
+/* Inklapbare secties (Communicatie, Historiek, Locatie & transportkost) — hoeven
+   niet dagelijks open te staan, maar blijven één klik weg. */
+details.paneel { padding: 0; }
+details.paneel summary {
+  list-style: none; cursor: pointer; padding: 1.1rem 1.3rem; font-weight: 700; color: var(--blauw-donker);
+  display: flex; align-items: center; justify-content: space-between;
+}
+details.paneel summary::-webkit-details-marker { display: none; }
+details.paneel summary::after { content: '▾'; color: var(--grijs); font-weight: 400; margin-left: 0.6rem; }
+details.paneel[open] summary::after { content: '▴'; }
+details.paneel summary .details-badge {
+  background: #fff4e5; color: var(--oranje); font-size: 0.75rem; font-weight: 700;
+  border-radius: 999px; padding: 0.1rem 0.55rem; margin-left: 0.5rem;
+}
+details.paneel .paneel-inhoud { padding: 0 1.3rem 1.1rem; }
+details.paneel .paneel-inhoud > h4:first-child { margin-top: 0; }
+
 @media (max-width: 1100px) {
   .detail-layout { grid-template-columns: 1fr; }
-  .detail-kolom { border-right: none; padding-right: 0; border-bottom: 1px solid var(--grijs-licht); padding-bottom: 1.2rem; margin-bottom: 1.2rem; }
-  .detail-kolom:last-child { border-bottom: none; }
 }
 
 /* PRIJSTABEL (boekingsdossier) */

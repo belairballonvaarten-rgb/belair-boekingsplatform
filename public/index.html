@@ -11,7 +11,7 @@
 <!-- LOGIN -->
 <section id="view-login" class="view">
   <div class="login-box">
-    <h1>Belair-Fun</h1>
+    <img src="/img/logo-belair-fun.svg" alt="Belair-Fun" class="login-logo" />
     <p class="subtitel">Boekingsplatform — beheerscherm</p>
     <form id="form-login">
       <label>E-mail<input type="email" id="login-email" required autocomplete="username" /></label>
@@ -25,7 +25,7 @@
 <!-- APP SHELL -->
 <div id="app-shell" class="view" hidden>
   <header class="topbar">
-    <div class="logo">Belair-Fun</div>
+    <img src="/img/logo-belair-fun.svg" alt="Belair-Fun" class="logo" />
     <nav>
       <button class="navbtn" data-view="aanvragen">Aanvragen-inbox <span id="badge-aanvragen" class="badge" hidden>0</span></button>
       <button class="navbtn" data-view="boekingen">Boekingenoverzicht</button>
@@ -48,11 +48,12 @@
     <section id="view-boekingen" class="pagina" hidden>
       <h2>Boekingenoverzicht</h2>
       <div class="kleuren-legende">
-        <span><span class="legende-stip rood"></span>Wacht op bevestiging klant</span>
-        <span><span class="legende-stip oranje"></span>Bevestigd, betaling loopt</span>
-        <span><span class="legende-stip groen"></span>Betaald, klaar voor planning</span>
+        <span><span class="legende-stip rood"></span>In verwerking</span>
+        <span><span class="legende-stip geel"></span>Bevestigd</span>
+        <span><span class="legende-stip oranje"></span>Betaalverzoek / deels betaald</span>
+        <span><span class="legende-stip groen"></span>Betaald, klaar voor levering</span>
         <span><span class="legende-stip grijs"></span>Geweigerd</span>
-        <span><span class="legende-stip paars"></span>Speciaal verzoek</span>
+        <span><span class="ster-speciaal">⭑</span>Speciaal verzoek</span>
       </div>
       <div class="snelfilters" id="snelfilters">
         <button type="button" data-range="vandaag">Vandaag</button>

@@ -14,14 +14,15 @@ const STATUS_LABELS = {
 };
 
 // Kleurcode per status, voor snel visueel overzicht: rood = nog niet bevestigd
-// door de klant, oranje = bevestigd maar betaling nog niet volledig binnen,
-// groen = volledig betaald en klaar voor transportplanning, grijs = geweigerd.
+// door de klant, geel = bevestigd maar betaalverzoek nog niet verstuurd, oranje =
+// betaalverzoek onderweg of gedeeltelijk betaald, groen = volledig betaald/
+// gefactureerd en klaar voor transportplanning, grijs = geweigerd.
 const STATUS_KLEUR = {
   nieuw: 'rood',
   in_behandeling: 'rood',
   geaccepteerd: 'rood',
   ingepland: 'rood',
-  bevestigd: 'oranje',
+  bevestigd: 'geel',
   betaalverzoek_verstuurd: 'oranje',
   betaald_deels: 'oranje',
   betaald_volledig: 'groen',
@@ -31,6 +32,38 @@ const STATUS_KLEUR = {
 
 function statusPillHtml(status) {
   return `<span class="status-pill status-${STATUS_KLEUR[status] || 'grijs'}">${STATUS_LABELS[status]}</span>`;
+}
+
+// Sterretje bij een speciaal verzoek — bedoeld om achteraan de reservatiebalk
+// (kaart/rij) te staan, los van de statuskleur die de rand/achtergrond gebruikt.
+function speciaalSterHtml(b) {
+  if (!b.speciaal_verzoek) return '';
+  const titel = b.speciaal_verzoek_notitie ? `Speciaal verzoek: ${b.speciaal_verzoek_notitie}` : 'Speciaal verzoek';
+  return `<span class="ster-speciaal" title="${titel.replace(/"/g, '&quot;')}">⭑</span>`;
+}
+
+// Vier grote fases voor de statusbalk bovenaan het dossier — een vereenvoudigde,
+// visuele samenvatting van de fijnmazigere TOEGELATEN_OVERGANGEN-statemachine
+// hieronder. "Geweigerd" valt hier los van buiten.
+const STATUS_FASEN = [
+  { label: 'In verwerking', kleur: 'rood', statussen: ['nieuw', 'in_behandeling', 'geaccepteerd', 'ingepland'] },
+  { label: 'Bevestigd', kleur: 'geel', statussen: ['bevestigd'] },
+  { label: 'Betaalverzoek', kleur: 'oranje', statussen: ['betaalverzoek_verstuurd', 'betaald_deels'] },
+  { label: 'Klaar voor levering', kleur: 'groen', statussen: ['betaald_volledig', 'gefactureerd'] },
+];
+
+function statusStepperHtml(status) {
+  if (status === 'geweigerd') {
+    return '<div class="status-stepper"><span class="stepper-stap stepper-actief stepper-grijs">✕ Geweigerd</span></div>';
+  }
+  const huidigeIndex = STATUS_FASEN.findIndex((f) => f.statussen.includes(status));
+  const stappenHtml = STATUS_FASEN.map((f, i) => {
+    let klasse = 'stepper-stap';
+    if (huidigeIndex >= 0 && i < huidigeIndex) klasse += ' stepper-voltooid';
+    else if (i === huidigeIndex) klasse += ` stepper-actief stepper-${f.kleur}`;
+    return `<span class="${klasse}">${f.label}</span>`;
+  }).join('<span class="stepper-pijl">›</span>');
+  return `<div class="status-stepper">${stappenHtml}</div>`;
 }
 
 // Zelfde toegelaten overgangen als in src/routes/boekingen.js — enkel voor de UI,
@@ -221,10 +254,10 @@ async function laadAanvragen() {
   container.innerHTML = '';
   for (const b of aanvragen) {
     const kaart = document.createElement('div');
-    kaart.className = 'kaart' + (b.speciaal_verzoek ? ' speciaal-verzoek' : '');
+    kaart.className = 'kaart';
     kaart.innerHTML = `
       <div class="kaart-info">
-        <h3>${b.klant_naam} ${statusPillHtml(b.status)}</h3>
+        <h3>${b.klant_naam} ${statusPillHtml(b.status)}${speciaalSterHtml(b)}</h3>
         <p>📅 ${fmtDatum(b.gewenste_datum_start)}${b.gewenste_datum_start !== b.gewenste_datum_einde ? ' – ' + fmtDatum(b.gewenste_datum_einde) : ''}</p>
         <p>📍 ${b.leveringsadres || '—'}</p>
         <p>📞 ${b.klant_telefoon || '—'}</p>
@@ -308,6 +341,16 @@ function ontleedAdres(b) {
   };
 }
 
+// Zelfde opsplitsing, maar rechtstreeks op een kant-en-klare adrestekst (bv. voor
+// de klantgegevens in het dossier, waar "Afhaling" geen rol speelt — daar toont
+// de "Leveringswijze"-rij dat al apart).
+function ontleedAdresVrijeTekst(adres) {
+  if (!adres) return { straat: '—', postcode: '', gemeente: '' };
+  const match = adres.match(/^(.*?),?\s*(\d{4})\s+(.+)$/);
+  if (match) return { straat: match[1].trim(), postcode: match[2], gemeente: match[3].trim() };
+  return { straat: adres, postcode: '', gemeente: '' };
+}
+
 async function laadBoekingenOverzicht() {
   const params = huidigeBoekingenFilterParams();
   const boekingen = await api(`/api/boekingen?${params.toString()}`);
@@ -331,7 +374,7 @@ async function laadBoekingenOverzicht() {
   for (const b of boekingen) {
     const adres = ontleedAdres(b);
     const tr = document.createElement('tr');
-    if (b.speciaal_verzoek) tr.classList.add('speciaal-verzoek');
+    tr.className = `rij-kleur-${STATUS_KLEUR[b.status] || 'grijs'}`;
     tr.innerHTML = `
       <td>${fmtDatum(b.gewenste_datum_start)}</td>
       <td>${b.producten_namen || '—'}</td>
@@ -340,7 +383,7 @@ async function laadBoekingenOverzicht() {
       <td>${adres.gemeente}</td>
       <td>${b.klant_naam}</td>
       <td>${fmtEuro(b.waarde)}</td>
-      <td>${statusPillHtml(b.status)}</td>
+      <td>${statusPillHtml(b.status)}${speciaalSterHtml(b)}</td>
       <td>Bekijk →</td>
     `;
     tr.addEventListener('click', () => openDetail(b.id));
@@ -435,6 +478,14 @@ async function openDetail(boekingId) {
   const b = await api(`/api/boekingen/${boekingId}`);
   const inhoud = document.getElementById('boeking-detail-inhoud');
 
+  // Deze pagina wordt na elke opslag-actie (product toevoegen, betaling, communicatie
+  // loggen, ...) volledig herrenderd. Zonder dit zou een ingeklapt paneel dat de
+  // gebruiker net had opengeklapt (bv. om een communicatie-item te loggen) meteen
+  // weer dichtklappen na het opslaan — net wanneer je het resultaat wil zien. Onthoud
+  // daarom welke secties open stonden vóór de herrender, en herstel dat nadien.
+  const geopendeSecties = ['details-locatie-transport', 'details-communicatie', 'details-historiek']
+    .filter((id) => document.getElementById(id)?.open);
+
   // Welke producten zijn nog vrij op de (huidige) periode van deze boeking, voor de
   // "product toevoegen"-select — de boeking zelf mag niet meetellen als bezetting.
   const dpOnbeschikbaar = await bepaalOnbeschikbareProductIds(b.gewenste_datum_start, b.gewenste_datum_einde, boekingId);
@@ -457,6 +508,7 @@ async function openDetail(boekingId) {
   // een eenvoudige "bekijk op kaart"-link — enkel een echte afstandsberekening vergt er een).
   const adresVolledig = b.leveringsadres || [b.klant_adres, [b.klant_postcode, b.klant_gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   const mapsUrl = adresVolledig ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(adresVolledig)}` : null;
+  const adresOntleed = ontleedAdresVrijeTekst(adresVolledig);
 
   const p = b.prijstabel;
   const betalingLogHtml = (b.betaling_transacties || [])
@@ -484,14 +536,15 @@ async function openDetail(boekingId) {
     .join('') || '<p class="leeg-bericht">Nog geen communicatie gelogd.</p>';
 
   inhoud.innerHTML = `
-    <h3>${b.klant_naam} ${statusPillHtml(b.status)}</h3>
-    ${b.speciaal_verzoek ? `<div class="speciaal-verzoek-banner">⭑ Speciaal verzoek${b.speciaal_verzoek_notitie ? ': ' + b.speciaal_verzoek_notitie : ''}</div>` : ''}
-
-    <h4>Statusovergangen</h4>
-    <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen overgangen meer mogelijk</p>'}</div>
+    <div class="paneel">
+      <h3>${b.klant_naam} ${statusPillHtml(b.status)}${speciaalSterHtml(b)}</h3>
+      ${b.speciaal_verzoek ? `<div class="speciaal-verzoek-banner">⭑ Speciaal verzoek${b.speciaal_verzoek_notitie ? ': ' + b.speciaal_verzoek_notitie : ''}</div>` : ''}
+      ${statusStepperHtml(b.status)}
+      <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen overgangen meer mogelijk</p>'}</div>
+    </div>
 
     <div class="detail-layout">
-      <div class="detail-kolom detail-kolom-klant">
+      <div class="detail-kolom detail-kolom-klant paneel">
         <div class="detail-kolom-kop">
           <h4>Klantgegevens</h4>
           <button type="button" id="btn-klantgegevens-bewerken" class="linkbtn">✎ Bewerken</button>
@@ -501,7 +554,9 @@ async function openDetail(boekingId) {
           <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
           <div class="detail-rij"><span>E-mail</span><span>${b.klant_email || '—'}</span></div>
           <div class="detail-rij"><span>Leveringswijze</span><span>${b.leveringswijze || '—'}</span></div>
-          <div class="detail-rij"><span>Adres</span><span>${adresVolledig || '—'}</span></div>
+          <div class="detail-rij"><span>Straat + nr</span><span>${adresOntleed.straat || '—'}</span></div>
+          <div class="detail-rij"><span>Postcode</span><span>${adresOntleed.postcode || '—'}</span></div>
+          <div class="detail-rij"><span>Gemeente</span><span>${adresOntleed.gemeente || '—'}</span></div>
           <div class="detail-rij"><span>Ondergrond</span><span>${b.type_ondergrond || '—'}</span></div>
           <div class="detail-rij"><span>Toegankelijkheid</span><span>${b.toegankelijkheid || '—'}</span></div>
           <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
@@ -526,7 +581,7 @@ async function openDetail(boekingId) {
           <label>Tijdstip levering<select id="kg-tijdstip-levering"></select></label>
           <label>Tijdstip afhaling<select id="kg-tijdstip-afhaling"></select></label>
           <label class="checkbox" style="grid-column: 1 / -1;">
-            <input type="checkbox" id="kg-speciaal-verzoek" ${b.speciaal_verzoek ? 'checked' : ''} /> Speciaal verzoek voor deze boeking (paars accent in de overzichten)
+            <input type="checkbox" id="kg-speciaal-verzoek" ${b.speciaal_verzoek ? 'checked' : ''} /> Speciaal verzoek voor deze boeking (paars sterretje in de overzichten)
           </label>
           <label style="grid-column: 1 / -1;">Toelichting speciaal verzoek<input type="text" id="kg-speciaal-verzoek-notitie" value="${b.speciaal_verzoek_notitie || ''}" placeholder="bv. allergie, extra toegangscode, moeilijke locatie, ..." /></label>
           <div class="form-acties">
@@ -535,18 +590,9 @@ async function openDetail(boekingId) {
           </div>
           <p id="klantgegevens-fout" class="foutmelding"></p>
         </form>
-
-        <h4>Locatie</h4>
-        ${mapsUrl ? `<div class="detail-rij"><span></span><span><a href="${mapsUrl}" target="_blank" rel="noopener">Bekijk op Google Maps ↗</a></span></div>` : ''}
-        <form id="form-locatie" class="grid-2">
-          <label>Afstand tot Overmere (km)<input type="number" id="dd-afstand-km" step="0.1" min="0" value="${b.afstand_km != null ? b.afstand_km : ''}" placeholder="automatisch of manueel" /></label>
-        </form>
-        <button type="button" id="btn-herbereken-afstand" class="secundair">↻ Afstand herberekenen via Google Maps</button>
-        <p id="herbereken-afstand-status" class="uitleg" style="margin-top:0.3rem"></p>
-        <p class="uitleg">De afstand wordt automatisch berekend (eerste 10km gratis, dan € 0,50/km x4 voor levering + ophaling).</p>
       </div>
 
-      <div class="detail-kolom detail-kolom-producten">
+      <div class="detail-kolom detail-kolom-producten paneel">
         <h4>Periode</h4>
         <form id="form-periode" class="grid-2">
           <label>Vanaf<input type="date" id="dd-datum-start" value="${b.gewenste_datum_start ? String(b.gewenste_datum_start).slice(0, 10) : ''}" /></label>
@@ -565,28 +611,16 @@ async function openDetail(boekingId) {
         <p id="product-toevoegen-fout" class="foutmelding"></p>
       </div>
 
-      <div class="detail-kolom detail-kolom-financieel">
+      <div class="detail-kolom detail-kolom-financieel paneel">
         <h4>Prijstabel &amp; betaling</h4>
-        ${toonBevestigBalk ? `
-          <div class="bevestig-balk">
-            <span>Voorgestelde transportkost o.b.v. ${b.afstand_km} km: <strong>${fmtEuro(voorgesteldeTransportkost)}</strong></span>
-            <button type="button" id="btn-bevestig-transportkost" class="secundair">✓ Bevestig transportkost</button>
-          </div>
-        ` : ''}
         <div class="prijstabel">
           <div class="prijstabel-rij"><span>Producten</span><span>${fmtEuro(p.subtotaal_producten)}</span></div>
-          <div class="prijstabel-rij">
-            <span>Levering / transport</span>
-            <span class="veld-met-wissen">
-              <input type="number" id="dd-transportkost" step="0.01" min="0" value="${b.transportkost != null ? b.transportkost : ''}" placeholder="0.00" />
-              <button type="button" id="btn-transportkost-wissen" class="linkbtn gevaar" title="Transportkost wissen">✕</button>
-            </span>
-          </div>
+          <div class="prijstabel-rij"><span>Levering / transport</span><span>${fmtEuro(p.transportkost)}</span></div>
           <div class="prijstabel-rij">
             <span>Toeslag / korting</span>
             <span><input type="number" id="dd-toeslag-korting" step="0.01" value="${b.toeslag_korting != null ? b.toeslag_korting : ''}" placeholder="0.00" /></span>
           </div>
-          <button type="button" id="btn-prijstabel-opslaan" class="secundair">Levering/toeslag opslaan</button>
+          <button type="button" id="btn-toeslag-opslaan" class="secundair">Toeslag/korting opslaan</button>
           <div class="prijstabel-rij prijstabel-totaal"><span>Totaal</span><span>${fmtEuro(p.totaal)}</span></div>
           <div class="prijstabel-rij prijstabel-sub"><span>Incl. BTW (${p.btw_percentage}%)</span><span>${fmtEuro(p.btw_bedrag)}</span></div>
           <div class="prijstabel-rij"><span>Reeds betaald</span><span>${fmtEuro(p.betaald_bedrag)}</span></div>
@@ -600,40 +634,76 @@ async function openDetail(boekingId) {
       </div>
     </div>
 
-    <h4>Opmerkingen</h4>
-    <form id="form-notities">
-      <textarea id="dd-notities" rows="3" placeholder="Interne opmerkingen over deze boeking...">${b.notities || ''}</textarea>
-      <button type="submit">Opmerkingen opslaan</button>
-    </form>
+    <details class="paneel" id="details-locatie-transport" ${(toonBevestigBalk || geopendeSecties.includes('details-locatie-transport')) ? 'open' : ''}>
+      <summary>Locatie &amp; transportkost${toonBevestigBalk ? '<span class="details-badge">bevestiging nodig</span>' : ''}</summary>
+      <div class="paneel-inhoud">
+        ${mapsUrl ? `<div class="detail-rij"><span></span><span><a href="${mapsUrl}" target="_blank" rel="noopener">Bekijk op Google Maps ↗</a></span></div>` : ''}
+        <form id="form-locatie" class="grid-2">
+          <label>Afstand tot Overmere (km)<input type="number" id="dd-afstand-km" step="0.1" min="0" value="${b.afstand_km != null ? b.afstand_km : ''}" placeholder="automatisch of manueel" /></label>
+        </form>
+        <button type="button" id="btn-herbereken-afstand" class="secundair">↻ Afstand herberekenen via Google Maps</button>
+        <p id="herbereken-afstand-status" class="uitleg" style="margin-top:0.3rem"></p>
+        <p class="uitleg">De afstand wordt automatisch berekend (eerste 10km gratis, dan € 0,50/km x4 voor levering + ophaling). Dit gebeurt automatisch; hieronder enkel bevestigen of manueel bijsturen indien nodig.</p>
+        ${toonBevestigBalk ? `
+          <div class="bevestig-balk">
+            <span>Voorgestelde transportkost o.b.v. ${b.afstand_km} km: <strong>${fmtEuro(voorgesteldeTransportkost)}</strong></span>
+            <button type="button" id="btn-bevestig-transportkost" class="secundair">✓ Bevestig transportkost</button>
+          </div>
+        ` : ''}
+        <div class="prijstabel-rij" style="max-width:320px">
+          <span>Transportkost</span>
+          <span class="veld-met-wissen">
+            <input type="number" id="dd-transportkost" step="0.01" min="0" value="${b.transportkost != null ? b.transportkost : ''}" placeholder="0.00" />
+            <button type="button" id="btn-transportkost-wissen" class="linkbtn gevaar" title="Transportkost wissen">✕</button>
+          </span>
+        </div>
+      </div>
+    </details>
 
-    <h4>Communicatie</h4>
-    <form id="form-communicatie" class="grid-2">
-      <label>Type
-        <select id="cm-type">
-          <option value="email">E-mail</option>
-          <option value="telefoon">Telefoon</option>
-          <option value="sms">SMS</option>
-          <option value="notitie">Notitie</option>
-        </select>
-      </label>
-      <label>Richting
-        <select id="cm-richting">
-          <option value="uitgaand">Uitgaand</option>
-          <option value="inkomend">Inkomend</option>
-          <option value="intern">Intern</option>
-        </select>
-      </label>
-      <label>Onderwerp<input type="text" id="cm-onderwerp" placeholder="bv. Bevestigingsmail" /></label>
-      <label>Inhoud/notitie<input type="text" id="cm-inhoud" placeholder="korte samenvatting" /></label>
-      <button type="submit">+ Toevoegen aan log</button>
-    </form>
-    <p class="uitleg" style="margin-top:0.3rem">Mails automatisch versturen vanuit dit dossier komt in een latere fase — voorlopig log je hier manueel wat je verstuurd/besproken hebt.</p>
-    <div class="communicatie-lijst">${communicatieHtml}</div>
+    <div class="paneel">
+      <h4>Opmerkingen</h4>
+      <form id="form-notities">
+        <textarea id="dd-notities" rows="3" placeholder="Interne opmerkingen over deze boeking...">${b.notities || ''}</textarea>
+        <button type="submit">Opmerkingen opslaan</button>
+      </form>
+    </div>
 
-    <h4>Historiek</h4>
-    ${historiekHtml || '<p class="leeg-bericht">Geen historiek</p>'}
+    <details class="paneel" id="details-communicatie" ${geopendeSecties.includes('details-communicatie') ? 'open' : ''}>
+      <summary>Communicatie</summary>
+      <div class="paneel-inhoud">
+        <form id="form-communicatie" class="grid-2">
+          <label>Type
+            <select id="cm-type">
+              <option value="email">E-mail</option>
+              <option value="telefoon">Telefoon</option>
+              <option value="sms">SMS</option>
+              <option value="notitie">Notitie</option>
+            </select>
+          </label>
+          <label>Richting
+            <select id="cm-richting">
+              <option value="uitgaand">Uitgaand</option>
+              <option value="inkomend">Inkomend</option>
+              <option value="intern">Intern</option>
+            </select>
+          </label>
+          <label>Onderwerp<input type="text" id="cm-onderwerp" placeholder="bv. Bevestigingsmail" /></label>
+          <label>Inhoud/notitie<input type="text" id="cm-inhoud" placeholder="korte samenvatting" /></label>
+          <button type="submit">+ Toevoegen aan log</button>
+        </form>
+        <p class="uitleg" style="margin-top:0.3rem">Mails automatisch versturen vanuit dit dossier komt in een latere fase — voorlopig log je hier manueel wat je verstuurd/besproken hebt.</p>
+        <div class="communicatie-lijst">${communicatieHtml}</div>
+      </div>
+    </details>
 
-    <div class="gevaar-zone">
+    <details class="paneel" id="details-historiek" ${geopendeSecties.includes('details-historiek') ? 'open' : ''}>
+      <summary>Historiek</summary>
+      <div class="paneel-inhoud">
+        ${historiekHtml || '<p class="leeg-bericht">Geen historiek</p>'}
+      </div>
+    </details>
+
+    <div class="paneel gevaar-zone">
       <button type="button" id="btn-boeking-verwijderen" class="linkbtn gevaar">🗑 Boeking volledig verwijderen</button>
     </div>
   `;
@@ -709,15 +779,25 @@ async function openDetail(boekingId) {
     });
   });
 
-  document.getElementById('btn-prijstabel-opslaan').addEventListener('click', async () => {
-    const transportkost = document.getElementById('dd-transportkost').value;
+  document.getElementById('btn-toeslag-opslaan').addEventListener('click', async () => {
     const toeslagKorting = document.getElementById('dd-toeslag-korting').value;
     await api(`/api/boekingen/${boekingId}`, {
       method: 'PUT',
       body: JSON.stringify({
-        transportkost: transportkost !== '' ? parseFloat(transportkost) : null,
         toeslag_korting: toeslagKorting !== '' ? parseFloat(toeslagKorting) : null,
       }),
+    });
+    openDetail(boekingId);
+    laadBoekingenOverzicht();
+  });
+
+  // Transportkost zit in het inklapbare "Locatie & transportkost"-blok — dit
+  // gebeurt normaal automatisch, dus sla meteen op bij wijziging (net als afstand).
+  document.getElementById('dd-transportkost').addEventListener('change', async (e) => {
+    const transportkost = e.target.value;
+    await api(`/api/boekingen/${boekingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ transportkost: transportkost !== '' ? parseFloat(transportkost) : null }),
     });
     openDetail(boekingId);
     laadBoekingenOverzicht();
