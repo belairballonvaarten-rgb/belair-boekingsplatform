@@ -2282,6 +2282,18 @@ function riParseTijd(ruw) {
   return t;
 }
 
+// In het echte exportbestand staat een deel van de GSM-nummers als een puur
+// getal i.p.v. tekst (bv. 487018363 i.p.v. "0487/01 83 63") — Excel laat de
+// voorloop-nul dan vallen. Belgische mobiele nummers hebben 9 cijfers ná de
+// voorloop-nul, dus die zetten we er terug voor als het patroon klopt.
+function riNormaliseerTelefoon(ruw) {
+  const t = (ruw || '').toString().trim();
+  if (!t) return null;
+  if (/^\d{9}$/.test(t)) return `0${t}`; // bv. 487018363 -> 0487018363
+  if (/^32\d{9}$/.test(t)) return `0${t.slice(2)}`; // bv. 32497853609 (landcode zonder +) -> 0497853609
+  return t;
+}
+
 async function riLeesBestand(file) {
   const data = await file.arrayBuffer();
   const werkboek = XLSX.read(data, { type: 'array' });
@@ -2306,7 +2318,7 @@ async function riLeesBestand(file) {
     rijen.push({
       rijnummer: rijen.length + 1,
       klantNaam: veld(rij, 'klantNaam'),
-      telefoon: veld(rij, 'telefoon'),
+      telefoon: riNormaliseerTelefoon(veld(rij, 'telefoon')),
       email: veld(rij, 'email'),
       adres: veld(rij, 'adres'),
       gemeente: veld(rij, 'gemeente'),
@@ -2412,11 +2424,18 @@ document.getElementById('ri-importeer-knop').addEventListener('click', async () 
       method: 'POST',
       body: JSON.stringify({ rijen: geselecteerd }),
     });
-    elStatus.textContent = `Klaar: ${res.aangemaakt} reservatie(s) aangemaakt.`
-      + (res.overgeslagen.length ? ` ${res.overgeslagen.length} overgeslagen (zie console).` : '');
+    let tekst = `Klaar: ${res.aangemaakt} reservatie(s) aangemaakt.`;
+    if (res.overgeslagen.length) {
+      tekst += ` ${res.overgeslagen.length} overgeslagen:`;
+      tekst += res.overgeslagen.map((o) => `\n– rij ${o.rijnummer}: ${o.reden}`).join('');
+    }
+    elStatus.textContent = tekst;
+    elStatus.style.whiteSpace = 'pre-line';
     if (res.overgeslagen.length) console.warn('Overgeslagen rijen bij reservatie-import:', res.overgeslagen);
-    document.getElementById('ri-resultaat').hidden = true;
-    document.getElementById('ri-bestand').value = '';
+    if (res.aangemaakt > 0) {
+      document.getElementById('ri-resultaat').hidden = true;
+      document.getElementById('ri-bestand').value = '';
+    }
     laadBoekingenOverzicht();
   } catch (err) {
     elStatus.textContent = 'Fout: ' + err.message;
