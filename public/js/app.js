@@ -1607,35 +1607,38 @@ function groepeerLijstPerCategorie(lijst) {
   return groepen;
 }
 
-// Per categorie een dropdown i.p.v. een lange opsomming van alle producten
-// onder elkaar — met 107+ producten werd die lijst anders veel te lang.
+// "Reeds bezet" toont gewoon meteen alles (louter ter info, niet klikbaar).
+// "Nog beschikbaar" toont per categorie een uitklapbare lijst (dicht bij
+// binnenkomst) — met 107+ producten is een altijd-open lijst te lang, maar
+// Jonas wil hier geen dropdown: een categorie aanklikken schuift open.
 function renderBeschikbaarheidKolom(containerId, producten, klikbaar) {
   const container = document.getElementById(containerId);
   const groepen = groepeerLijstPerCategorie(producten);
   let html = '';
   groepen.forEach((lijst, categorie) => {
     if (!lijst.length) return;
-    const opties = lijst.map((p) => `<option value="${p.id}">${p.naam}</option>`).join('');
-    html += `
-      <div class="besch-categorie">
-        <h4>${categorie} (${lijst.length})</h4>
-        <select class="besch-categorie-select" data-klikbaar="${klikbaar ? '1' : '0'}">
-          <option value="">— kies een product —</option>
-          ${opties}
-        </select>
-      </div>`;
+    const itemsHtml = lijst
+      .map((p) => `<div class="besch-item${klikbaar ? ' klikbaar' : ''}" data-id="${p.id}">${p.naam}</div>`)
+      .join('');
+    html += klikbaar
+      ? `<details class="besch-categorie">
+           <summary>${categorie} (${lijst.length})</summary>
+           ${itemsHtml}
+         </details>`
+      : `<div class="besch-categorie">
+           <h4>${categorie} (${lijst.length})</h4>
+           ${itemsHtml}
+         </div>`;
   });
   container.innerHTML = html || '<p class="leeg-bericht">Geen producten in deze lijst.</p>';
   if (klikbaar) {
-    container.querySelectorAll('.besch-categorie-select').forEach((el) => {
-      el.addEventListener('change', () => {
-        if (!el.value) return;
+    container.querySelectorAll('.besch-item').forEach((el) => {
+      el.addEventListener('click', () => {
         startNieuweBoekingVoorProduct(
-          el.value,
+          el.dataset.id,
           document.getElementById('besch-datum-start').value,
           document.getElementById('besch-datum-einde').value
         );
-        el.value = '';
       });
     });
   }

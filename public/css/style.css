@@ -340,7 +340,14 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .besch-item { background: white; border-radius: 6px; padding: 0.45rem 0.6rem; margin-bottom: 0.35rem; font-size: 0.9rem; }
 .besch-item.klikbaar { cursor: pointer; border: 1px solid transparent; }
 .besch-item.klikbaar:hover { border-color: var(--groen); font-weight: 600; }
-.besch-categorie-select { width: 100%; margin-bottom: 0.5rem; }
+.besch-categorie summary {
+  cursor: pointer; font-size: 0.82rem; color: var(--grijs); text-transform: uppercase;
+  letter-spacing: 0.02em; margin: 0.6rem 0 0.3rem; list-style: none;
+}
+.besch-categorie summary::-webkit-details-marker { display: none; }
+.besch-categorie summary::after { content: '▾'; margin-left: 0.4rem; }
+.besch-categorie[open] summary::after { content: '▴'; }
+.besch-categorie:first-child summary { margin-top: 0; }
 
 .ri-acties { display: flex; gap: 0.6rem; align-items: center; margin: 0.8rem 0; flex-wrap: wrap; }
 @media (max-width: 700px) {
