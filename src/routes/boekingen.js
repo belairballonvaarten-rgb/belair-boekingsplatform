@@ -3,6 +3,7 @@ const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { checkBeschikbaarheid } = require('../utils/beschikbaarheid');
 const { berekenAfstandKm, berekenTransportkost } = require('../utils/afstand');
+const { berekenAantalDagen, berekenMeerdaagsePrijs } = require('../utils/prijzen');
 const { asyncHandler } = require('../utils/asyncHandler');
 
 const router = express.Router();
@@ -379,8 +380,51 @@ router.put('/:id', asyncHandler(async (req, res) => {
     params
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+
+  // Wanneer de periode wijzigde: de prijzen van de reeds toegevoegde producten
+  // automatisch herberekenen o.b.v. het nieuwe aantal dagen (dagprijs/weekendprijs-
+  // formule) — Jonas controleert dit nadien en stuurt het manueel bij waar nodig.
+  if (req.body.gewenste_datum_start !== undefined || req.body.gewenste_datum_einde !== undefined) {
+    const nieuweAantalDagen = berekenAantalDagen(rows[0].gewenste_datum_start, rows[0].gewenste_datum_einde);
+    const { rows: productenVolledig } = await db.query(
+      `SELECT bp.id AS regel_id, p.prijs, p.weekendprijs
+       FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id
+       WHERE bp.boeking_id = $1`,
+      [req.params.id]
+    );
+    for (const regel of productenVolledig) {
+      const nieuwePrijs = berekenMeerdaagsePrijs(regel, nieuweAantalDagen);
+      await db.query('UPDATE boeking_producten SET prijs = $1 WHERE id = $2', [nieuwePrijs, regel.regel_id]);
+    }
+  }
+
   const prijstabel = await berekenPrijstabel(req.params.id);
   res.json({ ...rows[0], prijstabel, voorgestelde_transportkost: berekenVoorgesteldeTransportkost(rows[0]) });
+}));
+
+// Prijs en/of aantal van één productregel manueel bijsturen (bv. na de
+// automatische dagprijs/weekendprijs-suggestie, of voor een uitzondering).
+router.put('/:id/producten/:regelId', asyncHandler(async (req, res) => {
+  const { prijs, aantal } = req.body;
+  const updates = [];
+  const params = [];
+  if (prijs !== undefined) { params.push(prijs); updates.push(`prijs = $${params.length}`); }
+  if (aantal !== undefined) { params.push(aantal); updates.push(`aantal = $${params.length}`); }
+  if (!updates.length) return res.status(400).json({ fout: 'Geen velden om te updaten' });
+  params.push(req.params.regelId, req.params.id);
+  const { rows } = await db.query(
+    `UPDATE boeking_producten SET ${updates.join(', ')}
+     WHERE id = $${params.length - 1} AND boeking_id = $${params.length} RETURNING *`,
+    params
+  );
+  if (!rows[0]) return res.status(404).json({ fout: 'Productregel niet gevonden' });
+  const { rows: producten } = await db.query(
+    `SELECT bp.*, p.naam AS product_naam FROM boeking_producten bp
+     JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
+    [req.params.id]
+  );
+  const prijstabel = await berekenPrijstabel(req.params.id);
+  res.json({ producten, prijstabel });
 }));
 
 // Extra product toevoegen aan een bestaande boeking (bv. telefonisch bijbesteld).
@@ -400,12 +444,17 @@ router.post('/:id/producten', asyncHandler(async (req, res) => {
     return res.status(409).json({ fout: `Niet beschikbaar: ${check.reden}` });
   }
 
-  const { rows: productRows } = await db.query('SELECT prijs FROM producten WHERE id = $1', [product_id]);
+  const { rows: productRows } = await db.query('SELECT prijs, weekendprijs FROM producten WHERE id = $1', [product_id]);
   if (!productRows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
+
+  // Automatisch voorstel o.b.v. dagprijs/weekendprijs en het aantal dagen van de
+  // huidige periode — Jonas kan dit nadien nog manueel bijsturen per productregel.
+  const aantalDagen = berekenAantalDagen(boeking.gewenste_datum_start, boeking.gewenste_datum_einde);
+  const prijs = req.body.prijs !== undefined ? req.body.prijs : berekenMeerdaagsePrijs(productRows[0], aantalDagen);
 
   await db.query(
     'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, $3, $4)',
-    [req.params.id, product_id, aantalNum, productRows[0].prijs]
+    [req.params.id, product_id, aantalNum, prijs]
   );
 
   const { rows: producten } = await db.query(
@@ -581,10 +630,13 @@ router.post('/', asyncHandler(async (req, res) => {
       ]
     );
     const boeking = boekingRows[0];
+    const aantalDagen = berekenAantalDagen(boeking.gewenste_datum_start, boeking.gewenste_datum_einde);
 
     for (const p of producten) {
-      const { rows: productRows } = await client.query('SELECT prijs FROM producten WHERE id = $1', [p.product_id]);
-      const prijs = p.prijs !== undefined ? p.prijs : productRows[0]?.prijs || 0;
+      const { rows: productRows } = await client.query('SELECT prijs, weekendprijs FROM producten WHERE id = $1', [p.product_id]);
+      // Automatisch voorstel o.b.v. dagprijs/weekendprijs en het aantal dagen — een
+      // expliciet meegegeven prijs (bv. vanuit de automatische website-omzetting) wint.
+      const prijs = p.prijs !== undefined ? p.prijs : berekenMeerdaagsePrijs(productRows[0] || {}, aantalDagen);
       await client.query(
         'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, $3, $4)',
         [boeking.id, p.product_id, p.aantal || 1, prijs]

@@ -34,6 +34,26 @@ function statusPillHtml(status) {
   return `<span class="status-pill status-${STATUS_KLEUR[status] || 'grijs'}">${STATUS_LABELS[status]}</span>`;
 }
 
+// Kleine, kort-zichtbare bevestiging onderaan het scherm — vooral bedoeld voor
+// acties die meteen een volledige herrender veroorzaken (zoals de periode- of
+// prijs-kalender/invoer in het dossier), zodat Jonas zeker weet dat een wijziging
+// ook echt is opgeslagen, zelfs al verdwijnt de rest van het scherm meteen erna.
+function toonToast(bericht) {
+  let el = document.getElementById('globale-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'globale-toast';
+    document.body.appendChild(el);
+  }
+  el.textContent = `✓ ${bericht}`;
+  el.classList.remove('toast-zichtbaar');
+  // Force reflow zodat de transitie ook opnieuw start bij een snel opeenvolgende toast.
+  void el.offsetWidth;
+  el.classList.add('toast-zichtbaar');
+  clearTimeout(el._verbergTimer);
+  el._verbergTimer = setTimeout(() => el.classList.remove('toast-zichtbaar'), 2200);
+}
+
 // Sterretje bij een speciaal verzoek — bedoeld om achteraan de reservatiebalk
 // (kaart/rij) te staan, los van de statuskleur die de rand/achtergrond gebruikt.
 function speciaalSterHtml(b) {
@@ -57,10 +77,14 @@ const STATUS_FASEN = [
 // actieve fase "Klaar voor levering" is, tonen we tussen haakjes of dit ook
 // effectief (al) volledig betaald is — want de status alleen garandeert dat niet,
 // zeker niet als een tussenstap (zoals het betaalverzoek) bewust overgeslagen werd.
+// De vier grote fase-knoppen zijn klikbaar: een klik op een andere fase springt
+// er meteen naartoe (voorste status van die fase), en een klik op de reeds
+// actieve fase "deselecteert" ze weer — terug naar de laatste status van de
+// vorige fase. Zo kan Jonas ook makkelijk terug naar een vorige status zonder
+// een aparte "wijzig status"-knop/keuzelijst. "Geweigerd" is een aparte knop
+// die altijd zichtbaar blijft (ook als het niet de actieve status is), zodat
+// je er zowel naartoe als vanaf kan schakelen.
 function statusStepperHtml(status, saldoOpenstaand) {
-  if (status === 'geweigerd') {
-    return '<div class="status-stepper"><span class="stepper-stap stepper-actief stepper-grijs">✕ Geweigerd</span></div>';
-  }
   const huidigeIndex = STATUS_FASEN.findIndex((f) => f.statussen.includes(status));
   const stappenHtml = STATUS_FASEN.map((f, i) => {
     let klasse = 'stepper-stap';
@@ -72,9 +96,10 @@ function statusStepperHtml(status, saldoOpenstaand) {
         label += Number(saldoOpenstaand) > 0.01 ? ' (open saldo)' : ' (betaald)';
       }
     }
-    return `<span class="${klasse}">${label}</span>`;
+    return `<button type="button" class="${klasse}" data-fase="${i}">${label}</button>`;
   }).join('<span class="stepper-pijl">›</span>');
-  return `<div class="status-stepper">${stappenHtml}</div>`;
+  const geweigerdKlasse = status === 'geweigerd' ? 'stepper-stap stepper-actief stepper-grijs' : 'stepper-stap stepper-geweigerd-optie';
+  return `<div class="status-stepper">${stappenHtml}<span class="stepper-pijl">›</span><button type="button" class="${geweigerdKlasse}" data-fase="geweigerd">✕ Geweigerd</button></div>`;
 }
 
 // Voorgestelde/logische volgende stappen per status — dit is enkel nog de leidraad
@@ -399,6 +424,10 @@ async function laadBoekingenOverzicht() {
   }
   for (const b of boekingen) {
     const adres = ontleedAdres(b);
+    // Openstaand saldo i.p.v. de totale waarde: zo is in één oogopslag duidelijk
+    // of een boeking nog betaald moet worden, of al volledig voldaan is.
+    const saldo = Math.round((Number(b.waarde || 0) - Number(b.betaling_ontvangen || 0)) * 100) / 100;
+    const saldoVoldaan = saldo <= 0.01;
     const tr = document.createElement('tr');
     tr.className = `rij-kleur-${STATUS_KLEUR[b.status] || 'grijs'}`;
     tr.innerHTML = `
@@ -408,7 +437,7 @@ async function laadBoekingenOverzicht() {
       <td>${adres.postcode}</td>
       <td>${adres.gemeente}</td>
       <td>${b.klant_naam}</td>
-      <td>${fmtEuro(b.waarde)}</td>
+      <td class="saldo-cel${saldoVoldaan ? ' voldaan' : ''}" title="Totale waarde: ${fmtEuro(b.waarde)}">${saldoVoldaan ? '✓ Voldaan' : fmtEuro(saldo)}</td>
       <td>${statusPillHtml(b.status)}${speciaalSterHtml(b)}</td>
       <td>Bekijk →</td>
     `;
@@ -518,7 +547,7 @@ async function openDetail(boekingId) {
   const dpEersteCategorie = eersteCategorieMetProducten();
 
   const productenHtml = b.producten
-    .map((p) => `<div class="detail-rij product-regel"><span>${p.product_naam} × ${p.aantal}</span><span>€ ${Number(p.prijs).toFixed(2)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`)
+    .map((p) => `<div class="detail-rij product-regel"><span>${p.product_naam} × ${p.aantal}</span><span>€ <input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${p.id}" value="${Number(p.prijs).toFixed(2)}" title="Automatisch voorgestelde prijs o.b.v. dagprijs/weekendprijs — hier manueel bij te sturen" /> <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`)
     .join('');
 
   const historiekHtml = b.historiek
@@ -528,13 +557,6 @@ async function openDetail(boekingId) {
   const overgangen = TOEGELATEN_OVERGANGEN[b.status] || [];
   const actiesHtml = overgangen
     .map((s) => `<button data-status="${s}">${STATUS_LABELS[s]}</button>`)
-    .join('');
-  // Volledig vrije statuswijziging (los van de voorgestelde snelknoppen hierboven) —
-  // zodat Jonas ten allen tijde kan overschakelen naar eender welke status, ook
-  // een stap overslaan.
-  const statusOverrideOpties = Object.keys(STATUS_LABELS)
-    .filter((s) => s !== b.status)
-    .map((s) => `<option value="${s}">${STATUS_LABELS[s]}</option>`)
     .join('');
 
   // Volledig adres samenstellen voor de Google Maps-link (geen API-sleutel nodig voor
@@ -573,17 +595,11 @@ async function openDetail(boekingId) {
       <h3>${b.klant_naam} ${statusPillHtml(b.status)}${speciaalSterHtml(b)}</h3>
       ${b.speciaal_verzoek ? `<div class="speciaal-verzoek-banner">⭑ Speciaal verzoek${b.speciaal_verzoek_notitie ? ': ' + b.speciaal_verzoek_notitie : ''}</div>` : ''}
       ${statusStepperHtml(b.status, b.prijstabel.saldo_openstaand)}
+      <p class="uitleg" style="margin: 0 0 0.4rem;">Klik op een fase hierboven om ernaartoe te springen, of klik de actieve fase nogmaals aan om terug te gaan naar de vorige status.</p>
       <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen volgende stap voorgesteld</p>'}</div>
-      <div class="status-override">
-        <label>Andere status instellen (ten allen tijde, ook een stap overslaan)
-          <select id="status-override-select">${statusOverrideOpties}</select>
-        </label>
-        <button type="button" id="btn-status-override" class="secundair">Wijzig status</button>
-      </div>
     </div>
 
     <div class="detail-layout">
-      <div class="detail-kolom-links">
       <div class="detail-kolom detail-kolom-producten paneel">
         <h4>Periode</h4>
         <div id="kalender-dossier-periode" class="kalender-widget kalender-widget-compact"></div>
@@ -598,55 +614,6 @@ async function openDetail(boekingId) {
           <button type="button" id="btn-product-toevoegen" class="secundair">+ Toevoegen</button>
         </div>
         <p id="product-toevoegen-fout" class="foutmelding"></p>
-      </div>
-
-      <div class="detail-kolom detail-kolom-klant paneel">
-        <div class="detail-kolom-kop">
-          <h4>Klantgegevens</h4>
-          <button type="button" id="btn-klantgegevens-bewerken" class="linkbtn">✎ Bewerken</button>
-        </div>
-
-        <div id="klantgegevens-weergave">
-          <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
-          <div class="detail-rij"><span>E-mail</span><span>${b.klant_email || '—'}</span></div>
-          <div class="detail-rij"><span>Leveringswijze</span><span>${b.leveringswijze || '—'}</span></div>
-          <div class="detail-rij"><span>Straat + nr</span><span>${adresOntleed.straat || '—'}</span></div>
-          <div class="detail-rij"><span>Postcode</span><span>${adresOntleed.postcode || '—'}</span></div>
-          <div class="detail-rij"><span>Gemeente</span><span>${adresOntleed.gemeente || '—'}</span></div>
-          <div class="detail-rij"><span>Ondergrond</span><span>${b.type_ondergrond || '—'}</span></div>
-          <div class="detail-rij"><span>Toegankelijkheid</span><span>${b.toegankelijkheid || '—'}</span></div>
-          <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
-          <div class="detail-rij"><span>Voorkeur afhaling</span><span>${b.voorkeur_tijdstip_afhaling || '—'}</span></div>
-          <div class="detail-rij"><span>Huurvoorwaarden</span><span>${b.huurvoorwaarden_geaccepteerd ? 'Geaccepteerd' : 'Niet geaccepteerd'}</span></div>
-          <div class="detail-rij"><span>Speciaal verzoek</span><span>${b.speciaal_verzoek ? (b.speciaal_verzoek_notitie || 'Ja') : '—'}</span></div>
-        </div>
-
-        <form id="form-klantgegevens-bewerken" class="grid-2" hidden>
-          <label>Naam<input type="text" id="kg-naam" value="${b.klant_naam || ''}" /></label>
-          <label>Telefoon<input type="text" id="kg-telefoon" value="${b.klant_telefoon || ''}" /></label>
-          <label>E-mail<input type="email" id="kg-email" value="${b.klant_email || ''}" /></label>
-          <label>Leveringswijze
-            <select id="kg-leveringswijze">
-              <option value="levering" ${b.leveringswijze === 'levering' ? 'selected' : ''}>Levering door ons team</option>
-              <option value="afhaling" ${b.leveringswijze === 'afhaling' ? 'selected' : ''}>Afhaling door klant</option>
-            </select>
-          </label>
-          <label>Plaatsingsadres<input type="text" id="kg-leveringsadres" value="${b.leveringsadres || ''}" placeholder="leeg = adres van de klant" /></label>
-          <label>Type ondergrond<input type="text" id="kg-ondergrond" value="${b.type_ondergrond || ''}" /></label>
-          <label>Toegankelijkheid<input type="text" id="kg-toegankelijkheid" value="${b.toegankelijkheid || ''}" /></label>
-          <label>Tijdstip levering<select id="kg-tijdstip-levering"></select></label>
-          <label>Tijdstip afhaling<select id="kg-tijdstip-afhaling"></select></label>
-          <label class="checkbox" style="grid-column: 1 / -1;">
-            <input type="checkbox" id="kg-speciaal-verzoek" ${b.speciaal_verzoek ? 'checked' : ''} /> Speciaal verzoek voor deze boeking (paars sterretje in de overzichten)
-          </label>
-          <label style="grid-column: 1 / -1;">Toelichting speciaal verzoek<input type="text" id="kg-speciaal-verzoek-notitie" value="${b.speciaal_verzoek_notitie || ''}" placeholder="bv. allergie, extra toegangscode, moeilijke locatie, ..." /></label>
-          <div class="form-acties">
-            <button type="submit">Opslaan</button>
-            <button type="button" id="btn-klantgegevens-annuleren" class="linkbtn">Annuleren</button>
-          </div>
-          <p id="klantgegevens-fout" class="foutmelding"></p>
-        </form>
-      </div>
       </div>
 
       <div class="detail-kolom detail-kolom-financieel paneel">
@@ -679,6 +646,54 @@ async function openDetail(boekingId) {
         </form>
         <div class="betaling-log">${betalingLogHtml}</div>
       </div>
+    </div>
+
+    <div class="detail-kolom detail-kolom-klant paneel">
+      <div class="detail-kolom-kop">
+        <h4>Klantgegevens</h4>
+        <button type="button" id="btn-klantgegevens-bewerken" class="linkbtn">✎ Bewerken</button>
+      </div>
+
+      <div id="klantgegevens-weergave" class="grid-2">
+        <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
+        <div class="detail-rij"><span>E-mail</span><span>${b.klant_email || '—'}</span></div>
+        <div class="detail-rij"><span>Leveringswijze</span><span>${b.leveringswijze || '—'}</span></div>
+        <div class="detail-rij"><span>Straat + nr</span><span>${adresOntleed.straat || '—'}</span></div>
+        <div class="detail-rij"><span>Postcode</span><span>${adresOntleed.postcode || '—'}</span></div>
+        <div class="detail-rij"><span>Gemeente</span><span>${adresOntleed.gemeente || '—'}</span></div>
+        <div class="detail-rij"><span>Ondergrond</span><span>${b.type_ondergrond || '—'}</span></div>
+        <div class="detail-rij"><span>Toegankelijkheid</span><span>${b.toegankelijkheid || '—'}</span></div>
+        <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
+        <div class="detail-rij"><span>Voorkeur afhaling</span><span>${b.voorkeur_tijdstip_afhaling || '—'}</span></div>
+        <div class="detail-rij"><span>Huurvoorwaarden</span><span>${b.huurvoorwaarden_geaccepteerd ? 'Geaccepteerd' : 'Niet geaccepteerd'}</span></div>
+        <div class="detail-rij"><span>Speciaal verzoek</span><span>${b.speciaal_verzoek ? (b.speciaal_verzoek_notitie || 'Ja') : '—'}</span></div>
+      </div>
+
+      <form id="form-klantgegevens-bewerken" class="grid-2" hidden>
+        <label>Naam<input type="text" id="kg-naam" value="${b.klant_naam || ''}" /></label>
+        <label>Telefoon<input type="text" id="kg-telefoon" value="${b.klant_telefoon || ''}" /></label>
+        <label>E-mail<input type="email" id="kg-email" value="${b.klant_email || ''}" /></label>
+        <label>Leveringswijze
+          <select id="kg-leveringswijze">
+            <option value="levering" ${b.leveringswijze === 'levering' ? 'selected' : ''}>Levering door ons team</option>
+            <option value="afhaling" ${b.leveringswijze === 'afhaling' ? 'selected' : ''}>Afhaling door klant</option>
+          </select>
+        </label>
+        <label>Plaatsingsadres<input type="text" id="kg-leveringsadres" value="${b.leveringsadres || ''}" placeholder="leeg = adres van de klant" /></label>
+        <label>Type ondergrond<input type="text" id="kg-ondergrond" value="${b.type_ondergrond || ''}" /></label>
+        <label>Toegankelijkheid<input type="text" id="kg-toegankelijkheid" value="${b.toegankelijkheid || ''}" /></label>
+        <label>Tijdstip levering<select id="kg-tijdstip-levering"></select></label>
+        <label>Tijdstip afhaling<select id="kg-tijdstip-afhaling"></select></label>
+        <label class="checkbox" style="grid-column: 1 / -1;">
+          <input type="checkbox" id="kg-speciaal-verzoek" ${b.speciaal_verzoek ? 'checked' : ''} /> Speciaal verzoek voor deze boeking (paars sterretje in de overzichten)
+        </label>
+        <label style="grid-column: 1 / -1;">Toelichting speciaal verzoek<input type="text" id="kg-speciaal-verzoek-notitie" value="${b.speciaal_verzoek_notitie || ''}" placeholder="bv. allergie, extra toegangscode, moeilijke locatie, ..." /></label>
+        <div class="form-acties">
+          <button type="submit">Opslaan</button>
+          <button type="button" id="btn-klantgegevens-annuleren" class="linkbtn">Annuleren</button>
+        </div>
+        <p id="klantgegevens-fout" class="foutmelding"></p>
+      </form>
     </div>
 
     <details class="paneel" id="details-locatie-transport" ${(toonBevestigBalk || geopendeSecties.includes('details-locatie-transport')) ? 'open' : ''}>
@@ -826,15 +841,33 @@ async function openDetail(boekingId) {
     });
   });
 
-  // Vrije statuswijziging: ten allen tijde naar eender welke status, ook een
-  // stap overslaan (bv. voor een vaste klant meteen naar "klaar voor levering").
-  document.getElementById('btn-status-override').addEventListener('click', () => {
-    const nieuweStatus = document.getElementById('status-override-select').value;
-    let opmerking;
-    if (nieuweStatus === 'geweigerd') {
-      opmerking = prompt('Reden van weigering (optioneel):') || '';
-    }
-    wijzigStatus(b.id, nieuweStatus, opmerking);
+  // De vier grote fase-knoppen bovenaan: een klik op een andere fase springt
+  // meteen naar de eerste status van die fase (ook een stap overslaan/teruggaan
+  // is toegelaten); een klik op de reeds actieve fase "deselecteert" ze weer,
+  // terug naar de laatste status van de vorige fase. "Geweigerd" is een eigen
+  // knop die altijd zichtbaar is, zowel om naartoe als vanaf te schakelen.
+  inhoud.querySelectorAll('.status-stepper button[data-fase]').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const faseAttr = btn.dataset.fase;
+      if (faseAttr === 'geweigerd') {
+        if (b.status === 'geweigerd') {
+          wijzigStatus(b.id, 'nieuw');
+        } else {
+          const reden = prompt('Reden van weigering (optioneel):') || '';
+          wijzigStatus(b.id, 'geweigerd', reden);
+        }
+        return;
+      }
+      const faseIndex = Number(faseAttr);
+      const huidigeIndex = STATUS_FASEN.findIndex((f) => f.statussen.includes(b.status));
+      if (faseIndex === huidigeIndex) {
+        if (faseIndex === 0) return; // al de eerste fase, niets om naar terug te gaan
+        const vorigeFase = STATUS_FASEN[faseIndex - 1];
+        wijzigStatus(b.id, vorigeFase.statussen[vorigeFase.statussen.length - 1]);
+      } else {
+        wijzigStatus(b.id, STATUS_FASEN[faseIndex].statussen[0]);
+      }
+    });
   });
 
   document.getElementById('btn-toeslag-opslaan').addEventListener('click', async () => {
@@ -911,6 +944,7 @@ async function openDetail(boekingId) {
     container: document.getElementById('kalender-dossier-periode'),
     initieleStart: origineleStart,
     initieleEinde: origineleEinde,
+    toonDagBereikKnoppen: true,
     opWijziging: async (start, einde) => {
       const elFout = document.getElementById('periode-fout');
       elFout.textContent = '';
@@ -919,6 +953,7 @@ async function openDetail(boekingId) {
           method: 'PUT',
           body: JSON.stringify({ gewenste_datum_start: start, gewenste_datum_einde: einde || start }),
         });
+        toonToast('Periode opgeslagen');
         openDetail(boekingId);
         laadBoekingenOverzicht();
       } catch (err) {
@@ -953,6 +988,21 @@ async function openDetail(boekingId) {
     btn.addEventListener('click', async () => {
       if (!confirm('Dit product uit de boeking verwijderen?')) return;
       await api(`/api/boekingen/${boekingId}/producten/${btn.dataset.id}`, { method: 'DELETE' });
+      openDetail(boekingId);
+      laadBoekingenOverzicht();
+    });
+  });
+
+  // Prijs per productregel: automatisch voorgesteld o.b.v. dagprijs/weekendprijs
+  // en het aantal dagen, maar hier altijd manueel bij te sturen.
+  inhoud.querySelectorAll('.product-prijs-invoer').forEach((el) => {
+    el.addEventListener('change', async () => {
+      const nieuwePrijs = el.value !== '' ? parseFloat(el.value) : 0;
+      await api(`/api/boekingen/${boekingId}/producten/${el.dataset.id}`, {
+        method: 'PUT',
+        body: JSON.stringify({ prijs: nieuwePrijs }),
+      });
+      toonToast('Prijs opgeslagen');
       openDetail(boekingId);
       laadBoekingenOverzicht();
     });
@@ -1174,14 +1224,29 @@ const KALENDER_MAAND_NAMEN = [
   'juli', 'augustus', 'september', 'oktober', 'november', 'december',
 ];
 
-function maakKalenderWidget({ container, initieleStart, initieleEinde, opWijziging, toonBekijkKnop, bekijkKnopTekst, opBekijk }) {
+function volgendeDagIso(iso) {
+  const d = new Date(iso);
+  d.setDate(d.getDate() + 1);
+  return naarISO(d);
+}
+
+function maakKalenderWidget({
+  container, initieleStart, initieleEinde, opWijziging, toonBekijkKnop, bekijkKnopTekst, opBekijk,
+  toonDagBereikKnoppen,
+}) {
   let start = initieleStart || null;
   let einde = initieleEinde || start;
   // Los van de huidige start/einde-waarden bijgehouden: een reeds vooraf
   // ingevulde datum (bv. "vandaag" als standaard) mag niet aanzien worden als
   // "de gebruiker klikte al één keer" — anders plakt de eerste echte klik zich
   // vast aan die vooraf ingevulde datum in plaats van een verse keuze te zijn.
+  // (Enkel relevant voor de klassieke twee-klik-interactie hieronder.)
   let klaarVoorTweedeKlik = false;
+  // Bij een expliciete Dag/Meerdere dagen-knoppenkeuze (toonDagBereikKnoppen) is
+  // dit altijd expliciet bijgehouden i.p.v. afgeleid uit start/einde — dat was
+  // precies de bron van de "werkt soms niet zuiver"-verwarring bij de impliciete
+  // twee-klik-interactie (een derde klik die je niet als "nieuwe start" verwachtte).
+  let modus = (initieleEinde && initieleEinde !== initieleStart) ? 'bereik' : 'dag';
   let weergaveMaand = new Date();
   if (start) {
     const d = new Date(start);
@@ -1200,6 +1265,12 @@ function maakKalenderWidget({ container, initieleStart, initieleEinde, opWijzigi
       <span>ma</span><span>di</span><span>wo</span><span>do</span><span>vr</span><span>za</span><span>zo</span>
     </div>
     <div class="kalender-grid"></div>
+    ${toonDagBereikKnoppen ? `
+      <div class="kalender-dag-bereik-toggle">
+        <button type="button" class="kal-modus-knop" data-modus="dag">Dag</button>
+        <button type="button" class="kal-modus-knop" data-modus="bereik">Meerdere dagen</button>
+      </div>
+    ` : ''}
     <div class="kalender-onderaan">
       <p class="kalender-geselecteerd-tekst"></p>
       ${toonBekijkKnop ? `<button type="button" class="kal-bekijk-knop linkbtn">${bekijkKnopTekst || 'Bekijk ↓'}</button>` : ''}
@@ -1220,8 +1291,45 @@ function maakKalenderWidget({ container, initieleStart, initieleEinde, opWijzigi
   if (toonBekijkKnop) {
     container.querySelector('.kal-bekijk-knop').addEventListener('click', () => opBekijk && opBekijk());
   }
+  if (toonDagBereikKnoppen) {
+    container.querySelectorAll('.kal-modus-knop').forEach((btn) => {
+      btn.addEventListener('click', () => zetModus(btn.dataset.modus));
+    });
+  }
+
+  // Wisselen tussen "Dag" en "Meerdere dagen": bij Dag wordt de selectie altijd
+  // teruggebracht tot één dag; bij Meerdere dagen wordt een losse dag automatisch
+  // meteen uitgebreid met de volgende dag, zodat er direct een balkje van 2 dagen
+  // staat dat daarna manueel verder verlengd/verkort kan worden.
+  function zetModus(nieuweModus) {
+    if (nieuweModus === modus) return;
+    modus = nieuweModus;
+    if (modus === 'dag') {
+      if (start) einde = start;
+    } else if (start && (!einde || einde === start)) {
+      einde = volgendeDagIso(start);
+    }
+    render();
+    opWijziging(start, einde);
+  }
 
   function kiesDag(iso) {
+    if (toonDagBereikKnoppen) {
+      if (modus === 'dag') {
+        start = iso;
+        einde = iso;
+      } else if (!start) {
+        start = iso;
+        einde = iso;
+      } else if (iso < start) {
+        start = iso;
+      } else {
+        einde = iso;
+      }
+      render();
+      opWijziging(start, einde);
+      return;
+    }
     if (!klaarVoorTweedeKlik) {
       // Eerste klik van een nieuwe selectie -> altijd een verse, eendaagse
       // keuze, ongeacht wat er toevallig al (bv. als standaard) ingesteld stond.
@@ -1264,6 +1372,12 @@ function maakKalenderWidget({ container, initieleStart, initieleEinde, opWijzigi
       el.addEventListener('click', () => kiesDag(el.dataset.iso));
     });
 
+    if (toonDagBereikKnoppen) {
+      container.querySelectorAll('.kal-modus-knop').forEach((btn) => {
+        btn.classList.toggle('actief', btn.dataset.modus === modus);
+      });
+    }
+
     if (start && einde && start !== einde) {
       elLabel.textContent = `Periode: ${fmtDatum(start)} t.e.m. ${fmtDatum(einde)}`;
     } else if (start) {
@@ -1280,6 +1394,7 @@ function maakKalenderWidget({ container, initieleStart, initieleEinde, opWijzigi
       start = nieuweStart || null;
       einde = nieuweEinde || start;
       klaarVoorTweedeKlik = false;
+      if (toonDagBereikKnoppen) modus = (einde && einde !== start) ? 'bereik' : 'dag';
       if (start) {
         const d = new Date(start);
         if (!Number.isNaN(d.getTime())) weergaveMaand = new Date(d.getFullYear(), d.getMonth(), 1);
@@ -1291,6 +1406,7 @@ function maakKalenderWidget({ container, initieleStart, initieleEinde, opWijzigi
 
 const nieuweBoekingKalender = maakKalenderWidget({
   container: document.getElementById('kalender-nieuwe-boeking'),
+  toonDagBereikKnoppen: true,
   opWijziging: (start, einde) => {
     document.getElementById('datum-start').value = start || '';
     document.getElementById('datum-einde').value = (einde && einde !== start) ? einde : '';
@@ -1715,11 +1831,17 @@ async function laadWebinzendingen() {
     container.innerHTML = '<p class="leeg-bericht">Nog geen inzendingen ontvangen. Zodra de webhook op de website is ingesteld, verschijnen nieuwe formulier-inzendingen hier.</p>';
     return;
   }
-  container.innerHTML = inzendingen.map((inz) => `
+  container.innerHTML = inzendingen.map((inz) => {
+    const succes = !!inz.boeking_id;
+    const statusHtml = succes
+      ? '<p class="webinzending-status webinzending-status-succes">✓ Automatisch omgezet naar een aanvraag</p>'
+      : (inz.verwerkings_fout ? `<p class="webinzending-status webinzending-status-fout">⚠ ${inz.verwerkings_fout}</p>` : '');
+    return `
     <div class="kaart webinzending${inz.verwerkt ? ' webinzending-bekeken' : ''}" data-id="${inz.id}">
       <div class="kaart-info">
         <h3>${raadWebinzendingTitel(inz.ruwe_data)}</h3>
-        <p>${fmtDatumTijd(inz.ontvangen_op)}${inz.verwerkt ? ' · bekeken' : ''}</p>
+        <p>${fmtDatumTijd(inz.ontvangen_op)}${!succes && inz.verwerkt ? ' · bekeken' : ''}</p>
+        ${statusHtml}
         <div class="webinzending-velden">
           ${Object.entries(inz.ruwe_data || {}).map(([label, waarde]) => `
             <div class="detail-rij"><span>${label}</span><span>${(waarde ?? '—') || '—'}</span></div>
@@ -1727,15 +1849,20 @@ async function laadWebinzendingen() {
         </div>
       </div>
       <div class="kaart-acties">
+        ${succes ? `<button type="button" class="secundair btn-webinzending-bekijk-aanvraag" data-boeking-id="${inz.boeking_id}">Bekijk aanvraag →</button>` : ''}
         ${!inz.verwerkt ? `<button type="button" class="btn-webinzending-bekeken" data-id="${inz.id}">Markeer als bekeken</button>` : ''}
       </div>
     </div>
-  `).join('');
+  `;
+  }).join('');
   container.querySelectorAll('.btn-webinzending-bekeken').forEach((btn) => {
     btn.addEventListener('click', async () => {
       await api(`/api/webinzendingen/website-formulier/${btn.dataset.id}/verwerkt`, { method: 'POST' });
       laadWebinzendingen();
     });
+  });
+  container.querySelectorAll('.btn-webinzending-bekijk-aanvraag').forEach((btn) => {
+    btn.addEventListener('click', () => openDetail(btn.dataset.boekingId));
   });
 }
 

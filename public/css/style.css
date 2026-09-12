@@ -110,7 +110,7 @@ button[type="submit"]:hover, .login-box button:hover, .primaire-actie:hover { ba
 .navbtn {
   background: none;
   border: none;
-  padding: 0.5rem 0.9rem;
+  padding: 0.55rem 0.95rem;
   border-radius: 6px;
   font-weight: 600;
   color: var(--grijs);
@@ -132,10 +132,14 @@ button[type="submit"]:hover, .login-box button:hover, .primaire-actie:hover { ba
 .webinzending-velden { margin-top: 0.6rem; border-top: 1px solid var(--grijs-licht); padding-top: 0.4rem; }
 .webinzending-velden .detail-rij span:first-child { font-weight: 600; color: #374151; max-width: 45%; }
 .webinzending-velden .detail-rij span:last-child { text-align: right; word-break: break-word; }
+.webinzending-status { margin: 0.4rem 0 0; padding: 0.4rem 0.6rem; border-radius: 6px; font-size: 0.85rem; font-weight: 600; }
+.webinzending-status-succes { background: #e6f4ea; color: var(--groen); }
+.webinzending-status-fout { background: #fdeee9; color: #b3401e; }
 .btn-webinzending-bekeken {
   border: 1px solid var(--rand); background: white; border-radius: 6px;
   padding: 0.4rem 0.8rem; font-size: 0.85rem; font-weight: 600; align-self: flex-start;
 }
+.btn-webinzending-bekijk-aanvraag { align-self: flex-start; margin-bottom: 0.4rem; }
 
 main { padding: 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
 .pagina h2 { color: var(--blauw-donker); }
@@ -235,12 +239,16 @@ main { padding: 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
 .tabel tbody tr.rij-kleur-groen:hover td { background: #dcf0e2; }
 .tabel tbody tr.rij-kleur-grijs:hover td { background: #e5e7eb; }
 
-/* Statusbalk (stepper) bovenaan het dossier */
-.status-stepper { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0.6rem 0 1rem; }
+/* Statusbalk (stepper) bovenaan het dossier — de fases zijn klikbare knoppen:
+   een klik springt naar die fase, en de actieve fase nogmaals aanklikken
+   "deselecteert" ze weer (terug naar de vorige status). Zie de click-handler
+   in openDetail() en de toelichting eronder in de HTML. */
+.status-stepper { display: flex; flex-wrap: wrap; align-items: center; gap: 0.3rem; margin: 0.6rem 0 0.4rem; }
 .stepper-stap {
   display: inline-block; padding: 0.35rem 0.8rem; border-radius: 999px; font-size: 0.85rem; font-weight: 600;
-  background: var(--grijs-licht); color: var(--grijs); border: 1px solid var(--rand);
+  background: var(--grijs-licht); color: var(--grijs); border: 1px solid var(--rand); cursor: pointer;
 }
+.stepper-stap:hover { filter: brightness(0.96); }
 .stepper-pijl { color: var(--grijs); font-size: 0.9rem; }
 .stepper-voltooid { background: #e6f4ea; color: var(--groen); border-color: #cdead6; }
 .stepper-actief.stepper-rood { background: var(--rood); color: white; border-color: var(--rood); }
@@ -248,6 +256,7 @@ main { padding: 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
 .stepper-actief.stepper-oranje { background: var(--oranje); color: white; border-color: var(--oranje); }
 .stepper-actief.stepper-groen { background: var(--groen); color: white; border-color: var(--groen); }
 .stepper-actief.stepper-grijs { background: var(--grijs); color: white; border-color: var(--grijs); }
+.stepper-geweigerd-optie { background: white; color: var(--grijs); border-style: dashed; }
 
 /* FORMULIER NIEUWE BOEKING */
 fieldset { border: 1px solid var(--rand); border-radius: 8px; margin-bottom: 1.2rem; padding: 1rem 1.2rem; background: white; }
@@ -274,8 +283,10 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .beschikbaarheid-kiezer { display: flex; justify-content: center; }
 
 /* Visuele maandkalender waarop een dag of periode rechtstreeks aangeklikt
-   wordt (geen aparte datumvelden of modus-knoppen meer nodig) — herbruikt op
-   Beschikbaarheid, Nieuwe boeking en in het boekingdossier (Periode-blok). */
+   wordt — herbruikt op Beschikbaarheid, Nieuwe boeking en in het
+   boekingdossier (Periode-blok). Bij Nieuwe boeking en het dossier staan er
+   ook expliciete Dag/Meerdere dagen-knoppen onder de kalender (zie
+   .kalender-dag-bereik-toggle) i.p.v. het impliciet aftellen van klikken. */
 .kalender-widget { background: white; border: 1px solid var(--grijs-licht); border-radius: 10px; padding: 1.1rem 1.2rem; width: 340px; max-width: 100%; margin: 0 auto; }
 .kalender-widget.kalender-widget-compact { width: 100%; max-width: 380px; margin: 0; }
 .kalender-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; font-weight: 700; color: var(--blauw-donker); }
@@ -290,11 +301,23 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .kalender-geselecteerd { background: var(--blauw); color: white; font-weight: 700; }
 .kalender-geselecteerd:hover { background: var(--blauw); }
 .kalender-in-bereik { background: #dbe9fb; border-radius: 0; }
+.kalender-dag-bereik-toggle { display: flex; gap: 0.4rem; margin-top: 0.7rem; }
+.kal-modus-knop { flex: 1; border: 1px solid var(--rand); background: white; color: var(--grijs); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
+.kal-modus-knop.actief { background: var(--blauw); border-color: var(--blauw); color: white; }
 .kalender-onderaan { margin-top: 0.7rem; padding-top: 0.6rem; border-top: 1px solid var(--grijs-licht); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
 .kalender-geselecteerd-tekst { margin: 0; font-size: 0.82rem; color: var(--grijs); font-weight: 600; }
 @media (max-width: 700px) {
   .kalender-widget { width: 100%; }
 }
+
+/* Kort-zichtbare bevestigingsmelding onderaan het scherm (zie toonToast() in app.js). */
+#globale-toast {
+  position: fixed; left: 50%; bottom: 1.5rem; transform: translate(-50%, 0.6rem);
+  background: var(--blauw-donker); color: white; padding: 0.6rem 1.1rem; border-radius: 8px;
+  font-size: 0.9rem; font-weight: 600; box-shadow: 0 4px 14px rgba(0,0,0,0.18);
+  opacity: 0; pointer-events: none; transition: opacity 0.2s ease, transform 0.2s ease; z-index: 500;
+}
+#globale-toast.toast-zichtbaar { opacity: 1; transform: translate(-50%, 0); }
 
 .beschikbaarheid-kolommen { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-top: 1rem; }
 .beschikbaarheid-kolom { border-radius: 8px; padding: 0.8rem 1rem; }
@@ -374,20 +397,18 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 #btn-boeking-detail-terug { margin-bottom: 1rem; font-size: 0.95rem; }
 #boeking-detail-inhoud { max-width: 1320px; }
 #boeking-detail-inhoud h3 { color: var(--blauw-donker); margin-top: 0; }
-#boeking-detail-inhoud h4 { color: var(--blauw-donker); margin-bottom: 0.4rem; }
+#boeking-detail-inhoud h4 { color: var(--blauw-donker); margin-top: 0.8rem; margin-bottom: 0.4rem; }
 
 .detail-rij { display: flex; justify-content: space-between; padding: 0.3rem 0; border-bottom: 1px solid var(--grijs-licht); font-size: 0.9rem; }
 .detail-rij span:first-child { color: var(--grijs); }
 .form-acties { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.8rem; }
 .status-acties { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.3rem 0 0; }
 .status-acties button { border: 1px solid var(--blauw); color: var(--blauw); background: white; border-radius: 6px; padding: 0.5rem 0.9rem; font-weight: 600; }
-/* Vrije statuswijziging: altijd beschikbaar, los van de voorgestelde snelknoppen
-   hierboven — visueel bewust rustiger (kleinere, grijzere tekst) zodat de
-   voorgestelde volgende stap de aandacht blijft trekken. */
-.status-override { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--grijs-licht); }
-.status-override label { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0; font-size: 0.82rem; font-weight: 500; color: var(--grijs); }
-.status-override select { width: auto; }
-.status-override button { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
+/* Compactere foutmelding-alinea's (bv. onder de periode-kalender en de
+   "product toevoegen"-rij) — anders houdt een lege alinea al ruimte vrij door
+   de standaard alinea-marges van de browser, wat het Periode/Producten-blok
+   onnodig hoog maakt. */
+.foutmelding { margin: 0.15rem 0; }
 .historiek-item { font-size: 0.82rem; color: var(--grijs); padding: 0.2rem 0; }
 .gevaar-zone { margin-top: 0; }
 
@@ -399,16 +420,20 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 }
 .paneel > h4:first-child { margin-top: 0; }
 
-/* Indeling van het dossier: (periode+producten, daaronder klantgegevens) | financieel.
-   De linkerkolom krijgt zo meer breedte voor de productentabel; klantgegevens
-   staat eronder, wat voor een eenvoudige gegevenslijst minder ruimte hoeft. */
+/* Indeling van het dossier: periode+producten | financieel naast elkaar, en
+   klantgegevens daaronder over de volledige breedte (met zijn velden in 2
+   kolommen) — dat blok heeft immers meer velden dan de smalle kolom toeliet. */
 .detail-layout { display: grid; grid-template-columns: 1.6fr 1fr; gap: 1.2rem; align-items: start; margin-bottom: 1.2rem; }
-.detail-kolom-links { display: flex; flex-direction: column; gap: 1.2rem; min-width: 0; }
 .detail-kolom { min-width: 0; }
 .detail-kolom-kop { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
-.detail-kolom-kop h4 { margin-bottom: 0; }
+.detail-kolom-kop h4 { margin-bottom: 0; margin-top: 0; }
+.detail-kolom-klant .grid-2 .detail-rij { padding: 0.25rem 0; }
 .product-regel { align-items: center; }
 .product-regel .btn-product-verwijderen { margin-left: 0.4rem; }
+.product-prijs-invoer { width: 4.5rem; text-align: right; padding: 0.15rem 0.3rem; }
+/* De periode-kalender in het dossier staat in een krapper blok samen met de
+   productenlijst -> iets minder interne padding dan de volle-breedte kalenders. */
+.detail-kolom-producten .kalender-widget-compact { padding: 0.9rem 1rem; }
 .product-toevoegen-rij { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.6rem; flex-wrap: wrap; }
 .product-toevoegen-rij select { flex: 1 1 auto; min-width: 0; }
 .product-toevoegen-rij #dp-aantal { width: 4rem; flex: 0 0 auto; }
@@ -443,6 +468,11 @@ details.paneel .paneel-inhoud > h4:first-child { margin-top: 0; }
 .prijstabel-saldo { font-weight: 700; }
 .prijstabel-saldo span:last-child { color: #b5390a; }
 .prijstabel-saldo.voldaan span:last-child { color: #1a7a3c; }
+
+/* Saldo-kolom in het boekingenoverzicht: openstaand bedrag i.p.v. de totale
+   waarde, zodat meteen duidelijk is wat nog betaald moet worden. */
+.saldo-cel { font-weight: 700; color: #b5390a; }
+.saldo-cel.voldaan { color: #1a7a3c; }
 button.secundair { border: 1px solid var(--blauw); color: var(--blauw); background: white; border-radius: 6px; padding: 0.4rem 0.8rem; font-weight: 600; font-size: 0.82rem; margin: 0.2rem 0 0.6rem; }
 .veld-met-wissen { display: flex; align-items: center; gap: 0.2rem; }
 .veld-met-wissen .linkbtn { padding: 0.3rem 0.2rem; font-size: 0.9rem; }
