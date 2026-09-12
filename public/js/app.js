@@ -217,7 +217,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['aanvragen', 'boekingen', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'boeking-detail'];
+const views = ['aanvragen', 'boekingen', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'webinzendingen', 'boeking-detail'];
 
 function huidigeViewNaam() {
   return views.find((v) => v !== 'boeking-detail' && !document.getElementById(`view-${v}`).hidden) || 'boekingen';
@@ -235,6 +235,7 @@ function wisselView(naam) {
   if (naam === 'beschikbaarheid') laadBeschikbaarheidsoverzicht();
   if (naam === 'nieuwe-boeking' && !document.getElementById('producten-rijen').children.length) nieuweProductRij();
   if (naam === 'producten') laadProductenOverzicht();
+  if (naam === 'webinzendingen') laadWebinzendingen();
 }
 
 document.querySelectorAll('.navbtn').forEach((btn) => {
@@ -1674,6 +1675,68 @@ async function openProductDetail(productId) {
   });
 
   modalProduct.hidden = false;
+}
+
+// ============================================================
+// WEBSITE-FORMULIER (test-koppeling) — toont ruwe inzendingen die via de
+// webhook binnenkomen (bv. vanuit Gravity Forms), enkel ter observatie. Er
+// wordt hier bewust nog niets automatisch omgezet in een aanvraag/boeking.
+// ============================================================
+function fmtDatumTijd(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString('nl-BE', {
+    day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit',
+  });
+}
+
+// Best-effort: probeer een klantnaam te herkennen in de ruwe formulierdata,
+// puur voor een leesbaar kaartopschrift — de rest van de velden tonen we
+// hieronder gewoon allemaal, ongeacht hoe Gravity Forms ze precies noemt.
+function raadWebinzendingTitel(data) {
+  const voornaam = data['Voornaam'] || data.voornaam || '';
+  const achternaam = data['Achternaam'] || data.achternaam || '';
+  const naam = `${voornaam} ${achternaam}`.trim();
+  return naam || data['Product'] || data.product || 'Website-inzending';
+}
+
+async function laadWebinzendingen() {
+  const container = document.getElementById('lijst-webinzendingen');
+  container.innerHTML = '<p class="leeg-bericht">Laden...</p>';
+  let inzendingen;
+  try {
+    inzendingen = await api('/api/webinzendingen/website-formulier');
+  } catch (err) {
+    container.innerHTML = `<p class="foutmelding">Kon inzendingen niet ophalen: ${err.message}</p>`;
+    return;
+  }
+  if (!inzendingen.length) {
+    container.innerHTML = '<p class="leeg-bericht">Nog geen inzendingen ontvangen. Zodra de webhook op de website is ingesteld, verschijnen nieuwe formulier-inzendingen hier.</p>';
+    return;
+  }
+  container.innerHTML = inzendingen.map((inz) => `
+    <div class="kaart webinzending${inz.verwerkt ? ' webinzending-bekeken' : ''}" data-id="${inz.id}">
+      <div class="kaart-info">
+        <h3>${raadWebinzendingTitel(inz.ruwe_data)}</h3>
+        <p>${fmtDatumTijd(inz.ontvangen_op)}${inz.verwerkt ? ' · bekeken' : ''}</p>
+        <div class="webinzending-velden">
+          ${Object.entries(inz.ruwe_data || {}).map(([label, waarde]) => `
+            <div class="detail-rij"><span>${label}</span><span>${(waarde ?? '—') || '—'}</span></div>
+          `).join('')}
+        </div>
+      </div>
+      <div class="kaart-acties">
+        ${!inz.verwerkt ? `<button type="button" class="btn-webinzending-bekeken" data-id="${inz.id}">Markeer als bekeken</button>` : ''}
+      </div>
+    </div>
+  `).join('');
+  container.querySelectorAll('.btn-webinzending-bekeken').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      await api(`/api/webinzendingen/website-formulier/${btn.dataset.id}/verwerkt`, { method: 'POST' });
+      laadWebinzendingen();
+    });
+  });
 }
 
 // ============================================================

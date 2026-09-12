@@ -11,6 +11,7 @@ const authRoutes = require('./routes/auth');
 const klantenRoutes = require('./routes/klanten');
 const productenRoutes = require('./routes/producten');
 const boekingenRoutes = require('./routes/boekingen');
+const webinzendingenRoutes = require('./routes/webinzendingen');
 
 const app = express();
 
@@ -21,6 +22,9 @@ app.set('trust proxy', 1);
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || true, credentials: true }));
 app.use(express.json());
+// Gravity Forms' "Webhooks"-uitbreiding kan een inzending ook als gewone
+// formuliervelden (in plaats van JSON) versturen — deze parser vangt dat op.
+app.use(express.urlencoded({ extended: true }));
 
 app.use(
   session({
@@ -43,6 +47,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/klanten', klantenRoutes);
 app.use('/api/producten', productenRoutes);
 app.use('/api/boekingen', boekingenRoutes);
+app.use('/api/webinzendingen', webinzendingenRoutes);
 
 // Beheerscherm (statische front-end) — public/index.html is het startpunt
 app.use(express.static(path.join(__dirname, '..', 'public')));

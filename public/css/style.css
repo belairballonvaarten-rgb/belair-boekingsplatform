@@ -124,6 +124,18 @@ button[type="submit"]:hover, .login-box button:hover, .primaire-actie:hover { ba
   font-size: 0.75rem;
   margin-left: 0.3rem;
 }
+.badge-test { background: var(--oranje); text-transform: uppercase; letter-spacing: 0.03em; }
+
+/* WEBSITE-FORMULIER (test-koppeling) */
+.kaart.webinzending { flex-direction: column; align-items: stretch; }
+.kaart.webinzending.webinzending-bekeken { opacity: 0.6; }
+.webinzending-velden { margin-top: 0.6rem; border-top: 1px solid var(--grijs-licht); padding-top: 0.4rem; }
+.webinzending-velden .detail-rij span:first-child { font-weight: 600; color: #374151; max-width: 45%; }
+.webinzending-velden .detail-rij span:last-child { text-align: right; word-break: break-word; }
+.btn-webinzending-bekeken {
+  border: 1px solid var(--rand); background: white; border-radius: 6px;
+  padding: 0.4rem 0.8rem; font-size: 0.85rem; font-weight: 600; align-self: flex-start;
+}
 
 main { padding: 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
 .pagina h2 { color: var(--blauw-donker); }
