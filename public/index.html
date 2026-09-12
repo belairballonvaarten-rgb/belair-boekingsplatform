@@ -192,8 +192,25 @@
                 <option value="afhaling">Afhaling door klant</option>
               </select>
             </label>
-            <label>Type ondergrond<input type="text" id="type-ondergrond" placeholder="bv. steen, gras" /></label>
-            <label>Toegankelijkheid<input type="text" id="toegankelijkheid" placeholder="bv. vrije doorgang" /></label>
+            <label>Type ondergrond
+              <select id="type-ondergrond">
+                <option value=""></option>
+                <option value="Gras">Gras</option>
+                <option value="Steen">Steen</option>
+                <option value="Braakliggend">Braakliggend</option>
+                <option value="Zand">Zand</option>
+                <option value="Klinkers">Klinkers</option>
+              </select>
+            </label>
+            <label>Toegankelijkheid
+              <select id="toegankelijkheid">
+                <option value=""></option>
+                <option value="Vrije doorgang">Vrije doorgang</option>
+                <option value="Smalle doorgang">Smalle doorgang</option>
+                <option value="Trappen aanwezig">Trappen aanwezig</option>
+                <option value="Moeilijk bereikbaar">Moeilijk bereikbaar</option>
+              </select>
+            </label>
             <label>Tijdstip levering<select id="voorkeur-levering"></select></label>
             <label>Tijdstip afhaling<select id="voorkeur-afhaling"></select></label>
           </div>
@@ -201,8 +218,10 @@
           <label class="checkbox">
             <input type="checkbox" id="adres-idem-klant" /> Plaatsingsadres is hetzelfde als het adres van de klant
           </label>
-          <div id="veld-leveringsadres">
-            <label>Plaatsingsadres<input type="text" id="leveringsadres" /></label>
+          <div id="veld-leveringsadres" class="grid-2">
+            <label>Straat + nr<input type="text" id="leveringsadres-straat" /></label>
+            <label>Postcode<input type="text" id="leveringsadres-postcode" /></label>
+            <label>Gemeente<input type="text" id="leveringsadres-gemeente" /></label>
           </div>
         </fieldset>
 

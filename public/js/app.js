@@ -30,8 +30,22 @@ const STATUS_KLEUR = {
   geweigerd: 'grijs',
 };
 
-function statusPillHtml(status) {
-  return `<span class="status-pill status-${STATUS_KLEUR[status] || 'grijs'}">${STATUS_LABELS[status]}</span>`;
+// De letterlijke status "Betaald (volledig)" garandeert niet dat het saldo ook
+// echt op 0 staat — Jonas kan via de statusbalk bewust rechtstreeks naar de
+// fase "Klaar voor levering" springen zonder het betaalverzoek-tussenstapje te
+// doorlopen. Overal waar de status als badge/pill getoond wordt (dossier,
+// boekingenoverzicht, ...) moet dit dan ook duidelijk zijn — dezelfde regel
+// die de statusbalk zelf al gebruikt (zie statusStepperHtml hieronder).
+// saldoOpenstaand is optioneel: enkel meegeven waar het gekend is.
+function weergaveStatusLabel(status, saldoOpenstaand) {
+  if (status === 'betaald_volledig' && saldoOpenstaand != null && Number(saldoOpenstaand) > 0.01) {
+    return 'Klaar voor levering (open saldo)';
+  }
+  return STATUS_LABELS[status];
+}
+
+function statusPillHtml(status, saldoOpenstaand) {
+  return `<span class="status-pill status-${STATUS_KLEUR[status] || 'grijs'}">${weergaveStatusLabel(status, saldoOpenstaand)}</span>`;
 }
 
 // Kleine, kort-zichtbare bevestiging onderaan het scherm — vooral bedoeld voor
@@ -300,8 +314,10 @@ async function laadAanvragen() {
       <div class="kaart-info">
         <h3>${b.klant_naam} ${statusPillHtml(b.status)}${speciaalSterHtml(b)}</h3>
         <p>📅 ${fmtDatum(b.gewenste_datum_start)}${b.gewenste_datum_start !== b.gewenste_datum_einde ? ' – ' + fmtDatum(b.gewenste_datum_einde) : ''}</p>
+        <p>🎪 ${b.producten_namen || '—'}</p>
         <p>📍 ${b.leveringsadres || '—'}</p>
         <p>📞 ${b.klant_telefoon || '—'}</p>
+        <p class="beschikbaarheid-badge" data-boeking-id="${b.id}">⏳ Beschikbaarheid controleren…</p>
       </div>
       <div class="kaart-acties"></div>
     `;
@@ -319,6 +335,31 @@ async function laadAanvragen() {
     acties.appendChild(bekijkKnop);
 
     container.appendChild(kaart);
+  }
+
+  // Beschikbaarheid per aanvraag apart (en async) ophalen i.p.v. de hele lijst te
+  // laten wachten op elke controle — zo verschijnt de inbox meteen, en verschijnt
+  // de beschikbaarheid-badge van elke kaart zodra die gekend is. Belangrijk bij
+  // (o.a. automatisch vanuit het website-formulier aangemaakte) aanvragen die al
+  // even blijven liggen: de beschikbaarheid kan ondertussen gewijzigd zijn door
+  // een andere boeking op dezelfde datum.
+  for (const b of aanvragen) {
+    api(`/api/boekingen/${b.id}/beschikbaarheid`)
+      .then((resultaat) => {
+        const el = container.querySelector(`.beschikbaarheid-badge[data-boeking-id="${b.id}"]`);
+        if (!el) return;
+        if (resultaat.beschikbaar) {
+          el.textContent = '✓ Nog beschikbaar';
+          el.className = 'beschikbaarheid-badge beschikbaarheid-ok';
+        } else {
+          el.textContent = `⚠ Niet meer beschikbaar — ${resultaat.problemen.join('; ')}`;
+          el.className = 'beschikbaarheid-badge beschikbaarheid-fout';
+        }
+      })
+      .catch(() => {
+        const el = container.querySelector(`.beschikbaarheid-badge[data-boeking-id="${b.id}"]`);
+        if (el) el.textContent = '';
+      });
   }
 }
 
@@ -402,6 +443,37 @@ function ontleedAdresVrijeTekst(adres) {
   return { straat: adres, postcode: '', gemeente: '' };
 }
 
+// Zelfde opsplitsing als hierboven, maar voor het VOORINVULLEN van een
+// bewerkbaar formulierveld — daar mag geen "—" in het straat-veld verschijnen
+// als het adres leeg is (dat betekent hier: "leeg = adres van de klant" moet
+// leeg blijven, niet stilzwijgend vastklikken op de weergave-placeholder).
+function ontleedAdresVoorFormulier(adres) {
+  if (!adres) return { straat: '', postcode: '', gemeente: '' };
+  return ontleedAdresVrijeTekst(adres);
+}
+
+// Vaste opties voor "Type ondergrond"/"Toegankelijkheid" in het dossier — zelfde
+// lijst als het dropdown-menu op het live aanvraagformulier van de website.
+// "Toegankelijkheid" stond op het aanvraagformulier enkel als voorbeeldwaarde
+// ("Vrije doorgang") zichtbaar, niet als volledige lijst — deze 4 opties zijn
+// een redelijke inschatting; Jonas kan dit laten aanpassen indien de website
+// een andere/langere lijst gebruikt.
+const ONDERGROND_OPTIES = ['Gras', 'Steen', 'Braakliggend', 'Zand', 'Klinkers'];
+const TOEGANKELIJKHEID_OPTIES = ['Vrije doorgang', 'Smalle doorgang', 'Trappen aanwezig', 'Moeilijk bereikbaar'];
+
+// Bouwt <option>-elementen voor een vaste keuzelijst, met een lege eerste optie
+// (voor "niet ingevuld") en — belangrijk — de HUIDIGE waarde als extra optie
+// toegevoegd wanneer die niet in de standaardlijst voorkomt. Zo verdwijnt een
+// oudere, vrij ingetypte waarde (van vóór deze dropdown er was) niet stilzwijgend
+// uit beeld zodra het dossier opnieuw bewaard wordt.
+function bouwKeuzeOpties(opties, huidigeWaarde) {
+  const lijst = opties.slice();
+  if (huidigeWaarde && !lijst.includes(huidigeWaarde)) lijst.push(huidigeWaarde);
+  return '<option value=""></option>' + lijst
+    .map((o) => `<option value="${o}" ${o === huidigeWaarde ? 'selected' : ''}>${o}</option>`)
+    .join('');
+}
+
 async function laadBoekingenOverzicht() {
   const params = huidigeBoekingenFilterParams();
   const boekingen = await api(`/api/boekingen?${params.toString()}`);
@@ -438,7 +510,7 @@ async function laadBoekingenOverzicht() {
       <td>${adres.gemeente}</td>
       <td>${b.klant_naam}</td>
       <td class="saldo-cel${saldoVoldaan ? ' voldaan' : ''}" title="Totale waarde: ${fmtEuro(b.waarde)}">${saldoVoldaan ? '✓ Voldaan' : fmtEuro(saldo)}</td>
-      <td>${statusPillHtml(b.status)}${speciaalSterHtml(b)}</td>
+      <td>${statusPillHtml(b.status, saldo)}${speciaalSterHtml(b)}</td>
       <td>Bekijk →</td>
     `;
     tr.addEventListener('click', () => openDetail(b.id));
@@ -546,9 +618,21 @@ async function openDetail(boekingId) {
   const dpOnbeschikbaar = await bepaalOnbeschikbareProductIds(b.gewenste_datum_start, b.gewenste_datum_einde, boekingId);
   const dpEersteCategorie = eersteCategorieMetProducten();
 
+  // De prijs zelf wordt niet meer hier, maar in de Prijstabel hiernaast getoond/
+  // bewerkt (zie prijstabelProductenHtml) — hier enkel welke producten (en
+  // hoeveel) er op deze boeking staan, en de mogelijkheid om er één te verwijderen.
   const productenHtml = b.producten
-    .map((p) => `<div class="detail-rij product-regel"><span>${p.product_naam} × ${p.aantal}</span><span>€ <input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${p.id}" value="${Number(p.prijs).toFixed(2)}" title="Automatisch voorgestelde prijs o.b.v. dagprijs/weekendprijs — hier manueel bij te sturen" /> <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`)
+    .map((p) => `<div class="detail-rij product-regel"><span>${p.product_naam} × ${p.aantal}</span><span>${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`)
     .join('');
+
+  // In de Prijstabel zelf staat elk product als aparte, manueel bij te sturen
+  // regel (automatisch voorgesteld o.b.v. dagprijs/weekendprijs en het aantal
+  // dagen, maar hier altijd te overschrijven) — dat is waar Jonas de prijzen
+  // effectief controleert/aanpast, los van de Producten-lijst hiernaast die
+  // enkel gaat over wélke producten (en hoeveel) er op deze boeking staan.
+  const prijstabelProductenHtml = b.producten.length
+    ? b.producten.map((pr) => `<div class="prijstabel-rij prijstabel-productregel"><span>${pr.product_naam}${pr.aantal > 1 ? ' × ' + pr.aantal : ''}</span><span>€ <input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${pr.id}" value="${Number(pr.prijs).toFixed(2)}" title="Automatisch voorgestelde prijs o.b.v. dagprijs/weekendprijs — hier manueel bij te sturen" /></span></div>`).join('')
+    : '<div class="prijstabel-rij prijstabel-sub"><span>Geen producten</span><span></span></div>';
 
   const historiekHtml = b.historiek
     .map((h) => `<div class="historiek-item">${fmtDatum(h.gewijzigd_op)} — ${h.van_status ? STATUS_LABELS[h.van_status] + ' → ' : ''}${STATUS_LABELS[h.naar_status]}${h.opmerking ? ' (' + h.opmerking + ')' : ''}</div>`)
@@ -564,6 +648,10 @@ async function openDetail(boekingId) {
   const adresVolledig = b.leveringsadres || [b.klant_adres, [b.klant_postcode, b.klant_gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ');
   const mapsUrl = adresVolledig ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(adresVolledig)}` : null;
   const adresOntleed = ontleedAdresVrijeTekst(adresVolledig);
+  // Voor het bewerkformulier: enkel het echte plaatsingsadres (b.leveringsadres),
+  // NIET de fallback naar het adres van de klant — anders zou "leeg = adres van
+  // de klant" bij het opslaan stilzwijgend veranderen in een hardgecodeerde kopie.
+  const kgAdresOntleed = ontleedAdresVoorFormulier(b.leveringsadres);
 
   const p = b.prijstabel;
   const betalingLogHtml = (b.betaling_transacties || [])
@@ -592,7 +680,7 @@ async function openDetail(boekingId) {
 
   inhoud.innerHTML = `
     <div class="paneel">
-      <h3>${b.klant_naam} ${statusPillHtml(b.status)}${speciaalSterHtml(b)}</h3>
+      <h3>${b.klant_naam} ${statusPillHtml(b.status, b.prijstabel.saldo_openstaand)}${speciaalSterHtml(b)}</h3>
       ${b.speciaal_verzoek ? `<div class="speciaal-verzoek-banner">⭑ Speciaal verzoek${b.speciaal_verzoek_notitie ? ': ' + b.speciaal_verzoek_notitie : ''}</div>` : ''}
       ${statusStepperHtml(b.status, b.prijstabel.saldo_openstaand)}
       <p class="uitleg" style="margin: 0 0 0.4rem;">Klik op een fase hierboven om ernaartoe te springen, of klik de actieve fase nogmaals aan om terug te gaan naar de vorige status.</p>
@@ -619,7 +707,8 @@ async function openDetail(boekingId) {
       <div class="detail-kolom detail-kolom-financieel paneel">
         <h4>Prijstabel &amp; betaling</h4>
         <div class="prijstabel">
-          <div class="prijstabel-rij"><span>Producten</span><span>${fmtEuro(p.subtotaal_producten)}</span></div>
+          ${prijstabelProductenHtml}
+          <div class="prijstabel-rij prijstabel-sub"><span>Subtotaal producten</span><span>${fmtEuro(p.subtotaal_producten)}</span></div>
           <div class="prijstabel-rij"><span>Levering / transport</span><span>${fmtEuro(p.transportkost)}</span></div>
           <div class="prijstabel-rij">
             <span>Toeslag / korting</span>
@@ -679,9 +768,11 @@ async function openDetail(boekingId) {
             <option value="afhaling" ${b.leveringswijze === 'afhaling' ? 'selected' : ''}>Afhaling door klant</option>
           </select>
         </label>
-        <label>Plaatsingsadres<input type="text" id="kg-leveringsadres" value="${b.leveringsadres || ''}" placeholder="leeg = adres van de klant" /></label>
-        <label>Type ondergrond<input type="text" id="kg-ondergrond" value="${b.type_ondergrond || ''}" /></label>
-        <label>Toegankelijkheid<input type="text" id="kg-toegankelijkheid" value="${b.toegankelijkheid || ''}" /></label>
+        <label>Straat + nr<input type="text" id="kg-straat" value="${kgAdresOntleed.straat}" placeholder="leeg = adres van de klant" /></label>
+        <label>Postcode<input type="text" id="kg-postcode" value="${kgAdresOntleed.postcode}" /></label>
+        <label>Gemeente<input type="text" id="kg-gemeente" value="${kgAdresOntleed.gemeente}" /></label>
+        <label>Type ondergrond<select id="kg-ondergrond">${bouwKeuzeOpties(ONDERGROND_OPTIES, b.type_ondergrond)}</select></label>
+        <label>Toegankelijkheid<select id="kg-toegankelijkheid">${bouwKeuzeOpties(TOEGANKELIJKHEID_OPTIES, b.toegankelijkheid)}</select></label>
         <label>Tijdstip levering<select id="kg-tijdstip-levering"></select></label>
         <label>Tijdstip afhaling<select id="kg-tijdstip-afhaling"></select></label>
         <label class="checkbox" style="grid-column: 1 / -1;">
@@ -786,6 +877,16 @@ async function openDetail(boekingId) {
     const elFout = document.getElementById('klantgegevens-fout');
     elFout.textContent = '';
     try {
+      // Straat/postcode/gemeente herbouwen tot één adresstring (zoals overal
+      // elders in de app opgeslagen/getoond) — enkel wanneer minstens één van
+      // de 3 velden is ingevuld; anders blijft dit null, dus "leeg = adres van
+      // de klant" (zie ontleedAdresVoorFormulier hierboven).
+      const kgStraat = document.getElementById('kg-straat').value.trim();
+      const kgPostcode = document.getElementById('kg-postcode').value.trim();
+      const kgGemeente = document.getElementById('kg-gemeente').value.trim();
+      const kgLeveringsadres = (kgStraat || kgPostcode || kgGemeente)
+        ? [kgStraat, [kgPostcode, kgGemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+        : null;
       await Promise.all([
         api(`/api/klanten/${b.klant_id}`, {
           method: 'PUT',
@@ -799,7 +900,7 @@ async function openDetail(boekingId) {
           method: 'PUT',
           body: JSON.stringify({
             leveringswijze: document.getElementById('kg-leveringswijze').value,
-            leveringsadres: document.getElementById('kg-leveringsadres').value.trim() || null,
+            leveringsadres: kgLeveringsadres,
             type_ondergrond: document.getElementById('kg-ondergrond').value.trim() || null,
             toegankelijkheid: document.getElementById('kg-toegankelijkheid').value.trim() || null,
             voorkeur_tijdstip_levering: document.getElementById('kg-tijdstip-levering').value || null,
@@ -987,9 +1088,18 @@ async function openDetail(boekingId) {
   inhoud.querySelectorAll('.btn-product-verwijderen').forEach((btn) => {
     btn.addEventListener('click', async () => {
       if (!confirm('Dit product uit de boeking verwijderen?')) return;
-      await api(`/api/boekingen/${boekingId}/producten/${btn.dataset.id}`, { method: 'DELETE' });
-      openDetail(boekingId);
-      laadBoekingenOverzicht();
+      try {
+        await api(`/api/boekingen/${boekingId}/producten/${btn.dataset.id}`, { method: 'DELETE' });
+        toonToast('Product verwijderd');
+        await openDetail(boekingId);
+        laadBoekingenOverzicht();
+      } catch (err) {
+        // Zonder dit zou een mislukte verwijdering (bv. even geen verbinding)
+        // stilzwijgend niets doen: het product blijft staan én het totaal
+        // klopt dan nog steeds, maar zonder duidelijke melding lijkt dat een
+        // bug ("ik heb het gewist maar het bedrag past niet aan").
+        document.getElementById('product-toevoegen-fout').textContent = `Kon product niet verwijderen: ${err.message}`;
+      }
     });
   });
 
@@ -998,13 +1108,17 @@ async function openDetail(boekingId) {
   inhoud.querySelectorAll('.product-prijs-invoer').forEach((el) => {
     el.addEventListener('change', async () => {
       const nieuwePrijs = el.value !== '' ? parseFloat(el.value) : 0;
-      await api(`/api/boekingen/${boekingId}/producten/${el.dataset.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({ prijs: nieuwePrijs }),
-      });
-      toonToast('Prijs opgeslagen');
-      openDetail(boekingId);
-      laadBoekingenOverzicht();
+      try {
+        await api(`/api/boekingen/${boekingId}/producten/${el.dataset.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ prijs: nieuwePrijs }),
+        });
+        toonToast('Prijs opgeslagen');
+        await openDetail(boekingId);
+        laadBoekingenOverzicht();
+      } catch (err) {
+        document.getElementById('product-toevoegen-fout').textContent = `Kon prijs niet opslaan: ${err.message}`;
+      }
     });
   });
 
@@ -1564,6 +1678,12 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
     if (!document.getElementById('datum-start').value) throw new Error('Kies een datum (of periode) in de kalender.');
 
     const adresIdemKlant = document.getElementById('adres-idem-klant').checked;
+    const nbStraat = document.getElementById('leveringsadres-straat').value.trim();
+    const nbPostcode = document.getElementById('leveringsadres-postcode').value.trim();
+    const nbGemeente = document.getElementById('leveringsadres-gemeente').value.trim();
+    const nbLeveringsadres = (nbStraat || nbPostcode || nbGemeente)
+      ? [nbStraat, [nbPostcode, nbGemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+      : null;
 
     const boeking = await api('/api/boekingen', {
       method: 'POST',
@@ -1574,7 +1694,7 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
         gewenste_datum_einde: document.getElementById('datum-einde').value || document.getElementById('datum-start').value,
         leveringswijze: document.getElementById('leveringswijze').value,
         adres_idem_klant: adresIdemKlant,
-        leveringsadres: adresIdemKlant ? null : (document.getElementById('leveringsadres').value || null),
+        leveringsadres: adresIdemKlant ? null : nbLeveringsadres,
         type_ondergrond: document.getElementById('type-ondergrond').value || null,
         toegankelijkheid: document.getElementById('toegankelijkheid').value || null,
         voorkeur_tijdstip_levering: document.getElementById('voorkeur-levering').value || null,

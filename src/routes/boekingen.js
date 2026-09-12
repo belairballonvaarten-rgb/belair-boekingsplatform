@@ -300,6 +300,34 @@ router.get('/:id', asyncHandler(async (req, res) => {
   });
 }));
 
+// Controleert of alle producten van deze (al bestaande) aanvraag/boeking nog
+// steeds beschikbaar zijn op de aangevraagde datum — vooral bedoeld voor de
+// aanvragen-inbox: een aanvraag kan (bv. automatisch vanuit het website-formulier,
+// of gewoon omdat Jonas ze nog niet meteen behandelt) een tijdje blijven liggen,
+// en ondertussen kan een andere boeking hetzelfde product op diezelfde datum
+// hebben geclaimd. Sluit de boeking zelf uit bij de check (anders zou ze zichzelf
+// als bezetting meetellen).
+router.get('/:id/beschikbaarheid', asyncHandler(async (req, res) => {
+  const { rows: boekingRows } = await db.query('SELECT * FROM boekingen WHERE id = $1', [req.params.id]);
+  const boeking = boekingRows[0];
+  if (!boeking) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+
+  const { rows: producten } = await db.query(
+    `SELECT bp.product_id, bp.aantal, p.naam AS product_naam FROM boeking_producten bp
+     JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
+    [req.params.id]
+  );
+
+  const problemen = [];
+  for (const p of producten) {
+    const check = await checkBeschikbaarheid(
+      p.product_id, boeking.gewenste_datum_start, boeking.gewenste_datum_einde, p.aantal, req.params.id
+    );
+    if (!check.beschikbaar) problemen.push(`${p.product_naam}: ${check.reden}`);
+  }
+  res.json({ beschikbaar: problemen.length === 0, problemen });
+}));
+
 // Afstand (en transportkost-suggestie) manueel laten herberekenen — bv. na een
 // adreswijziging, of als de automatische berekening niet klopte. De officiële
 // transportkost (die meetelt in het totaal) wordt hier NIET aangepast — enkel
