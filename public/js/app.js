@@ -256,7 +256,12 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['aanvragen', 'boekingen', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'webinzendingen', 'boeking-detail'];
+const views = ['aanvragen', 'boekingen', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'boeking-detail'];
+// Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
+// ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
+// de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
+// binnenkomende aanvragen van de website blijven dus normaal binnenlopen),
+// enkel het "test"-tabblad is niet langer zichtbaar in het menu.
 
 function huidigeViewNaam() {
   return views.find((v) => v !== 'boeking-detail' && !document.getElementById(`view-${v}`).hidden) || 'boekingen';
@@ -1297,6 +1302,16 @@ function eersteCategorieMetProducten() {
   return '';
 }
 
+// Vaste lijst van de 5 échte categorieën, los van welke producten er op dit
+// moment al in zitten — gebruikt bij het bewerken van een product, zodat je
+// een product ook naar een (nu nog lege of verkeerd ingevulde) categorie kan
+// verplaatsen.
+function bouwCategorieKeuzeOpties(geselecteerdeCategorie) {
+  return PRODUCT_CATEGORIE_VOLGORDE
+    .map((c) => `<option value="${c}" ${c === geselecteerdeCategorie ? 'selected' : ''}>${c}</option>`)
+    .join('');
+}
+
 function bouwCategorieOpties(geselecteerdeCategorie) {
   const groepen = productenPerCategorie();
   let html = '';
@@ -1885,8 +1900,12 @@ document.getElementById('form-bulk-import').addEventListener('submit', async (e)
       body: JSON.stringify({ regels }),
     });
     elResultaat.textContent = `Klaar: ${res.aangemaakt} nieuw aangemaakt, ${res.bijgewerkt} bijgewerkt.`
-      + (res.overgeslagen.length ? ` ${res.overgeslagen.length} overgeslagen (zie console).` : '');
+      + (res.overgeslagen.length ? ` ${res.overgeslagen.length} overgeslagen (zie console).` : '')
+      + (res.onherkendeCategorie && res.onherkendeCategorie.length
+        ? ` Let op: bij ${res.onherkendeCategorie.length} product(en) werd de categorie niet herkend (in "Overige" beland, zie console) — controleer de schrijfwijze of pas de categorie manueel aan via het product.`
+        : '');
     if (res.overgeslagen.length) console.warn('Overgeslagen rijen bij bulk-import:', res.overgeslagen);
+    if (res.onherkendeCategorie && res.onherkendeCategorie.length) console.warn('Onherkende categorie bij bulk-import:', res.onherkendeCategorie);
     document.getElementById('bi-regels').value = '';
     document.getElementById('bulk-import-details').open = false;
     laadProductenOverzicht();
@@ -1914,6 +1933,9 @@ async function openProductDetail(productId) {
     <form id="form-product-bewerken">
       <div class="grid-2">
         <label>Naam<input type="text" id="pb-naam" value="${p.naam}" /></label>
+        <label>Categorie
+          <select id="pb-categorie">${bouwCategorieKeuzeOpties((p.categorieen && p.categorieen[0]) || '')}</select>
+        </label>
         <label>Dagprijs (€)<input type="number" id="pb-prijs" step="0.01" min="0" value="${p.prijs}" /></label>
         <label>Weekendprijs (€)<input type="number" id="pb-weekendprijs" step="0.01" min="0" value="${p.weekendprijs != null ? p.weekendprijs : ''}" /></label>
         <label>Afhaalprijs (€)<input type="number" id="pb-afhaalprijs" step="0.01" min="0" value="${p.afhaalprijs != null ? p.afhaalprijs : ''}" /></label>
@@ -1953,6 +1975,7 @@ async function openProductDetail(productId) {
         method: 'PUT',
         body: JSON.stringify({
           naam: document.getElementById('pb-naam').value,
+          categorieen: [document.getElementById('pb-categorie').value],
           prijs: parseFloat(document.getElementById('pb-prijs').value) || 0,
           weekendprijs: document.getElementById('pb-weekendprijs').value !== '' ? parseFloat(document.getElementById('pb-weekendprijs').value) : null,
           afhaalprijs: document.getElementById('pb-afhaalprijs').value !== '' ? parseFloat(document.getElementById('pb-afhaalprijs').value) : null,

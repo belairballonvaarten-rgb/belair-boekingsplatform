@@ -79,7 +79,14 @@ router.post('/', asyncHandler(async (req, res) => {
 // Bulk-import: CSV-tekst (Naam,Prijs,Type,Categorie[,Afbeelding]) in één keer verwerken.
 // Bestaat een product al (zelfde naam, hoofdletterongevoelig) dan wordt het bijgewerkt
 // i.p.v. dubbel aangemaakt — zo kan dezelfde lijst gerust meermaals geplakt worden.
-function parseCsvRegel(regel) {
+//
+// Excel op een Belgische/Nederlandse computer gebruikt vaak ";" i.p.v. "," als
+// scheidingsteken (en "," als decimaalteken) wanneer een .csv-bestand geopend
+// of opnieuw opgeslagen wordt — vandaar dat we hier zowel "," als ";" als
+// scheidingsteken herkennen i.p.v. altijd "," te veronderstellen.
+const PRODUCT_CATEGORIEEN_BEKEND = ['Springkastelen', 'Attracties', 'Obstakelbanen', 'Feestmaterialen', 'Servies/Bestek/glazen'];
+
+function parseCsvRegel(regel, scheidingsteken) {
   const velden = [];
   let huidig = '';
   let inAanhalingstekens = false;
@@ -93,7 +100,7 @@ function parseCsvRegel(regel) {
       }
     } else if (teken === '"') {
       inAanhalingstekens = true;
-    } else if (teken === ',') {
+    } else if (teken === scheidingsteken) {
       velden.push(huidig);
       huidig = '';
     } else {
@@ -104,6 +111,18 @@ function parseCsvRegel(regel) {
   return velden.map((v) => v.trim());
 }
 
+// Normaliseert de categorie-tekst naar één van de gekende categorieën
+// (hoofdletterongevoelig, spaties genegeerd) — zo breekt een kleine typfout
+// of hoofdletterverschil de indeling niet. Geen match? Dan geven we de
+// oorspronkelijke tekst terug (komt dan wel in "Overige" terecht) zodat er
+// niets verloren gaat, en melden we dit apart in het resultaat.
+function normaliseerCategorie(ruw) {
+  const naam = (ruw || '').trim();
+  if (!naam) return { categorie: '', herkend: true };
+  const gevonden = PRODUCT_CATEGORIEEN_BEKEND.find((c) => c.toLowerCase() === naam.toLowerCase());
+  return { categorie: gevonden || naam, herkend: Boolean(gevonden) };
+}
+
 router.post('/bulk-import', asyncHandler(async (req, res) => {
   const { regels } = req.body;
   if (!regels || typeof regels !== 'string' || !regels.trim()) {
@@ -111,16 +130,21 @@ router.post('/bulk-import', asyncHandler(async (req, res) => {
   }
 
   const lijnen = regels.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length);
-  const resultaat = { aangemaakt: 0, bijgewerkt: 0, overgeslagen: [] };
+  // Scheidingsteken bepalen o.b.v. de eerste regel: telkens wat het vaakst voorkomt.
+  const eersteRegel = lijnen[0] || '';
+  const scheidingsteken = (eersteRegel.split(';').length - 1) > (eersteRegel.split(',').length - 1) ? ';' : ',';
+
+  const resultaat = { aangemaakt: 0, bijgewerkt: 0, overgeslagen: [], onherkendeCategorie: [] };
 
   for (const lijn of lijnen) {
-    const [naamRuw, prijsRuw, typeRuw, categorieRuw, afbeeldingRuw] = parseCsvRegel(lijn);
+    const [naamRuw, prijsRuw, typeRuw, categorieRuw, afbeeldingRuw] = parseCsvRegel(lijn, scheidingsteken);
     const naam = (naamRuw || '').trim();
     if (!naam || naam.toLowerCase() === 'naam') continue; // lege regel of kopregel overslaan
 
     const prijs = parseFloat((prijsRuw || '0').replace(',', '.')) || 0;
     const zichtbaarheid = (typeRuw || '').trim().toLowerCase() === 'display only' ? 'hidden' : 'bookbaar';
-    const categorie = (categorieRuw || '').trim();
+    const { categorie, herkend } = normaliseerCategorie(categorieRuw);
+    if (categorie && !herkend) resultaat.onherkendeCategorie.push({ naam, categorie });
     const categorieen = categorie ? [categorie] : [];
     const afbeelding = (afbeeldingRuw || '').trim();
 
