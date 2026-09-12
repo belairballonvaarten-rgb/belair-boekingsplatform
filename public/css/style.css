@@ -259,6 +259,32 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .product-rij .verwijder { color: var(--rood); background: none; border: none; font-weight: 700; }
 
 /* BESCHIKBAARHEID-OVERZICHT */
+.beschikbaarheid-kiezer { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
+.beschikbaarheid-handmatig { flex: 1 1 220px; min-width: 220px; margin-top: 0; }
+
+/* Visuele maandkalender (Single Day / Date Range), naast de handmatige datumvelden. */
+.kalender-widget { background: white; border: 1px solid var(--grijs-licht); border-radius: 10px; padding: 1rem 1.1rem; width: 300px; flex: 0 0 auto; }
+.kalender-modus-tabs { display: flex; border: 1px solid var(--grijs-licht); border-radius: 8px; overflow: hidden; margin-bottom: 0.9rem; }
+.kalender-modus-knop { flex: 1 1 50%; border: none; background: white; color: var(--grijs); font-weight: 600; padding: 0.5rem 0.4rem; font-size: 0.82rem; }
+.kalender-modus-knop.actief { background: var(--blauw); color: white; }
+.kalender-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; font-weight: 700; color: var(--blauw-donker); }
+.kalender-nav .linkbtn { font-size: 1.1rem; padding: 0.1rem 0.5rem; }
+.kalender-dagnamen { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.75rem; color: var(--grijs); margin-bottom: 0.3rem; }
+.kalender-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 0.15rem; }
+.kalender-dag { aspect-ratio: 1 / 1; border: none; background: none; border-radius: 999px; font-size: 0.85rem; color: #374151; cursor: pointer; }
+.kalender-dag:hover { background: var(--grijs-licht); }
+.kalender-dag-leeg { cursor: default; }
+.kalender-dag-leeg:hover { background: none; }
+.kalender-vandaag { border: 1px solid var(--blauw); }
+.kalender-geselecteerd { background: var(--blauw); color: white; font-weight: 700; }
+.kalender-geselecteerd:hover { background: var(--blauw); }
+.kalender-in-bereik { background: #dbe9fb; border-radius: 0; }
+.kalender-onderaan { margin-top: 0.7rem; padding-top: 0.6rem; border-top: 1px solid var(--grijs-licht); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
+.kalender-geselecteerd-tekst { margin: 0; font-size: 0.82rem; color: var(--grijs); font-weight: 600; }
+@media (max-width: 700px) {
+  .kalender-widget { width: 100%; }
+}
+
 .beschikbaarheid-kolommen { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; margin-top: 1rem; }
 .beschikbaarheid-kolom { border-radius: 8px; padding: 0.8rem 1rem; }
 .beschikbaarheid-kolom h3 { margin-top: 0; font-size: 1rem; }
@@ -344,6 +370,13 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .form-acties { grid-column: 1 / -1; display: flex; align-items: center; gap: 0.8rem; }
 .status-acties { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.3rem 0 0; }
 .status-acties button { border: 1px solid var(--blauw); color: var(--blauw); background: white; border-radius: 6px; padding: 0.5rem 0.9rem; font-weight: 600; }
+/* Vrije statuswijziging: altijd beschikbaar, los van de voorgestelde snelknoppen
+   hierboven — visueel bewust rustiger (kleinere, grijzere tekst) zodat de
+   voorgestelde volgende stap de aandacht blijft trekken. */
+.status-override { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--grijs-licht); }
+.status-override label { display: flex; align-items: center; gap: 0.5rem; margin-bottom: 0; font-size: 0.82rem; font-weight: 500; color: var(--grijs); }
+.status-override select { width: auto; }
+.status-override button { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
 .historiek-item { font-size: 0.82rem; color: var(--grijs); padding: 0.2rem 0; }
 .gevaar-zone { margin-top: 0; }
 
@@ -355,8 +388,11 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 }
 .paneel > h4:first-child { margin-top: 0; }
 
-/* Drieledige indeling van het dossier: klantgegevens | periode+producten | financieel */
-.detail-layout { display: grid; grid-template-columns: 1fr 1.2fr 1fr; gap: 1.2rem; align-items: start; margin-bottom: 1.2rem; }
+/* Indeling van het dossier: (periode+producten, daaronder klantgegevens) | financieel.
+   De linkerkolom krijgt zo meer breedte voor de productentabel; klantgegevens
+   staat eronder, wat voor een eenvoudige gegevenslijst minder ruimte hoeft. */
+.detail-layout { display: grid; grid-template-columns: 1.6fr 1fr; gap: 1.2rem; align-items: start; margin-bottom: 1.2rem; }
+.detail-kolom-links { display: flex; flex-direction: column; gap: 1.2rem; min-width: 0; }
 .detail-kolom { min-width: 0; }
 .detail-kolom-kop { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
 .detail-kolom-kop h4 { margin-bottom: 0; }
@@ -399,6 +435,8 @@ details.paneel .paneel-inhoud > h4:first-child { margin-top: 0; }
 button.secundair { border: 1px solid var(--blauw); color: var(--blauw); background: white; border-radius: 6px; padding: 0.4rem 0.8rem; font-weight: 600; font-size: 0.82rem; margin: 0.2rem 0 0.6rem; }
 .veld-met-wissen { display: flex; align-items: center; gap: 0.2rem; }
 .veld-met-wissen .linkbtn { padding: 0.3rem 0.2rem; font-size: 0.9rem; }
+.toeslag-invoer { display: flex; align-items: center; gap: 0.3rem; }
+.toeslag-invoer select { width: auto; flex: 0 0 auto; padding: 0.5rem 0.4rem; }
 .betaling-log { max-height: 110px; overflow-y: auto; margin-bottom: 1rem; }
 .betaling-item { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }
 .betaling-item .linkbtn { padding: 0 0.2rem; font-size: 0.85rem; }

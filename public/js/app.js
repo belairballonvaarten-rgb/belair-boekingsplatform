@@ -52,22 +52,37 @@ const STATUS_FASEN = [
   { label: 'Klaar voor levering', kleur: 'groen', statussen: ['betaald_volledig', 'gefactureerd'] },
 ];
 
-function statusStepperHtml(status) {
+// saldoOpenstaand is optioneel: enkel gekend/relevant in het dossier zelf (niet in
+// de kleinere kaarten/rijen in de aanvragen-inbox of het overzicht). Wanneer de
+// actieve fase "Klaar voor levering" is, tonen we tussen haakjes of dit ook
+// effectief (al) volledig betaald is — want de status alleen garandeert dat niet,
+// zeker niet als een tussenstap (zoals het betaalverzoek) bewust overgeslagen werd.
+function statusStepperHtml(status, saldoOpenstaand) {
   if (status === 'geweigerd') {
     return '<div class="status-stepper"><span class="stepper-stap stepper-actief stepper-grijs">✕ Geweigerd</span></div>';
   }
   const huidigeIndex = STATUS_FASEN.findIndex((f) => f.statussen.includes(status));
   const stappenHtml = STATUS_FASEN.map((f, i) => {
     let klasse = 'stepper-stap';
+    let label = f.label;
     if (huidigeIndex >= 0 && i < huidigeIndex) klasse += ' stepper-voltooid';
-    else if (i === huidigeIndex) klasse += ` stepper-actief stepper-${f.kleur}`;
-    return `<span class="${klasse}">${f.label}</span>`;
+    else if (i === huidigeIndex) {
+      klasse += ` stepper-actief stepper-${f.kleur}`;
+      if (i === STATUS_FASEN.length - 1 && saldoOpenstaand != null) {
+        label += Number(saldoOpenstaand) > 0.01 ? ' (open saldo)' : ' (betaald)';
+      }
+    }
+    return `<span class="${klasse}">${label}</span>`;
   }).join('<span class="stepper-pijl">›</span>');
   return `<div class="status-stepper">${stappenHtml}</div>`;
 }
 
-// Zelfde toegelaten overgangen als in src/routes/boekingen.js — enkel voor de UI,
-// de server is en blijft de bron van waarheid (valideert dit ook zelf).
+// Voorgestelde/logische volgende stappen per status — dit is enkel nog de leidraad
+// voor de snelknoppen in de UI (het gangbare pad), GEEN harde blokkade meer: Jonas
+// kan via de "Andere status instellen"-keuzelijst hieronder ten allen tijde vrij
+// naar eender welke status overschakelen, ook een stap overslaan (bv. voor een
+// vaste klant meteen naar "klaar voor levering" zonder betaalverzoek). De server
+// aanvaardt dit ook (enkel een check dat de status geldig/gekend is).
 const TOEGELATEN_OVERGANGEN = {
   nieuw: ['in_behandeling', 'geaccepteerd', 'geweigerd'],
   in_behandeling: ['geaccepteerd', 'geweigerd'],
@@ -297,7 +312,12 @@ async function wijzigStatus(boekingId, nieuweStatus, opmerking) {
     });
     laadAanvragen();
     if (!document.getElementById('view-boekingen').hidden) laadBoekingenOverzicht();
-    if (!document.getElementById('view-boeking-detail').hidden) wisselView(boekingDetailVorigeView);
+    // Bij een statuswijziging vanuit het dossier zelf (snelknoppen of de vrije "Andere
+    // status instellen"-lijst) blijven we in het dossier — enkel de inhoud herladen,
+    // zodat Jonas meteen de bijgewerkte statusbalk/kleur ziet in plaats van uit het
+    // dossier te worden gestuurd. Vanuit de Aanvragen-inbox (waar het dossier niet
+    // zichtbaar is) verandert er hier niets: dat blijft gewoon de kaartenlijst tonen.
+    if (!document.getElementById('view-boeking-detail').hidden) openDetail(boekingId);
   } catch (err) {
     alert(err.message);
   }
@@ -313,10 +333,15 @@ function huidigeBoekingenFilterParams() {
   const status = document.getElementById('filter-status').value;
   const vanaf = document.getElementById('filter-vanaf').value;
   const tot = document.getElementById('filter-tot').value;
+  const openSaldo = document.getElementById('filter-open-saldo').checked;
   const params = new URLSearchParams();
   if (status) params.set('status', status);
   if (vanaf) params.set('vanaf', vanaf);
   if (tot) params.set('tot', tot);
+  // Los van de gekozen periode: zowel toekomstige als reeds verlopen boekingen
+  // met een openstaand saldo — daarom geen eigen datum-restrictie, enkel te
+  // combineren met de bestaande periode-snelfilters/Vanaf-Tot hierboven.
+  if (openSaldo) params.set('open_saldo', '1');
   return params;
 }
 
@@ -503,6 +528,13 @@ async function openDetail(boekingId) {
   const actiesHtml = overgangen
     .map((s) => `<button data-status="${s}">${STATUS_LABELS[s]}</button>`)
     .join('');
+  // Volledig vrije statuswijziging (los van de voorgestelde snelknoppen hierboven) —
+  // zodat Jonas ten allen tijde kan overschakelen naar eender welke status, ook
+  // een stap overslaan.
+  const statusOverrideOpties = Object.keys(STATUS_LABELS)
+    .filter((s) => s !== b.status)
+    .map((s) => `<option value="${s}">${STATUS_LABELS[s]}</option>`)
+    .join('');
 
   // Volledig adres samenstellen voor de Google Maps-link (geen API-sleutel nodig voor
   // een eenvoudige "bekijk op kaart"-link — enkel een echte afstandsberekening vergt er een).
@@ -539,11 +571,37 @@ async function openDetail(boekingId) {
     <div class="paneel">
       <h3>${b.klant_naam} ${statusPillHtml(b.status)}${speciaalSterHtml(b)}</h3>
       ${b.speciaal_verzoek ? `<div class="speciaal-verzoek-banner">⭑ Speciaal verzoek${b.speciaal_verzoek_notitie ? ': ' + b.speciaal_verzoek_notitie : ''}</div>` : ''}
-      ${statusStepperHtml(b.status)}
-      <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen overgangen meer mogelijk</p>'}</div>
+      ${statusStepperHtml(b.status, b.prijstabel.saldo_openstaand)}
+      <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen volgende stap voorgesteld</p>'}</div>
+      <div class="status-override">
+        <label>Andere status instellen (ten allen tijde, ook een stap overslaan)
+          <select id="status-override-select">${statusOverrideOpties}</select>
+        </label>
+        <button type="button" id="btn-status-override" class="secundair">Wijzig status</button>
+      </div>
     </div>
 
     <div class="detail-layout">
+      <div class="detail-kolom-links">
+      <div class="detail-kolom detail-kolom-producten paneel">
+        <h4>Periode</h4>
+        <form id="form-periode" class="grid-2">
+          <label>Vanaf<input type="date" id="dd-datum-start" value="${b.gewenste_datum_start ? String(b.gewenste_datum_start).slice(0, 10) : ''}" /></label>
+          <label>Tot<input type="date" id="dd-datum-einde" value="${b.gewenste_datum_einde ? String(b.gewenste_datum_einde).slice(0, 10) : ''}" /></label>
+        </form>
+        <p id="periode-fout" class="foutmelding"></p>
+
+        <h4>Producten</h4>
+        <div id="detail-producten-lijst">${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}</div>
+        <div class="product-toevoegen-rij">
+          <select id="dp-categorie">${bouwCategorieOpties(dpEersteCategorie)}</select>
+          <select id="dp-product">${bouwModelOpties(dpEersteCategorie, undefined, dpOnbeschikbaar)}</select>
+          <input type="number" id="dp-aantal" min="1" value="1" title="Aantal" />
+          <button type="button" id="btn-product-toevoegen" class="secundair">+ Toevoegen</button>
+        </div>
+        <p id="product-toevoegen-fout" class="foutmelding"></p>
+      </div>
+
       <div class="detail-kolom detail-kolom-klant paneel">
         <div class="detail-kolom-kop">
           <h4>Klantgegevens</h4>
@@ -591,24 +649,6 @@ async function openDetail(boekingId) {
           <p id="klantgegevens-fout" class="foutmelding"></p>
         </form>
       </div>
-
-      <div class="detail-kolom detail-kolom-producten paneel">
-        <h4>Periode</h4>
-        <form id="form-periode" class="grid-2">
-          <label>Vanaf<input type="date" id="dd-datum-start" value="${b.gewenste_datum_start ? String(b.gewenste_datum_start).slice(0, 10) : ''}" /></label>
-          <label>Tot<input type="date" id="dd-datum-einde" value="${b.gewenste_datum_einde ? String(b.gewenste_datum_einde).slice(0, 10) : ''}" /></label>
-        </form>
-        <p id="periode-fout" class="foutmelding"></p>
-
-        <h4>Producten</h4>
-        <div id="detail-producten-lijst">${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}</div>
-        <div class="product-toevoegen-rij">
-          <select id="dp-categorie">${bouwCategorieOpties(dpEersteCategorie)}</select>
-          <select id="dp-product">${bouwModelOpties(dpEersteCategorie, undefined, dpOnbeschikbaar)}</select>
-          <input type="number" id="dp-aantal" min="1" value="1" title="Aantal" />
-          <button type="button" id="btn-product-toevoegen" class="secundair">+ Toevoegen</button>
-        </div>
-        <p id="product-toevoegen-fout" class="foutmelding"></p>
       </div>
 
       <div class="detail-kolom detail-kolom-financieel paneel">
@@ -618,8 +658,17 @@ async function openDetail(boekingId) {
           <div class="prijstabel-rij"><span>Levering / transport</span><span>${fmtEuro(p.transportkost)}</span></div>
           <div class="prijstabel-rij">
             <span>Toeslag / korting</span>
-            <span><input type="number" id="dd-toeslag-korting" step="0.01" value="${b.toeslag_korting != null ? b.toeslag_korting : ''}" placeholder="0.00" /></span>
+            <span class="toeslag-invoer">
+              <input type="number" id="dd-toeslag-korting" step="0.01" value="${b.toeslag_korting != null ? b.toeslag_korting : ''}" placeholder="0.00" />
+              <select id="dd-toeslag-type" title="Vast bedrag (€) of percentage (%) van het productensubtotaal">
+                <option value="bedrag" ${(b.toeslag_korting_type || 'bedrag') === 'bedrag' ? 'selected' : ''}>€</option>
+                <option value="percentage" ${b.toeslag_korting_type === 'percentage' ? 'selected' : ''}>%</option>
+              </select>
+            </span>
           </div>
+          ${b.toeslag_korting_type === 'percentage' && b.toeslag_korting != null
+            ? `<div class="prijstabel-rij prijstabel-sub"><span></span><span>= ${fmtEuro(p.toeslag_korting)}</span></div>`
+            : ''}
           <button type="button" id="btn-toeslag-opslaan" class="secundair">Toeslag/korting opslaan</button>
           <div class="prijstabel-rij prijstabel-totaal"><span>Totaal</span><span>${fmtEuro(p.totaal)}</span></div>
           <div class="prijstabel-rij prijstabel-sub"><span>Incl. BTW (${p.btw_percentage}%)</span><span>${fmtEuro(p.btw_bedrag)}</span></div>
@@ -627,7 +676,7 @@ async function openDetail(boekingId) {
           <div class="prijstabel-rij prijstabel-saldo ${p.saldo_openstaand <= 0 ? 'voldaan' : ''}"><span>Openstaand saldo</span><span>${fmtEuro(p.saldo_openstaand)}</span></div>
         </div>
         <form id="form-nieuwe-betaling" class="grid-2">
-          <label>Nieuwe betaling (€)<input type="number" id="np-betaling-bedrag" step="0.01" min="0.01" placeholder="bedrag, Enter om op te slaan" /></label>
+          <label>Bedrag (€)<input type="number" id="np-betaling-bedrag" step="0.01" min="0.01" placeholder="bedrag, Enter om op te slaan" /></label>
           <label>Opmerking<input type="text" id="np-betaling-opmerking" placeholder="optioneel, bv. 'overschrijving'" /></label>
         </form>
         <div class="betaling-log">${betalingLogHtml}</div>
@@ -779,12 +828,25 @@ async function openDetail(boekingId) {
     });
   });
 
+  // Vrije statuswijziging: ten allen tijde naar eender welke status, ook een
+  // stap overslaan (bv. voor een vaste klant meteen naar "klaar voor levering").
+  document.getElementById('btn-status-override').addEventListener('click', () => {
+    const nieuweStatus = document.getElementById('status-override-select').value;
+    let opmerking;
+    if (nieuweStatus === 'geweigerd') {
+      opmerking = prompt('Reden van weigering (optioneel):') || '';
+    }
+    wijzigStatus(b.id, nieuweStatus, opmerking);
+  });
+
   document.getElementById('btn-toeslag-opslaan').addEventListener('click', async () => {
     const toeslagKorting = document.getElementById('dd-toeslag-korting').value;
+    const toeslagKortingType = document.getElementById('dd-toeslag-type').value;
     await api(`/api/boekingen/${boekingId}`, {
       method: 'PUT',
       body: JSON.stringify({
         toeslag_korting: toeslagKorting !== '' ? parseFloat(toeslagKorting) : null,
+        toeslag_korting_type: toeslagKortingType,
       }),
     });
     openDetail(boekingId);
@@ -1156,11 +1218,156 @@ async function ververBeschikbaarheidsoverzicht() {
 function laadBeschikbaarheidsoverzicht() {
   const elStart = document.getElementById('besch-datum-start');
   if (!elStart.value) elStart.value = naarISO(new Date());
+  synchroniseerKalenderMetVelden();
   ververBeschikbaarheidsoverzicht();
 }
 
-document.getElementById('besch-datum-start').addEventListener('change', ververBeschikbaarheidsoverzicht);
-document.getElementById('besch-datum-einde').addEventListener('change', ververBeschikbaarheidsoverzicht);
+document.getElementById('besch-datum-start').addEventListener('change', () => {
+  synchroniseerKalenderMetVelden();
+  ververBeschikbaarheidsoverzicht();
+});
+document.getElementById('besch-datum-einde').addEventListener('change', () => {
+  synchroniseerKalenderMetVelden();
+  ververBeschikbaarheidsoverzicht();
+});
+
+// ============================================================
+// KALENDERWIDGET (Beschikbaarheid) — visuele maandkalender met Single Day/Date
+// Range-keuze, zoals gevraagd (naar analogie van het oude bookingonline.co.uk-
+// systeem). Stuurt gewoon dezelfde #besch-datum-start/#besch-datum-einde velden
+// aan die hierboven al bestonden, zodat de rest van de beschikbaarheidslogica
+// ongewijzigd blijft — de kalender is enkel een andere manier om die twee data
+// te kiezen, naast (niet in plaats van) de bestaande datumvelden.
+// ============================================================
+let kalenderWeergaveMaand = new Date();
+kalenderWeergaveMaand.setDate(1);
+let kalenderModus = 'dag'; // 'dag' = Single Day, 'periode' = Date Range
+// Houdt bij of de "eerste klik" van een nieuwe periode nog moet gebeuren, los van
+// wat er toevallig al in de datumvelden staat (zie kiesKalenderDag hieronder).
+let kalenderPeriodeStartVastgezet = false;
+
+const KALENDER_MAAND_NAMEN = [
+  'januari', 'februari', 'maart', 'april', 'mei', 'juni',
+  'juli', 'augustus', 'september', 'oktober', 'november', 'december',
+];
+
+function kalenderHuidigeSelectie() {
+  return {
+    start: document.getElementById('besch-datum-start').value || null,
+    einde: document.getElementById('besch-datum-einde').value || null,
+  };
+}
+
+// Springt de kalenderweergave naar de maand van de (handmatig ingevulde) datum,
+// zodat typen in de datumvelden en klikken in de kalender altijd in sync blijven.
+function synchroniseerKalenderMetVelden() {
+  const { start } = kalenderHuidigeSelectie();
+  if (start) {
+    const d = new Date(start);
+    if (!Number.isNaN(d.getTime())) {
+      kalenderWeergaveMaand = new Date(d.getFullYear(), d.getMonth(), 1);
+    }
+  }
+  renderKalender();
+}
+
+function kiesKalenderDag(datumIso) {
+  const { start } = kalenderHuidigeSelectie();
+  let nieuweStart = datumIso;
+  let nieuweEinde = datumIso;
+  if (kalenderModus === 'periode') {
+    if (!kalenderPeriodeStartVastgezet) {
+      // Eerste klik van een nieuwe periode: nooit de bestaande (mogelijk nog van
+      // Single Day of van de vorige periode overgebleven) start/einde-waarden
+      // hergebruiken — anders "plakt" bv. de standaard-datum van vandaag vast
+      // aan de eerst gekozen dag zonder dat de gebruiker dat zelf koos.
+      nieuweStart = datumIso;
+      nieuweEinde = '';
+      kalenderPeriodeStartVastgezet = true;
+    } else {
+      // Tweede klik van een periode: kleinste datum = start, grootste = einde.
+      nieuweStart = datumIso < start ? datumIso : start;
+      nieuweEinde = datumIso < start ? start : datumIso;
+      kalenderPeriodeStartVastgezet = false;
+    }
+  }
+  const elStart = document.getElementById('besch-datum-start');
+  const elEinde = document.getElementById('besch-datum-einde');
+  elStart.value = nieuweStart;
+  elEinde.value = nieuweEinde;
+  renderKalender();
+  ververBeschikbaarheidsoverzicht();
+}
+
+document.querySelectorAll('.kalender-modus-knop').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    kalenderModus = btn.dataset.modus;
+    document.querySelectorAll('.kalender-modus-knop').forEach((b) => b.classList.toggle('actief', b === btn));
+    // Bij overschakelen naar Single Day telt enkel nog de startdatum als keuze.
+    if (kalenderModus === 'dag') {
+      const { start } = kalenderHuidigeSelectie();
+      if (start) {
+        document.getElementById('besch-datum-einde').value = start;
+        ververBeschikbaarheidsoverzicht();
+      }
+    }
+    // Elke keer we (opnieuw) naar Date Range schakelen, start de eerstvolgende
+    // klik altijd een verse periode — nooit gekoppeld aan een oude datumwaarde.
+    kalenderPeriodeStartVastgezet = false;
+    renderKalender();
+  });
+});
+
+document.getElementById('kal-vorige-maand').addEventListener('click', () => {
+  kalenderWeergaveMaand.setMonth(kalenderWeergaveMaand.getMonth() - 1);
+  renderKalender();
+});
+document.getElementById('kal-volgende-maand').addEventListener('click', () => {
+  kalenderWeergaveMaand.setMonth(kalenderWeergaveMaand.getMonth() + 1);
+  renderKalender();
+});
+document.getElementById('kal-bekijk-datum').addEventListener('click', () => {
+  document.querySelector('.beschikbaarheid-kolommen').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+function renderKalender() {
+  const jaar = kalenderWeergaveMaand.getFullYear();
+  const maand = kalenderWeergaveMaand.getMonth();
+  document.getElementById('kal-maand-label').textContent = `${KALENDER_MAAND_NAMEN[maand]} ${jaar}`;
+
+  const { start, einde } = kalenderHuidigeSelectie();
+  const vandaag = naarISO(new Date());
+
+  const eersteDagVanMaand = new Date(jaar, maand, 1);
+  // Maandag = eerste kolom (Europese conventie, zoals de rest van het scherm).
+  const leadingLeeg = (eersteDagVanMaand.getDay() + 6) % 7;
+  const aantalDagen = new Date(jaar, maand + 1, 0).getDate();
+
+  let html = '';
+  for (let i = 0; i < leadingLeeg; i++) html += '<span class="kalender-dag kalender-dag-leeg"></span>';
+  for (let dag = 1; dag <= aantalDagen; dag++) {
+    const iso = naarISO(new Date(jaar, maand, dag));
+    let klasse = 'kalender-dag';
+    if (iso === vandaag) klasse += ' kalender-vandaag';
+    if (iso === start || iso === einde) klasse += ' kalender-geselecteerd';
+    else if (start && einde && iso > start && iso < einde) klasse += ' kalender-in-bereik';
+    html += `<button type="button" class="${klasse}" data-iso="${iso}">${dag}</button>`;
+  }
+  document.getElementById('kalender-grid').innerHTML = html;
+  document.querySelectorAll('.kalender-dag:not(.kalender-dag-leeg)').forEach((el) => {
+    el.addEventListener('click', () => kiesKalenderDag(el.dataset.iso));
+  });
+
+  const label = document.getElementById('kalender-geselecteerd-label');
+  if (start && einde && start !== einde) {
+    label.textContent = `Periode: ${fmtDatum(start)} t.e.m. ${fmtDatum(einde)}`;
+  } else if (start) {
+    label.textContent = `Datum: ${fmtDatum(start)}`;
+  } else {
+    label.textContent = 'Kies een datum in de kalender.';
+  }
+}
+renderKalender();
 
 // Vanuit het beschikbaarheidsoverzicht meteen een nieuwe boeking starten met het
 // aangeklikte product en de gekozen datum/periode al ingevuld.

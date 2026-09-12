@@ -42,7 +42,7 @@ router.post('/beschikbaarheid-check', asyncHandler(async (req, res) => {
 // gebruikt door zowel de lijst (JSON) als de export (CSV), zodat die twee altijd
 // exact dezelfde selectie tonen.
 function bouwBoekingenFilter(query) {
-  const { status, vanaf, tot, klant_id } = query;
+  const { status, vanaf, tot, klant_id, open_saldo } = query;
   const condities = [];
   const params = [];
   if (status) {
@@ -60,6 +60,15 @@ function bouwBoekingenFilter(query) {
   if (klant_id) {
     params.push(klant_id);
     condities.push(`b.klant_id = $${params.length}`);
+  }
+  // "Nog te betalen": onafhankelijk van de status of gekozen periode — zowel
+  // toekomstige als reeds verlopen boekingen met een openstaand saldo. Let op:
+  // dit is een benadering op basis van het productensubtotaal (zoals ook in de
+  // "Waarde"-kolom/CSV-export), zonder transportkost/toeslag-korting mee te
+  // rekenen — dat vergt de volledige berekenPrijstabel()-logica per boeking,
+  // wat hier te duur zou zijn voor een overzichtslijst.
+  if (open_saldo) {
+    condities.push(`COALESCE(bp_totaal.waarde, 0) - COALESCE(bet.betaald_bedrag, 0) > 0.01`);
   }
   const where = condities.length ? `WHERE ${condities.join(' AND ')}` : '';
   return { where, params };
@@ -162,7 +171,7 @@ const BTW_PERCENTAGE = 21; // prijzen worden verondersteld inclusief BTW te zijn
 
 async function berekenPrijstabel(boekingId) {
   const { rows: boekingRows } = await db.query(
-    'SELECT transportkost, toeslag_korting FROM boekingen WHERE id = $1',
+    'SELECT transportkost, toeslag_korting, toeslag_korting_type FROM boekingen WHERE id = $1',
     [boekingId]
   );
   const boeking = boekingRows[0] || {};
@@ -173,7 +182,13 @@ async function berekenPrijstabel(boekingId) {
   );
   const subtotaalProducten = Number(prodRows[0].subtotaal) || 0;
   const transportkost = Number(boeking.transportkost) || 0;
-  const toeslagKorting = Number(boeking.toeslag_korting) || 0;
+  const toeslagKortingType = boeking.toeslag_korting_type || 'bedrag';
+  const toeslagKortingWaarde = Number(boeking.toeslag_korting) || 0;
+  // Een percentage wordt toegepast op het productensubtotaal (niet op de
+  // transportkost) — een vast bedrag telt zoals voorheen rechtstreeks mee.
+  const toeslagKorting = toeslagKortingType === 'percentage'
+    ? Math.round(subtotaalProducten * (toeslagKortingWaarde / 100) * 100) / 100
+    : toeslagKortingWaarde;
   const totaal = subtotaalProducten + transportkost + toeslagKorting;
   const btwBedrag = Math.round(((totaal * BTW_PERCENTAGE) / (100 + BTW_PERCENTAGE)) * 100) / 100;
 
@@ -188,6 +203,8 @@ async function berekenPrijstabel(boekingId) {
     subtotaal_producten: subtotaalProducten,
     transportkost,
     toeslag_korting: toeslagKorting,
+    toeslag_korting_waarde: toeslagKortingWaarde,
+    toeslag_korting_type: toeslagKortingType,
     totaal,
     btw_percentage: BTW_PERCENTAGE,
     btw_bedrag: btwBedrag,
@@ -316,7 +333,7 @@ router.post('/:id/herbereken-afstand', asyncHandler(async (req, res) => {
 // wissen: geef gewoon `null` mee voor dat veld.
 router.put('/:id', asyncHandler(async (req, res) => {
   const velden = [
-    'notities', 'transportkost', 'toeslag_korting', 'afstand_km',
+    'notities', 'transportkost', 'toeslag_korting', 'toeslag_korting_type', 'afstand_km',
     'leveringsadres', 'type_ondergrond', 'toegankelijkheid', 'leveringswijze',
     'voorkeur_tijdstip_levering', 'voorkeur_tijdstip_afhaling',
     'speciaal_verzoek', 'speciaal_verzoek_notitie',
@@ -596,12 +613,15 @@ router.post('/:id/status', asyncHandler(async (req, res) => {
   const boeking = rows[0];
   if (!boeking) return res.status(404).json({ fout: 'Boeking niet gevonden' });
 
-  const toegelaten = TOEGELATEN_OVERGANGEN[boeking.status] || [];
-  if (!toegelaten.includes(nieuweStatus)) {
-    return res.status(400).json({
-      fout: `Overgang van '${boeking.status}' naar '${nieuweStatus}' is niet toegelaten`,
-      toegelaten_overgangen: toegelaten,
-    });
+  // Jonas moet de status ten allen tijde vrij kunnen aanpassen, ook een stap
+  // overslaan (bv. voor een vaste klant meteen van "bevestigd" naar "klaar voor
+  // levering" gaan zonder het betaalverzoek te doorlopen). TOEGELATEN_OVERGANGEN
+  // hierboven blijft enkel de leidraad voor de voorgestelde snelknoppen in de UI,
+  // geen harde blokkade meer hier. Wél nog controleren dat het een bestaande,
+  // geldige status is — anders krijgt Jonas een duidelijke foutmelding i.p.v.
+  // een generieke DB-fout van de CHECK-constraint.
+  if (!Object.prototype.hasOwnProperty.call(TOEGELATEN_OVERGANGEN, nieuweStatus)) {
+    return res.status(400).json({ fout: `Onbekende status: '${nieuweStatus}'` });
   }
 
   const client = await db.getClient();
