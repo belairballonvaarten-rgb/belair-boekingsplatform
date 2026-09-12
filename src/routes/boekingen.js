@@ -101,7 +101,7 @@ const BOEKINGEN_OVERZICHT_SELECT = `
 router.get('/', asyncHandler(async (req, res) => {
   const { where, params } = bouwBoekingenFilter(req.query);
   const { rows } = await db.query(
-    `${BOEKINGEN_OVERZICHT_SELECT} ${where} ORDER BY b.gewenste_datum_start DESC LIMIT 200`,
+    `${BOEKINGEN_OVERZICHT_SELECT} ${where} ORDER BY b.gewenste_datum_start ASC LIMIT 200`,
     params
   );
   res.json(rows);
