@@ -76,6 +76,83 @@ router.post('/', asyncHandler(async (req, res) => {
   res.status(201).json(rows[0]);
 }));
 
+// Bulk-import: CSV-tekst (Naam,Prijs,Type,Categorie[,Afbeelding]) in één keer verwerken.
+// Bestaat een product al (zelfde naam, hoofdletterongevoelig) dan wordt het bijgewerkt
+// i.p.v. dubbel aangemaakt — zo kan dezelfde lijst gerust meermaals geplakt worden.
+function parseCsvRegel(regel) {
+  const velden = [];
+  let huidig = '';
+  let inAanhalingstekens = false;
+  for (let i = 0; i < regel.length; i++) {
+    const teken = regel[i];
+    if (inAanhalingstekens) {
+      if (teken === '"') {
+        if (regel[i + 1] === '"') { huidig += '"'; i++; } else { inAanhalingstekens = false; }
+      } else {
+        huidig += teken;
+      }
+    } else if (teken === '"') {
+      inAanhalingstekens = true;
+    } else if (teken === ',') {
+      velden.push(huidig);
+      huidig = '';
+    } else {
+      huidig += teken;
+    }
+  }
+  velden.push(huidig);
+  return velden.map((v) => v.trim());
+}
+
+router.post('/bulk-import', asyncHandler(async (req, res) => {
+  const { regels } = req.body;
+  if (!regels || typeof regels !== 'string' || !regels.trim()) {
+    return res.status(400).json({ fout: 'Geen CSV-tekst ontvangen' });
+  }
+
+  const lijnen = regels.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length);
+  const resultaat = { aangemaakt: 0, bijgewerkt: 0, overgeslagen: [] };
+
+  for (const lijn of lijnen) {
+    const [naamRuw, prijsRuw, typeRuw, categorieRuw, afbeeldingRuw] = parseCsvRegel(lijn);
+    const naam = (naamRuw || '').trim();
+    if (!naam || naam.toLowerCase() === 'naam') continue; // lege regel of kopregel overslaan
+
+    const prijs = parseFloat((prijsRuw || '0').replace(',', '.')) || 0;
+    const zichtbaarheid = (typeRuw || '').trim().toLowerCase() === 'display only' ? 'hidden' : 'bookbaar';
+    const categorie = (categorieRuw || '').trim();
+    const categorieen = categorie ? [categorie] : [];
+    const afbeelding = (afbeeldingRuw || '').trim();
+
+    try {
+      const { rows: bestaand } = await db.query(
+        'SELECT id, afbeeldingen FROM producten WHERE lower(naam) = lower($1)',
+        [naam]
+      );
+      if (bestaand[0]) {
+        const afbeeldingen = afbeelding ? [afbeelding] : (bestaand[0].afbeeldingen || []);
+        await db.query(
+          `UPDATE producten SET prijs = $1, categorieen = $2, zichtbaarheid = $3, afbeeldingen = $4, bijgewerkt_op = now()
+           WHERE id = $5`,
+          [prijs, categorieen, zichtbaarheid, afbeeldingen, bestaand[0].id]
+        );
+        resultaat.bijgewerkt++;
+      } else {
+        await db.query(
+          `INSERT INTO producten (naam, categorieen, prijs, zichtbaarheid, afbeeldingen, max_boekingen_per_dag, availability_buffer_dagen, korting_toegelaten)
+           VALUES ($1,$2,$3,$4,$5,1,0,true)`,
+          [naam, categorieen, prijs, zichtbaarheid, afbeelding ? [afbeelding] : []]
+        );
+        resultaat.aangemaakt++;
+      }
+    } catch (err) {
+      resultaat.overgeslagen.push({ naam, fout: err.message });
+    }
+  }
+
+  res.json(resultaat);
+}));
+
 router.put('/:id', asyncHandler(async (req, res) => {
   const velden = [
     'naam', 'categorieen', 'sku', 'prijs', 'weekendprijs', 'afhaalprijs', 'weekdagprijs', 'meerdaagse_prijstabel',

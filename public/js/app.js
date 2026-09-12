@@ -779,6 +779,14 @@ async function openDetail(boekingId) {
           </div>
           <p id="product-toevoegen-fout" class="foutmelding"></p>
         </div>
+
+        <div class="detail-kolom-opmerkingen paneel">
+          <h4>Opmerkingen</h4>
+          <form id="form-notities">
+            <textarea id="dd-notities" rows="3" placeholder="Interne opmerkingen over deze boeking...">${b.notities || ''}</textarea>
+            <button type="submit">Opmerkingen opslaan</button>
+          </form>
+        </div>
       </div>
 
       <div class="detail-kolom detail-kolom-financieel">
@@ -847,14 +855,6 @@ async function openDetail(boekingId) {
         </div>
       </div>
     </details>
-
-    <div class="paneel">
-      <h4>Opmerkingen</h4>
-      <form id="form-notities">
-        <textarea id="dd-notities" rows="3" placeholder="Interne opmerkingen over deze boeking...">${b.notities || ''}</textarea>
-        <button type="submit">Opmerkingen opslaan</button>
-      </form>
-    </div>
 
     <details class="paneel" id="details-communicatie" ${geopendeSecties.includes('details-communicatie') ? 'open' : ''}>
       <summary>Communicatie</summary>
@@ -1864,6 +1864,31 @@ document.getElementById('form-nieuw-product').addEventListener('submit', async (
     });
     document.getElementById('form-nieuw-product').reset();
     document.getElementById('nieuw-product-details').open = false;
+    laadProductenOverzicht();
+    laadProductenCache();
+  } catch (err) {
+    elFout.textContent = err.message;
+  }
+});
+
+document.getElementById('form-bulk-import').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const elFout = document.getElementById('bulk-import-fout');
+  const elResultaat = document.getElementById('bulk-import-resultaat');
+  elFout.textContent = '';
+  elResultaat.textContent = '';
+  const regels = document.getElementById('bi-regels').value;
+  if (!regels.trim()) { elFout.textContent = 'Plak eerst de productenlijst hierboven.'; return; }
+  try {
+    const res = await api('/api/producten/bulk-import', {
+      method: 'POST',
+      body: JSON.stringify({ regels }),
+    });
+    elResultaat.textContent = `Klaar: ${res.aangemaakt} nieuw aangemaakt, ${res.bijgewerkt} bijgewerkt.`
+      + (res.overgeslagen.length ? ` ${res.overgeslagen.length} overgeslagen (zie console).` : '');
+    if (res.overgeslagen.length) console.warn('Overgeslagen rijen bij bulk-import:', res.overgeslagen);
+    document.getElementById('bi-regels').value = '';
+    document.getElementById('bulk-import-details').open = false;
     laadProductenOverzicht();
     laadProductenCache();
   } catch (err) {

@@ -276,6 +276,17 @@
         </form>
       </details>
 
+      <details id="bulk-import-details">
+        <summary>+ Producten in bulk importeren (CSV plakken)</summary>
+        <p class="uitleg">Plak hier een lijst met producten, één per regel: <code>Naam,Prijs,Type,Categorie</code> (Type = <code>Bookable</code> of <code>Display Only</code>). Optioneel een 5de kolom met een afbeelding-URL. Bestaat een product al met dezelfde naam, dan wordt het bijgewerkt in plaats van dubbel aangemaakt — deze lijst mag dus gerust meermaals geplakt worden.</p>
+        <form id="form-bulk-import">
+          <textarea id="bi-regels" rows="8" placeholder="Naam,Prijs,Type,Categorie&#10;Aap Multifun springkasteel,150.00,Bookable,Springkastelen&#10;..."></textarea>
+          <button type="submit">Importeren</button>
+        </form>
+        <p id="bulk-import-resultaat" class="uitleg"></p>
+        <p id="bulk-import-fout" class="foutmelding"></p>
+      </details>
+
       <div id="producten-secties"></div>
     </section>
 
