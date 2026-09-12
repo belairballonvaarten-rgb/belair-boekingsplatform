@@ -259,14 +259,13 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .product-rij .verwijder { color: var(--rood); background: none; border: none; font-weight: 700; }
 
 /* BESCHIKBAARHEID-OVERZICHT */
-.beschikbaarheid-kiezer { display: flex; gap: 1.5rem; flex-wrap: wrap; align-items: flex-start; }
-.beschikbaarheid-handmatig { flex: 1 1 220px; min-width: 220px; margin-top: 0; }
+.beschikbaarheid-kiezer { display: flex; justify-content: center; }
 
-/* Visuele maandkalender (Single Day / Date Range), naast de handmatige datumvelden. */
-.kalender-widget { background: white; border: 1px solid var(--grijs-licht); border-radius: 10px; padding: 1rem 1.1rem; width: 300px; flex: 0 0 auto; }
-.kalender-modus-tabs { display: flex; border: 1px solid var(--grijs-licht); border-radius: 8px; overflow: hidden; margin-bottom: 0.9rem; }
-.kalender-modus-knop { flex: 1 1 50%; border: none; background: white; color: var(--grijs); font-weight: 600; padding: 0.5rem 0.4rem; font-size: 0.82rem; }
-.kalender-modus-knop.actief { background: var(--blauw); color: white; }
+/* Visuele maandkalender waarop een dag of periode rechtstreeks aangeklikt
+   wordt (geen aparte datumvelden of modus-knoppen meer nodig) — herbruikt op
+   Beschikbaarheid, Nieuwe boeking en in het boekingdossier (Periode-blok). */
+.kalender-widget { background: white; border: 1px solid var(--grijs-licht); border-radius: 10px; padding: 1.1rem 1.2rem; width: 340px; max-width: 100%; margin: 0 auto; }
+.kalender-widget.kalender-widget-compact { width: 100%; max-width: 380px; margin: 0; }
 .kalender-nav { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.6rem; font-weight: 700; color: var(--blauw-donker); }
 .kalender-nav .linkbtn { font-size: 1.1rem; padding: 0.1rem 0.5rem; }
 .kalender-dagnamen { display: grid; grid-template-columns: repeat(7, 1fr); text-align: center; font-size: 0.75rem; color: var(--grijs); margin-bottom: 0.3rem; }

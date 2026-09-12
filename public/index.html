@@ -119,30 +119,10 @@
       <h2>Beschikbaarheid</h2>
       <p class="uitleg">Kies een datum (of periode) en zie in één oogopslag wat nog vrij is — handig bij een telefonische aanvraag. Klik op een beschikbaar product om er meteen een nieuwe boeking mee te starten.</p>
       <div class="beschikbaarheid-kiezer">
-        <div class="kalender-widget">
-          <div class="kalender-modus-tabs">
-            <button type="button" class="kalender-modus-knop actief" data-modus="dag">Single Day</button>
-            <button type="button" class="kalender-modus-knop" data-modus="periode">Date Range</button>
-          </div>
-          <div class="kalender-nav">
-            <button type="button" id="kal-vorige-maand" class="linkbtn" aria-label="Vorige maand">‹</button>
-            <span id="kal-maand-label"></span>
-            <button type="button" id="kal-volgende-maand" class="linkbtn" aria-label="Volgende maand">›</button>
-          </div>
-          <div class="kalender-dagnamen">
-            <span>ma</span><span>di</span><span>wo</span><span>do</span><span>vr</span><span>za</span><span>zo</span>
-          </div>
-          <div class="kalender-grid" id="kalender-grid"></div>
-          <div class="kalender-onderaan">
-            <p class="kalender-geselecteerd-tekst" id="kalender-geselecteerd-label"></p>
-            <button type="button" id="kal-bekijk-datum" class="linkbtn">Bekijk datum ↓</button>
-          </div>
-        </div>
-        <div class="grid-2 beschikbaarheid-handmatig">
-          <label>Datum (of startdatum periode)<input type="date" id="besch-datum-start" /></label>
-          <label>Tot en met (optioneel, voor een periode)<input type="date" id="besch-datum-einde" /></label>
-        </div>
+        <div id="kalender-beschikbaarheid" class="kalender-widget"></div>
       </div>
+      <input type="hidden" id="besch-datum-start" />
+      <input type="hidden" id="besch-datum-einde" />
       <div class="beschikbaarheid-kolommen">
         <div class="beschikbaarheid-kolom groen">
           <h3>Nog beschikbaar</h3>
@@ -190,10 +170,9 @@
 
         <fieldset>
           <legend>Periode</legend>
-          <div class="grid-2">
-            <label>Datum start*<input type="date" id="datum-start" required /></label>
-            <label>Datum einde<input type="date" id="datum-einde" /></label>
-          </div>
+          <div id="kalender-nieuwe-boeking" class="kalender-widget"></div>
+          <input type="hidden" id="datum-start" />
+          <input type="hidden" id="datum-einde" />
         </fieldset>
 
         <fieldset>

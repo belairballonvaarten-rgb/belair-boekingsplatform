@@ -585,10 +585,7 @@ async function openDetail(boekingId) {
       <div class="detail-kolom-links">
       <div class="detail-kolom detail-kolom-producten paneel">
         <h4>Periode</h4>
-        <form id="form-periode" class="grid-2">
-          <label>Vanaf<input type="date" id="dd-datum-start" value="${b.gewenste_datum_start ? String(b.gewenste_datum_start).slice(0, 10) : ''}" /></label>
-          <label>Tot<input type="date" id="dd-datum-einde" value="${b.gewenste_datum_einde ? String(b.gewenste_datum_einde).slice(0, 10) : ''}" /></label>
-        </form>
+        <div id="kalender-dossier-periode" class="kalender-widget kalender-widget-compact"></div>
         <p id="periode-fout" class="foutmelding"></p>
 
         <h4>Producten</h4>
@@ -904,25 +901,30 @@ async function openDetail(boekingId) {
     });
   });
 
-  // Periode wijzigen (bv. telefonische correctie) — sla meteen op bij wijziging,
-  // net als de afstand hierboven. De backend controleert of de reeds toegevoegde
-  // producten nog wel beschikbaar zijn op de nieuwe datum(s).
-  document.getElementById('form-periode').addEventListener('change', async (e) => {
-    if (e.target.id !== 'dd-datum-start' && e.target.id !== 'dd-datum-einde') return;
-    const veld = e.target.id === 'dd-datum-start' ? 'gewenste_datum_start' : 'gewenste_datum_einde';
-    const origineleWaarde = e.target.id === 'dd-datum-start'
-      ? String(b.gewenste_datum_start).slice(0, 10)
-      : String(b.gewenste_datum_einde).slice(0, 10);
-    const elFout = document.getElementById('periode-fout');
-    elFout.textContent = '';
-    try {
-      await api(`/api/boekingen/${boekingId}`, { method: 'PUT', body: JSON.stringify({ [veld]: e.target.value }) });
-      openDetail(boekingId);
-      laadBoekingenOverzicht();
-    } catch (err) {
-      elFout.textContent = err.message;
-      e.target.value = origineleWaarde;
-    }
+  // Periode wijzigen (bv. telefonische correctie) — sla meteen op bij een klik
+  // in de kalender, net als de afstand hierboven. De backend controleert of de
+  // reeds toegevoegde producten nog wel beschikbaar zijn op de nieuwe datum(s).
+  const origineleStart = b.gewenste_datum_start ? String(b.gewenste_datum_start).slice(0, 10) : null;
+  const origineleEinde = b.gewenste_datum_einde ? String(b.gewenste_datum_einde).slice(0, 10) : null;
+  const dossierPeriodeKalender = maakKalenderWidget({
+    container: document.getElementById('kalender-dossier-periode'),
+    initieleStart: origineleStart,
+    initieleEinde: origineleEinde,
+    opWijziging: async (start, einde) => {
+      const elFout = document.getElementById('periode-fout');
+      elFout.textContent = '';
+      try {
+        await api(`/api/boekingen/${boekingId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ gewenste_datum_start: start, gewenste_datum_einde: einde || start }),
+        });
+        openDetail(boekingId);
+        laadBoekingenOverzicht();
+      } catch (err) {
+        elFout.textContent = err.message;
+        dossierPeriodeKalender.stelIn(origineleStart, origineleEinde);
+      }
+    },
   });
 
   // Product toevoegen aan deze bestaande boeking (bv. telefonisch bijbesteld).
@@ -1157,8 +1159,143 @@ async function verversBeschikbaarheid() {
   herbouwAlleProductSelects();
 }
 
-document.getElementById('datum-start').addEventListener('change', verversBeschikbaarheid);
-document.getElementById('datum-einde').addEventListener('change', verversBeschikbaarheid);
+// ============================================================
+// KALENDERWIDGET (herbruikbare component) — visuele maandkalender waarmee een
+// dag of een periode rechtstreeks met de muis gekozen wordt. Gebruikt op
+// Beschikbaarheid, Nieuwe boeking en in het boekingdossier (Periode-blok).
+// Geen aparte datumvelden of Single Day/Date Range-knoppen meer: de eerste
+// klik kiest een dag, een volgende (andere) klik maakt er een periode van, en
+// een klik daarna start gewoon een nieuwe selectie. Elke instantie houdt zijn
+// eigen maand/selectie bij en meldt wijzigingen via "opWijziging".
+// ============================================================
+const KALENDER_MAAND_NAMEN = [
+  'januari', 'februari', 'maart', 'april', 'mei', 'juni',
+  'juli', 'augustus', 'september', 'oktober', 'november', 'december',
+];
+
+function maakKalenderWidget({ container, initieleStart, initieleEinde, opWijziging, toonBekijkKnop, bekijkKnopTekst, opBekijk }) {
+  let start = initieleStart || null;
+  let einde = initieleEinde || start;
+  // Los van de huidige start/einde-waarden bijgehouden: een reeds vooraf
+  // ingevulde datum (bv. "vandaag" als standaard) mag niet aanzien worden als
+  // "de gebruiker klikte al één keer" — anders plakt de eerste echte klik zich
+  // vast aan die vooraf ingevulde datum in plaats van een verse keuze te zijn.
+  let klaarVoorTweedeKlik = false;
+  let weergaveMaand = new Date();
+  if (start) {
+    const d = new Date(start);
+    if (!Number.isNaN(d.getTime())) weergaveMaand = new Date(d.getFullYear(), d.getMonth(), 1);
+  }
+  weergaveMaand.setDate(1);
+
+  container.classList.add('kalender-widget');
+  container.innerHTML = `
+    <div class="kalender-nav">
+      <button type="button" class="kal-vorige-maand linkbtn" aria-label="Vorige maand">‹</button>
+      <span class="kal-maand-label"></span>
+      <button type="button" class="kal-volgende-maand linkbtn" aria-label="Volgende maand">›</button>
+    </div>
+    <div class="kalender-dagnamen">
+      <span>ma</span><span>di</span><span>wo</span><span>do</span><span>vr</span><span>za</span><span>zo</span>
+    </div>
+    <div class="kalender-grid"></div>
+    <div class="kalender-onderaan">
+      <p class="kalender-geselecteerd-tekst"></p>
+      ${toonBekijkKnop ? `<button type="button" class="kal-bekijk-knop linkbtn">${bekijkKnopTekst || 'Bekijk ↓'}</button>` : ''}
+    </div>
+  `;
+  const elMaandLabel = container.querySelector('.kal-maand-label');
+  const elGrid = container.querySelector('.kalender-grid');
+  const elLabel = container.querySelector('.kalender-geselecteerd-tekst');
+
+  container.querySelector('.kal-vorige-maand').addEventListener('click', () => {
+    weergaveMaand.setMonth(weergaveMaand.getMonth() - 1);
+    render();
+  });
+  container.querySelector('.kal-volgende-maand').addEventListener('click', () => {
+    weergaveMaand.setMonth(weergaveMaand.getMonth() + 1);
+    render();
+  });
+  if (toonBekijkKnop) {
+    container.querySelector('.kal-bekijk-knop').addEventListener('click', () => opBekijk && opBekijk());
+  }
+
+  function kiesDag(iso) {
+    if (!klaarVoorTweedeKlik) {
+      // Eerste klik van een nieuwe selectie -> altijd een verse, eendaagse
+      // keuze, ongeacht wat er toevallig al (bv. als standaard) ingesteld stond.
+      start = iso;
+      einde = iso;
+      klaarVoorTweedeKlik = true;
+    } else {
+      // Tweede klik -> maakt er een periode van (kleinste datum = start, grootste = einde).
+      const vorigeStart = start;
+      start = iso < vorigeStart ? iso : vorigeStart;
+      einde = iso < vorigeStart ? vorigeStart : iso;
+      klaarVoorTweedeKlik = false;
+    }
+    render();
+    opWijziging(start, einde);
+  }
+
+  function render() {
+    const jaar = weergaveMaand.getFullYear();
+    const maand = weergaveMaand.getMonth();
+    elMaandLabel.textContent = `${KALENDER_MAAND_NAMEN[maand]} ${jaar}`;
+    const vandaag = naarISO(new Date());
+    const eersteDagVanMaand = new Date(jaar, maand, 1);
+    // Maandag = eerste kolom (Europese conventie, zoals de rest van het scherm).
+    const leadingLeeg = (eersteDagVanMaand.getDay() + 6) % 7;
+    const aantalDagen = new Date(jaar, maand + 1, 0).getDate();
+
+    let html = '';
+    for (let i = 0; i < leadingLeeg; i++) html += '<span class="kalender-dag kalender-dag-leeg"></span>';
+    for (let dag = 1; dag <= aantalDagen; dag++) {
+      const iso = naarISO(new Date(jaar, maand, dag));
+      let klasse = 'kalender-dag';
+      if (iso === vandaag) klasse += ' kalender-vandaag';
+      if (iso === start || iso === einde) klasse += ' kalender-geselecteerd';
+      else if (start && einde && iso > start && iso < einde) klasse += ' kalender-in-bereik';
+      html += `<button type="button" class="${klasse}" data-iso="${iso}">${dag}</button>`;
+    }
+    elGrid.innerHTML = html;
+    elGrid.querySelectorAll('.kalender-dag:not(.kalender-dag-leeg)').forEach((el) => {
+      el.addEventListener('click', () => kiesDag(el.dataset.iso));
+    });
+
+    if (start && einde && start !== einde) {
+      elLabel.textContent = `Periode: ${fmtDatum(start)} t.e.m. ${fmtDatum(einde)}`;
+    } else if (start) {
+      elLabel.textContent = `Datum: ${fmtDatum(start)}`;
+    } else {
+      elLabel.textContent = 'Kies een datum in de kalender.';
+    }
+  }
+
+  render();
+
+  return {
+    stelIn(nieuweStart, nieuweEinde) {
+      start = nieuweStart || null;
+      einde = nieuweEinde || start;
+      klaarVoorTweedeKlik = false;
+      if (start) {
+        const d = new Date(start);
+        if (!Number.isNaN(d.getTime())) weergaveMaand = new Date(d.getFullYear(), d.getMonth(), 1);
+      }
+      render();
+    },
+  };
+}
+
+const nieuweBoekingKalender = maakKalenderWidget({
+  container: document.getElementById('kalender-nieuwe-boeking'),
+  opWijziging: (start, einde) => {
+    document.getElementById('datum-start').value = start || '';
+    document.getElementById('datum-einde').value = (einde && einde !== start) ? einde : '';
+    verversBeschikbaarheid();
+  },
+});
 
 // ============================================================
 // BESCHIKBAARHEID-OVERZICHT (snel zien wat nog vrij is op een datum/periode,
@@ -1215,159 +1352,28 @@ async function ververBeschikbaarheidsoverzicht() {
   renderBeschikbaarheidKolom('besch-bezet', bezet, false);
 }
 
+const beschikbaarheidKalender = maakKalenderWidget({
+  container: document.getElementById('kalender-beschikbaarheid'),
+  toonBekijkKnop: true,
+  bekijkKnopTekst: 'Bekijk datum ↓',
+  opBekijk: () => document.querySelector('.beschikbaarheid-kolommen').scrollIntoView({ behavior: 'smooth', block: 'start' }),
+  opWijziging: (start, einde) => {
+    document.getElementById('besch-datum-start').value = start || '';
+    document.getElementById('besch-datum-einde').value = einde || start || '';
+    ververBeschikbaarheidsoverzicht();
+  },
+});
+
 function laadBeschikbaarheidsoverzicht() {
   const elStart = document.getElementById('besch-datum-start');
-  if (!elStart.value) elStart.value = naarISO(new Date());
-  synchroniseerKalenderMetVelden();
-  ververBeschikbaarheidsoverzicht();
-}
-
-document.getElementById('besch-datum-start').addEventListener('change', () => {
-  synchroniseerKalenderMetVelden();
-  ververBeschikbaarheidsoverzicht();
-});
-document.getElementById('besch-datum-einde').addEventListener('change', () => {
-  synchroniseerKalenderMetVelden();
-  ververBeschikbaarheidsoverzicht();
-});
-
-// ============================================================
-// KALENDERWIDGET (Beschikbaarheid) — visuele maandkalender met Single Day/Date
-// Range-keuze, zoals gevraagd (naar analogie van het oude bookingonline.co.uk-
-// systeem). Stuurt gewoon dezelfde #besch-datum-start/#besch-datum-einde velden
-// aan die hierboven al bestonden, zodat de rest van de beschikbaarheidslogica
-// ongewijzigd blijft — de kalender is enkel een andere manier om die twee data
-// te kiezen, naast (niet in plaats van) de bestaande datumvelden.
-// ============================================================
-let kalenderWeergaveMaand = new Date();
-kalenderWeergaveMaand.setDate(1);
-let kalenderModus = 'dag'; // 'dag' = Single Day, 'periode' = Date Range
-// Houdt bij of de "eerste klik" van een nieuwe periode nog moet gebeuren, los van
-// wat er toevallig al in de datumvelden staat (zie kiesKalenderDag hieronder).
-let kalenderPeriodeStartVastgezet = false;
-
-const KALENDER_MAAND_NAMEN = [
-  'januari', 'februari', 'maart', 'april', 'mei', 'juni',
-  'juli', 'augustus', 'september', 'oktober', 'november', 'december',
-];
-
-function kalenderHuidigeSelectie() {
-  return {
-    start: document.getElementById('besch-datum-start').value || null,
-    einde: document.getElementById('besch-datum-einde').value || null,
-  };
-}
-
-// Springt de kalenderweergave naar de maand van de (handmatig ingevulde) datum,
-// zodat typen in de datumvelden en klikken in de kalender altijd in sync blijven.
-function synchroniseerKalenderMetVelden() {
-  const { start } = kalenderHuidigeSelectie();
-  if (start) {
-    const d = new Date(start);
-    if (!Number.isNaN(d.getTime())) {
-      kalenderWeergaveMaand = new Date(d.getFullYear(), d.getMonth(), 1);
-    }
-  }
-  renderKalender();
-}
-
-function kiesKalenderDag(datumIso) {
-  const { start } = kalenderHuidigeSelectie();
-  let nieuweStart = datumIso;
-  let nieuweEinde = datumIso;
-  if (kalenderModus === 'periode') {
-    if (!kalenderPeriodeStartVastgezet) {
-      // Eerste klik van een nieuwe periode: nooit de bestaande (mogelijk nog van
-      // Single Day of van de vorige periode overgebleven) start/einde-waarden
-      // hergebruiken — anders "plakt" bv. de standaard-datum van vandaag vast
-      // aan de eerst gekozen dag zonder dat de gebruiker dat zelf koos.
-      nieuweStart = datumIso;
-      nieuweEinde = '';
-      kalenderPeriodeStartVastgezet = true;
-    } else {
-      // Tweede klik van een periode: kleinste datum = start, grootste = einde.
-      nieuweStart = datumIso < start ? datumIso : start;
-      nieuweEinde = datumIso < start ? start : datumIso;
-      kalenderPeriodeStartVastgezet = false;
-    }
-  }
-  const elStart = document.getElementById('besch-datum-start');
   const elEinde = document.getElementById('besch-datum-einde');
-  elStart.value = nieuweStart;
-  elEinde.value = nieuweEinde;
-  renderKalender();
+  if (!elStart.value) {
+    elStart.value = naarISO(new Date());
+    elEinde.value = elStart.value;
+  }
+  beschikbaarheidKalender.stelIn(elStart.value, elEinde.value || elStart.value);
   ververBeschikbaarheidsoverzicht();
 }
-
-document.querySelectorAll('.kalender-modus-knop').forEach((btn) => {
-  btn.addEventListener('click', () => {
-    kalenderModus = btn.dataset.modus;
-    document.querySelectorAll('.kalender-modus-knop').forEach((b) => b.classList.toggle('actief', b === btn));
-    // Bij overschakelen naar Single Day telt enkel nog de startdatum als keuze.
-    if (kalenderModus === 'dag') {
-      const { start } = kalenderHuidigeSelectie();
-      if (start) {
-        document.getElementById('besch-datum-einde').value = start;
-        ververBeschikbaarheidsoverzicht();
-      }
-    }
-    // Elke keer we (opnieuw) naar Date Range schakelen, start de eerstvolgende
-    // klik altijd een verse periode — nooit gekoppeld aan een oude datumwaarde.
-    kalenderPeriodeStartVastgezet = false;
-    renderKalender();
-  });
-});
-
-document.getElementById('kal-vorige-maand').addEventListener('click', () => {
-  kalenderWeergaveMaand.setMonth(kalenderWeergaveMaand.getMonth() - 1);
-  renderKalender();
-});
-document.getElementById('kal-volgende-maand').addEventListener('click', () => {
-  kalenderWeergaveMaand.setMonth(kalenderWeergaveMaand.getMonth() + 1);
-  renderKalender();
-});
-document.getElementById('kal-bekijk-datum').addEventListener('click', () => {
-  document.querySelector('.beschikbaarheid-kolommen').scrollIntoView({ behavior: 'smooth', block: 'start' });
-});
-
-function renderKalender() {
-  const jaar = kalenderWeergaveMaand.getFullYear();
-  const maand = kalenderWeergaveMaand.getMonth();
-  document.getElementById('kal-maand-label').textContent = `${KALENDER_MAAND_NAMEN[maand]} ${jaar}`;
-
-  const { start, einde } = kalenderHuidigeSelectie();
-  const vandaag = naarISO(new Date());
-
-  const eersteDagVanMaand = new Date(jaar, maand, 1);
-  // Maandag = eerste kolom (Europese conventie, zoals de rest van het scherm).
-  const leadingLeeg = (eersteDagVanMaand.getDay() + 6) % 7;
-  const aantalDagen = new Date(jaar, maand + 1, 0).getDate();
-
-  let html = '';
-  for (let i = 0; i < leadingLeeg; i++) html += '<span class="kalender-dag kalender-dag-leeg"></span>';
-  for (let dag = 1; dag <= aantalDagen; dag++) {
-    const iso = naarISO(new Date(jaar, maand, dag));
-    let klasse = 'kalender-dag';
-    if (iso === vandaag) klasse += ' kalender-vandaag';
-    if (iso === start || iso === einde) klasse += ' kalender-geselecteerd';
-    else if (start && einde && iso > start && iso < einde) klasse += ' kalender-in-bereik';
-    html += `<button type="button" class="${klasse}" data-iso="${iso}">${dag}</button>`;
-  }
-  document.getElementById('kalender-grid').innerHTML = html;
-  document.querySelectorAll('.kalender-dag:not(.kalender-dag-leeg)').forEach((el) => {
-    el.addEventListener('click', () => kiesKalenderDag(el.dataset.iso));
-  });
-
-  const label = document.getElementById('kalender-geselecteerd-label');
-  if (start && einde && start !== einde) {
-    label.textContent = `Periode: ${fmtDatum(start)} t.e.m. ${fmtDatum(einde)}`;
-  } else if (start) {
-    label.textContent = `Datum: ${fmtDatum(start)}`;
-  } else {
-    label.textContent = 'Kies een datum in de kalender.';
-  }
-}
-renderKalender();
 
 // Vanuit het beschikbaarheidsoverzicht meteen een nieuwe boeking starten met het
 // aangeklikte product en de gekozen datum/periode al ingevuld.
@@ -1377,6 +1383,7 @@ function startNieuweBoekingVoorProduct(productId, datumStart, datumEinde) {
   nieuweProductRij(productId);
   document.getElementById('datum-start').value = datumStart;
   document.getElementById('datum-einde').value = (datumEinde && datumEinde !== datumStart) ? datumEinde : '';
+  nieuweBoekingKalender.stelIn(datumStart, datumEinde || datumStart);
   verversBeschikbaarheid();
 }
 
@@ -1437,6 +1444,7 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
       aantal: parseInt(rij.querySelector('.rij-aantal').value, 10) || 1,
     }));
     if (!producten.length) throw new Error('Voeg minstens één product toe.');
+    if (!document.getElementById('datum-start').value) throw new Error('Kies een datum (of periode) in de kalender.');
 
     const adresIdemKlant = document.getElementById('adres-idem-klant').checked;
 
@@ -1469,6 +1477,7 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
     document.getElementById('veld-leveringsadres').hidden = false;
     onbeschikbareProductIds = new Set();
     nieuweProductRij();
+    nieuweBoekingKalender.stelIn(null, null);
   } catch (err) {
     elFout.textContent = err.message;
   }
