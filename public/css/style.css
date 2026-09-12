@@ -356,6 +356,11 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 
 /* PRODUCTEN */
 .producten-sectie { margin-bottom: 1.8rem; }
+.producten-sectie-kop {
+  display: flex; align-items: center; justify-content: space-between; gap: 0.6rem;
+  border-bottom: 1px solid var(--rand); padding-bottom: 0.4rem;
+}
+.producten-sectie-kop h3 { color: var(--blauw-donker); border-bottom: none; padding-bottom: 0; margin: 0; }
 .producten-sectie h3 { color: var(--blauw-donker); border-bottom: 1px solid var(--rand); padding-bottom: 0.4rem; }
 .product-kaarten-grid {
   display: grid;
@@ -365,8 +370,17 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .product-kaart {
   background: white; border: 1px solid var(--rand); border-radius: 8px;
   overflow: hidden; cursor: pointer; display: flex; flex-direction: column;
+  position: relative;
 }
 .product-kaart:hover { border-color: var(--blauw); }
+.kaart-verwijder-knop {
+  position: absolute; top: 0.4rem; right: 0.4rem; z-index: 1;
+  width: 24px; height: 24px; border-radius: 50%; border: none;
+  background: rgba(255, 255, 255, 0.92); color: var(--rood);
+  font-size: 0.85rem; line-height: 1; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+}
+.kaart-verwijder-knop:hover { background: var(--rood); color: white; }
 .product-kaart-afbeelding {
   width: 100%; height: 130px; object-fit: cover; background: var(--grijs-licht);
 }

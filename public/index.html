@@ -248,14 +248,9 @@
           <div class="grid-2">
             <label>Naam*<input type="text" id="np-naam" required /></label>
             <label>Categorie
-              <select id="np-categorie">
-                <option value="Springkastelen">Springkastelen</option>
-                <option value="Attracties">Attracties</option>
-                <option value="Obstakelbanen">Obstakelbanen</option>
-                <option value="Feestmaterialen">Feestmaterialen</option>
-                <option value="Servies/Bestek/glazen">Servies/Bestek/glazen</option>
-              </select>
+              <select id="np-categorie"></select>
             </label>
+            <label id="np-nieuwe-categorie-veld" hidden>Naam nieuwe categorie<input type="text" id="np-nieuwe-categorie-naam" placeholder="bv. Verlichting" /></label>
             <label>Dagprijs (€)<input type="number" id="np-prijs" min="0" step="0.01" /></label>
             <label>Weekendprijs (€)<input type="number" id="np-weekendprijs" min="0" step="0.01" /></label>
             <label>Afhaalprijs (€)<input type="number" id="np-afhaalprijs" min="0" step="0.01" /></label>

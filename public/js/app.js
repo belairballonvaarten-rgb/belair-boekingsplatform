@@ -1277,17 +1277,37 @@ const PRODUCT_CATEGORIE_VOLGORDE = ['Springkastelen', 'Attracties', 'Obstakelban
 // bij Springkastelen/Attracties/Obstakelbanen kan een aanvraag maar 1 exemplaar
 // van elk model kiezen, ook al staan er meerdere fysieke exemplaren in voorraad.
 const AANTAL_CATEGORIEEN = ['Feestmaterialen', 'Servies/Bestek/glazen'];
+// Speciale waarde voor de "+ Nieuwe categorie…" optie in de categorie-dropdowns.
+const NIEUWE_CATEGORIE_WAARDE = '__nieuwe_categorie__';
 let onbeschikbareProductIds = new Set();
 
-// Producten gegroepeerd per categorie (in de vaste volgorde, rest onder "Overige").
+// Alle categorieën: eerst de 5 vaste in hun vaste volgorde, daarna elke extra
+// categorie die Jonas zelf heeft aangemaakt (via "+ Nieuwe categorie…"),
+// alfabetisch. Zo krijgt een nieuwe categorie meteen overal haar eigen sectie
+// i.p.v. onder "Overige" te belanden.
+// Neemt optioneel een expliciete productenlijst i.p.v. de (mogelijk nog niet
+// ververste) productenCache — belangrijk vlak na het aanmaken van een product
+// in een gloednieuwe categorie, zodat die meteen in de juiste sectie verschijnt.
+function alleCategorieen(bronProducten) {
+  const bron = bronProducten || productenCache;
+  const gevonden = new Set();
+  bron.forEach((p) => (p.categorieen || []).forEach((c) => { if (c) gevonden.add(c); }));
+  const extra = [...gevonden]
+    .filter((c) => !PRODUCT_CATEGORIE_VOLGORDE.includes(c))
+    .sort((a, b) => a.localeCompare(b, 'nl'));
+  return [...PRODUCT_CATEGORIE_VOLGORDE, ...extra];
+}
+
+// Producten gegroepeerd per categorie (in de vaste volgorde + eigen categorieën, rest onder "Overige").
 function productenPerCategorie() {
   const groepen = new Map();
-  PRODUCT_CATEGORIE_VOLGORDE.forEach((c) => groepen.set(c, []));
+  const categorieen = alleCategorieen();
+  categorieen.forEach((c) => groepen.set(c, []));
   groepen.set('Overige', []);
 
   productenCache.forEach((p) => {
-    const categorieen = p.categorieen || [];
-    const gekozenCategorie = PRODUCT_CATEGORIE_VOLGORDE.find((c) => categorieen.includes(c)) || 'Overige';
+    const productCategorieen = p.categorieen || [];
+    const gekozenCategorie = categorieen.find((c) => productCategorieen.includes(c)) || 'Overige';
     groepen.get(gekozenCategorie).push(p);
   });
   return groepen;
@@ -1307,9 +1327,32 @@ function eersteCategorieMetProducten() {
 // een product ook naar een (nu nog lege of verkeerd ingevulde) categorie kan
 // verplaatsen.
 function bouwCategorieKeuzeOpties(geselecteerdeCategorie) {
-  return PRODUCT_CATEGORIE_VOLGORDE
+  const opties = alleCategorieen()
     .map((c) => `<option value="${c}" ${c === geselecteerdeCategorie ? 'selected' : ''}>${c}</option>`)
     .join('');
+  return `${opties}<option value="${NIEUWE_CATEGORIE_WAARDE}">+ Nieuwe categorie…</option>`;
+}
+
+// Toont/verbergt het tekstveld voor een nieuwe categorienaam wanneer de
+// "+ Nieuwe categorie…" optie gekozen wordt in een categorie-dropdown.
+function koppelNieuweCategorieVeld(selectId, veldId) {
+  const select = document.getElementById(selectId);
+  const veld = document.getElementById(veldId);
+  select.addEventListener('change', () => {
+    veld.hidden = select.value !== NIEUWE_CATEGORIE_WAARDE;
+    if (!veld.hidden) veld.querySelector('input').focus();
+  });
+}
+
+// Geeft de effectieve categorienaam terug: de gekozen optie, of de ingevulde
+// nieuwe naam als "+ Nieuwe categorie…" gekozen werd. Gooit een fout als die
+// laatste leeg is.
+function leesGekozenCategorie(selectId, nieuweNaamInputId) {
+  const waarde = document.getElementById(selectId).value;
+  if (waarde !== NIEUWE_CATEGORIE_WAARDE) return waarde;
+  const nieuweNaam = document.getElementById(nieuweNaamInputId).value.trim();
+  if (!nieuweNaam) throw new Error('Vul een naam in voor de nieuwe categorie.');
+  return nieuweNaam;
 }
 
 function bouwCategorieOpties(geselecteerdeCategorie) {
@@ -1597,11 +1640,12 @@ const nieuweBoekingKalender = maakKalenderWidget({
 // ============================================================
 function groepeerLijstPerCategorie(lijst) {
   const groepen = new Map();
-  PRODUCT_CATEGORIE_VOLGORDE.forEach((c) => groepen.set(c, []));
+  const categorieen = alleCategorieen(lijst);
+  categorieen.forEach((c) => groepen.set(c, []));
   groepen.set('Overige', []);
   lijst.forEach((p) => {
-    const categorieen = p.categorieen || [];
-    const gekozenCategorie = PRODUCT_CATEGORIE_VOLGORDE.find((c) => categorieen.includes(c)) || 'Overige';
+    const productCategorieen = p.categorieen || [];
+    const gekozenCategorie = categorieen.find((c) => productCategorieen.includes(c)) || 'Overige';
     groepen.get(gekozenCategorie).push(p);
   });
   return groepen;
@@ -1801,11 +1845,12 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
 // ============================================================
 function groepeerPerCategorie(producten) {
   const groepen = new Map();
-  PRODUCT_CATEGORIE_VOLGORDE.forEach((c) => groepen.set(c, []));
+  const categorieen = alleCategorieen(producten);
+  categorieen.forEach((c) => groepen.set(c, []));
   groepen.set('Overige', []);
   producten.forEach((p) => {
-    const categorieen = p.categorieen || [];
-    const gekozenCategorie = PRODUCT_CATEGORIE_VOLGORDE.find((c) => categorieen.includes(c)) || 'Overige';
+    const productCategorieen = p.categorieen || [];
+    const gekozenCategorie = categorieen.find((c) => productCategorieen.includes(c)) || 'Overige';
     groepen.get(gekozenCategorie).push(p);
   });
   return groepen;
@@ -1816,6 +1861,7 @@ function productKaartHtml(p) {
   const staat = p.staat || 'proper';
   return `
     <div class="product-kaart" data-id="${p.id}">
+      <button type="button" class="kaart-verwijder-knop" data-verwijder-id="${p.id}" title="Product verwijderen">✕</button>
       ${afbeelding
         ? `<img class="product-kaart-afbeelding" src="${afbeelding}" alt="${p.naam}" />`
         : '<div class="product-kaart-afbeelding"></div>'}
@@ -1838,6 +1884,13 @@ function productKaartHtml(p) {
 
 async function laadProductenOverzicht() {
   const producten = await api('/api/producten');
+
+  // Categorie-dropdown van "Nieuw product toevoegen" up-to-date houden, incl.
+  // eventuele nieuwe categorieën die intussen zijn aangemaakt.
+  const npCategorieSelect = document.getElementById('np-categorie');
+  const huidigeKeuze = npCategorieSelect.value && npCategorieSelect.value !== NIEUWE_CATEGORIE_WAARDE ? npCategorieSelect.value : '';
+  npCategorieSelect.innerHTML = bouwCategorieKeuzeOpties(huidigeKeuze);
+
   const groepen = groepeerPerCategorie(producten);
   const container = document.getElementById('producten-secties');
   container.innerHTML = '';
@@ -1845,13 +1898,17 @@ async function laadProductenOverzicht() {
     if (!lijst.length) return;
     const sectie = document.createElement('div');
     sectie.className = 'producten-sectie';
-    sectie.innerHTML = `<h3>${categorie} (${lijst.length})</h3><div class="product-kaarten-grid">${lijst.map(productKaartHtml).join('')}</div>`;
+    const verwijderAllesKnop = `<button type="button" class="linkbtn gevaar sectie-verwijder-alles" data-categorie="${categorie}">Verwijder alles in "${categorie}"</button>`;
+    sectie.innerHTML = `
+      <div class="producten-sectie-kop"><h3>${categorie} (${lijst.length})</h3>${verwijderAllesKnop}</div>
+      <div class="product-kaarten-grid">${lijst.map(productKaartHtml).join('')}</div>
+    `;
     container.appendChild(sectie);
   });
 
   container.querySelectorAll('.product-kaart').forEach((kaart) => {
     kaart.addEventListener('click', (e) => {
-      if (e.target.closest('.staat-knop')) return; // knop heeft eigen click-afhandeling
+      if (e.target.closest('.staat-knop') || e.target.closest('.kaart-verwijder-knop')) return; // knoppen hebben eigen click-afhandeling
       openProductDetail(kaart.dataset.id);
     });
   });
@@ -1867,6 +1924,48 @@ async function laadProductenOverzicht() {
       laadProductenCache();
     });
   });
+
+  // Snel één product verwijderen vanuit het overzicht, zonder de modal te openen.
+  container.querySelectorAll('.kaart-verwijder-knop').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const naam = btn.closest('.product-kaart').querySelector('h4').textContent;
+      if (!confirm(`"${naam}" definitief verwijderen? Dit kan niet ongedaan gemaakt worden.`)) return;
+      try {
+        await api(`/api/producten/${btn.dataset.verwijderId}`, { method: 'DELETE' });
+        laadProductenOverzicht();
+        laadProductenCache();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  // Een volledige categorie (bv. de opkuis van "Overige" na een import) in één
+  // keer leegmaken — producten die al in een boeking gebruikt worden, worden
+  // overgeslagen i.p.v. de hele actie te laten mislukken.
+  container.querySelectorAll('.sectie-verwijder-alles').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const categorie = btn.dataset.categorie;
+      const lijst = groepen.get(categorie) || [];
+      if (!lijst.length) return;
+      if (!confirm(`Alle ${lijst.length} producten in "${categorie}" definitief verwijderen? Dit kan niet ongedaan gemaakt worden.`)) return;
+      let verwijderd = 0;
+      let overgeslagen = 0;
+      for (const p of lijst) {
+        try {
+          await api(`/api/producten/${p.id}`, { method: 'DELETE' });
+          verwijderd += 1;
+        } catch (err) {
+          overgeslagen += 1;
+        }
+      }
+      alert(`${verwijderd} product(en) verwijderd.${overgeslagen ? ` ${overgeslagen} niet verwijderd (al gebruikt in een boeking).` : ''}`);
+      laadProductenOverzicht();
+      laadProductenCache();
+    });
+  });
 }
 
 document.getElementById('form-nieuw-product').addEventListener('submit', async (e) => {
@@ -1874,12 +1973,13 @@ document.getElementById('form-nieuw-product').addEventListener('submit', async (
   const elFout = document.getElementById('nieuw-product-fout');
   elFout.textContent = '';
   try {
+    const categorie = leesGekozenCategorie('np-categorie', 'np-nieuwe-categorie-naam');
     const afbeelding = document.getElementById('np-afbeelding').value.trim();
     await api('/api/producten', {
       method: 'POST',
       body: JSON.stringify({
         naam: document.getElementById('np-naam').value.trim(),
-        categorieen: [document.getElementById('np-categorie').value],
+        categorieen: [categorie],
         prijs: parseFloat(document.getElementById('np-prijs').value) || 0,
         weekendprijs: document.getElementById('np-weekendprijs').value !== '' ? parseFloat(document.getElementById('np-weekendprijs').value) : null,
         afhaalprijs: document.getElementById('np-afhaalprijs').value !== '' ? parseFloat(document.getElementById('np-afhaalprijs').value) : null,
@@ -1891,6 +1991,7 @@ document.getElementById('form-nieuw-product').addEventListener('submit', async (
       }),
     });
     document.getElementById('form-nieuw-product').reset();
+    document.getElementById('np-nieuwe-categorie-veld').hidden = true;
     document.getElementById('nieuw-product-details').open = false;
     laadProductenOverzicht();
     laadProductenCache();
@@ -1898,6 +1999,7 @@ document.getElementById('form-nieuw-product').addEventListener('submit', async (
     elFout.textContent = err.message;
   }
 });
+koppelNieuweCategorieVeld('np-categorie', 'np-nieuwe-categorie-veld');
 
 document.getElementById('form-bulk-import').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1949,6 +2051,7 @@ async function openProductDetail(productId) {
         <label>Categorie
           <select id="pb-categorie">${bouwCategorieKeuzeOpties((p.categorieen && p.categorieen[0]) || '')}</select>
         </label>
+        <label id="pb-nieuwe-categorie-veld" hidden>Naam nieuwe categorie<input type="text" id="pb-nieuwe-categorie-naam" placeholder="bv. Verlichting" /></label>
         <label>Dagprijs (€)<input type="number" id="pb-prijs" step="0.01" min="0" value="${p.prijs}" /></label>
         <label>Weekendprijs (€)<input type="number" id="pb-weekendprijs" step="0.01" min="0" value="${p.weekendprijs != null ? p.weekendprijs : ''}" /></label>
         <label>Afhaalprijs (€)<input type="number" id="pb-afhaalprijs" step="0.01" min="0" value="${p.afhaalprijs != null ? p.afhaalprijs : ''}" /></label>
@@ -1981,17 +2084,20 @@ async function openProductDetail(productId) {
     <p class="uitleg" style="margin-top:0.3rem">Certificaat als document (bv. PDF) bijvoegen komt in een latere fase.</p>
   `;
 
+  koppelNieuweCategorieVeld('pb-categorie', 'pb-nieuwe-categorie-veld');
+
   document.getElementById('form-product-bewerken').addEventListener('submit', async (e) => {
     e.preventDefault();
     const elFout = document.getElementById('product-bewerken-fout');
     elFout.textContent = '';
     try {
+      const categorie = leesGekozenCategorie('pb-categorie', 'pb-nieuwe-categorie-naam');
       const afbeelding = document.getElementById('pb-afbeelding').value.trim();
       await api(`/api/producten/${productId}`, {
         method: 'PUT',
         body: JSON.stringify({
           naam: document.getElementById('pb-naam').value,
-          categorieen: [document.getElementById('pb-categorie').value],
+          categorieen: [categorie],
           prijs: parseFloat(document.getElementById('pb-prijs').value) || 0,
           weekendprijs: document.getElementById('pb-weekendprijs').value !== '' ? parseFloat(document.getElementById('pb-weekendprijs').value) : null,
           afhaalprijs: document.getElementById('pb-afhaalprijs').value !== '' ? parseFloat(document.getElementById('pb-afhaalprijs').value) : null,
