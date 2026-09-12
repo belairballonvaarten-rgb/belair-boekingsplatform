@@ -435,8 +435,13 @@ async function openDetail(boekingId) {
   const b = await api(`/api/boekingen/${boekingId}`);
   const inhoud = document.getElementById('boeking-detail-inhoud');
 
+  // Welke producten zijn nog vrij op de (huidige) periode van deze boeking, voor de
+  // "product toevoegen"-select — de boeking zelf mag niet meetellen als bezetting.
+  const dpOnbeschikbaar = await bepaalOnbeschikbareProductIds(b.gewenste_datum_start, b.gewenste_datum_einde, boekingId);
+  const dpEersteCategorie = eersteCategorieMetProducten();
+
   const productenHtml = b.producten
-    .map((p) => `<div class="detail-rij"><span>${p.product_naam} × ${p.aantal}</span><span>€ ${Number(p.prijs).toFixed(2)}</span></div>`)
+    .map((p) => `<div class="detail-rij product-regel"><span>${p.product_naam} × ${p.aantal}</span><span>€ ${Number(p.prijs).toFixed(2)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`)
     .join('');
 
   const historiekHtml = b.historiek
@@ -481,91 +486,119 @@ async function openDetail(boekingId) {
   inhoud.innerHTML = `
     <h3>${b.klant_naam} ${statusPillHtml(b.status)}</h3>
     ${b.speciaal_verzoek ? `<div class="speciaal-verzoek-banner">⭑ Speciaal verzoek${b.speciaal_verzoek_notitie ? ': ' + b.speciaal_verzoek_notitie : ''}</div>` : ''}
-    <button type="button" id="btn-klantgegevens-bewerken" class="linkbtn">✎ Klant-/boekinggegevens bewerken</button>
 
-    <div id="klantgegevens-weergave">
-      <div class="detail-rij"><span>Periode</span><span>${fmtDatum(b.gewenste_datum_start)} – ${fmtDatum(b.gewenste_datum_einde)}</span></div>
-      <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
-      <div class="detail-rij"><span>E-mail</span><span>${b.klant_email || '—'}</span></div>
-      <div class="detail-rij"><span>Leveringswijze</span><span>${b.leveringswijze || '—'}</span></div>
-      <div class="detail-rij"><span>Adres</span><span>${adresVolledig || '—'}</span></div>
-      <div class="detail-rij"><span>Ondergrond</span><span>${b.type_ondergrond || '—'}</span></div>
-      <div class="detail-rij"><span>Toegankelijkheid</span><span>${b.toegankelijkheid || '—'}</span></div>
-      <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
-      <div class="detail-rij"><span>Voorkeur afhaling</span><span>${b.voorkeur_tijdstip_afhaling || '—'}</span></div>
-      <div class="detail-rij"><span>Huurvoorwaarden</span><span>${b.huurvoorwaarden_geaccepteerd ? 'Geaccepteerd' : 'Niet geaccepteerd'}</span></div>
-      <div class="detail-rij"><span>Speciaal verzoek</span><span>${b.speciaal_verzoek ? (b.speciaal_verzoek_notitie || 'Ja') : '—'}</span></div>
+    <h4>Statusovergangen</h4>
+    <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen overgangen meer mogelijk</p>'}</div>
+
+    <div class="detail-layout">
+      <div class="detail-kolom detail-kolom-klant">
+        <div class="detail-kolom-kop">
+          <h4>Klantgegevens</h4>
+          <button type="button" id="btn-klantgegevens-bewerken" class="linkbtn">✎ Bewerken</button>
+        </div>
+
+        <div id="klantgegevens-weergave">
+          <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
+          <div class="detail-rij"><span>E-mail</span><span>${b.klant_email || '—'}</span></div>
+          <div class="detail-rij"><span>Leveringswijze</span><span>${b.leveringswijze || '—'}</span></div>
+          <div class="detail-rij"><span>Adres</span><span>${adresVolledig || '—'}</span></div>
+          <div class="detail-rij"><span>Ondergrond</span><span>${b.type_ondergrond || '—'}</span></div>
+          <div class="detail-rij"><span>Toegankelijkheid</span><span>${b.toegankelijkheid || '—'}</span></div>
+          <div class="detail-rij"><span>Voorkeur levering</span><span>${b.voorkeur_tijdstip_levering || '—'}</span></div>
+          <div class="detail-rij"><span>Voorkeur afhaling</span><span>${b.voorkeur_tijdstip_afhaling || '—'}</span></div>
+          <div class="detail-rij"><span>Huurvoorwaarden</span><span>${b.huurvoorwaarden_geaccepteerd ? 'Geaccepteerd' : 'Niet geaccepteerd'}</span></div>
+          <div class="detail-rij"><span>Speciaal verzoek</span><span>${b.speciaal_verzoek ? (b.speciaal_verzoek_notitie || 'Ja') : '—'}</span></div>
+        </div>
+
+        <form id="form-klantgegevens-bewerken" class="grid-2" hidden>
+          <label>Naam<input type="text" id="kg-naam" value="${b.klant_naam || ''}" /></label>
+          <label>Telefoon<input type="text" id="kg-telefoon" value="${b.klant_telefoon || ''}" /></label>
+          <label>E-mail<input type="email" id="kg-email" value="${b.klant_email || ''}" /></label>
+          <label>Leveringswijze
+            <select id="kg-leveringswijze">
+              <option value="levering" ${b.leveringswijze === 'levering' ? 'selected' : ''}>Levering door ons team</option>
+              <option value="afhaling" ${b.leveringswijze === 'afhaling' ? 'selected' : ''}>Afhaling door klant</option>
+            </select>
+          </label>
+          <label>Plaatsingsadres<input type="text" id="kg-leveringsadres" value="${b.leveringsadres || ''}" placeholder="leeg = adres van de klant" /></label>
+          <label>Type ondergrond<input type="text" id="kg-ondergrond" value="${b.type_ondergrond || ''}" /></label>
+          <label>Toegankelijkheid<input type="text" id="kg-toegankelijkheid" value="${b.toegankelijkheid || ''}" /></label>
+          <label>Tijdstip levering<select id="kg-tijdstip-levering"></select></label>
+          <label>Tijdstip afhaling<select id="kg-tijdstip-afhaling"></select></label>
+          <label class="checkbox" style="grid-column: 1 / -1;">
+            <input type="checkbox" id="kg-speciaal-verzoek" ${b.speciaal_verzoek ? 'checked' : ''} /> Speciaal verzoek voor deze boeking (paars accent in de overzichten)
+          </label>
+          <label style="grid-column: 1 / -1;">Toelichting speciaal verzoek<input type="text" id="kg-speciaal-verzoek-notitie" value="${b.speciaal_verzoek_notitie || ''}" placeholder="bv. allergie, extra toegangscode, moeilijke locatie, ..." /></label>
+          <div class="form-acties">
+            <button type="submit">Opslaan</button>
+            <button type="button" id="btn-klantgegevens-annuleren" class="linkbtn">Annuleren</button>
+          </div>
+          <p id="klantgegevens-fout" class="foutmelding"></p>
+        </form>
+
+        <h4>Locatie</h4>
+        ${mapsUrl ? `<div class="detail-rij"><span></span><span><a href="${mapsUrl}" target="_blank" rel="noopener">Bekijk op Google Maps ↗</a></span></div>` : ''}
+        <form id="form-locatie" class="grid-2">
+          <label>Afstand tot Overmere (km)<input type="number" id="dd-afstand-km" step="0.1" min="0" value="${b.afstand_km != null ? b.afstand_km : ''}" placeholder="automatisch of manueel" /></label>
+        </form>
+        <button type="button" id="btn-herbereken-afstand" class="secundair">↻ Afstand herberekenen via Google Maps</button>
+        <p id="herbereken-afstand-status" class="uitleg" style="margin-top:0.3rem"></p>
+        <p class="uitleg">De afstand wordt automatisch berekend (eerste 10km gratis, dan € 0,50/km x4 voor levering + ophaling).</p>
+      </div>
+
+      <div class="detail-kolom detail-kolom-producten">
+        <h4>Periode</h4>
+        <form id="form-periode" class="grid-2">
+          <label>Vanaf<input type="date" id="dd-datum-start" value="${b.gewenste_datum_start ? String(b.gewenste_datum_start).slice(0, 10) : ''}" /></label>
+          <label>Tot<input type="date" id="dd-datum-einde" value="${b.gewenste_datum_einde ? String(b.gewenste_datum_einde).slice(0, 10) : ''}" /></label>
+        </form>
+        <p id="periode-fout" class="foutmelding"></p>
+
+        <h4>Producten</h4>
+        <div id="detail-producten-lijst">${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}</div>
+        <div class="product-toevoegen-rij">
+          <select id="dp-categorie">${bouwCategorieOpties(dpEersteCategorie)}</select>
+          <select id="dp-product">${bouwModelOpties(dpEersteCategorie, undefined, dpOnbeschikbaar)}</select>
+          <input type="number" id="dp-aantal" min="1" value="1" title="Aantal" />
+          <button type="button" id="btn-product-toevoegen" class="secundair">+ Toevoegen</button>
+        </div>
+        <p id="product-toevoegen-fout" class="foutmelding"></p>
+      </div>
+
+      <div class="detail-kolom detail-kolom-financieel">
+        <h4>Prijstabel &amp; betaling</h4>
+        ${toonBevestigBalk ? `
+          <div class="bevestig-balk">
+            <span>Voorgestelde transportkost o.b.v. ${b.afstand_km} km: <strong>${fmtEuro(voorgesteldeTransportkost)}</strong></span>
+            <button type="button" id="btn-bevestig-transportkost" class="secundair">✓ Bevestig transportkost</button>
+          </div>
+        ` : ''}
+        <div class="prijstabel">
+          <div class="prijstabel-rij"><span>Producten</span><span>${fmtEuro(p.subtotaal_producten)}</span></div>
+          <div class="prijstabel-rij">
+            <span>Levering / transport</span>
+            <span class="veld-met-wissen">
+              <input type="number" id="dd-transportkost" step="0.01" min="0" value="${b.transportkost != null ? b.transportkost : ''}" placeholder="0.00" />
+              <button type="button" id="btn-transportkost-wissen" class="linkbtn gevaar" title="Transportkost wissen">✕</button>
+            </span>
+          </div>
+          <div class="prijstabel-rij">
+            <span>Toeslag / korting</span>
+            <span><input type="number" id="dd-toeslag-korting" step="0.01" value="${b.toeslag_korting != null ? b.toeslag_korting : ''}" placeholder="0.00" /></span>
+          </div>
+          <button type="button" id="btn-prijstabel-opslaan" class="secundair">Levering/toeslag opslaan</button>
+          <div class="prijstabel-rij prijstabel-totaal"><span>Totaal</span><span>${fmtEuro(p.totaal)}</span></div>
+          <div class="prijstabel-rij prijstabel-sub"><span>Incl. BTW (${p.btw_percentage}%)</span><span>${fmtEuro(p.btw_bedrag)}</span></div>
+          <div class="prijstabel-rij"><span>Reeds betaald</span><span>${fmtEuro(p.betaald_bedrag)}</span></div>
+          <div class="prijstabel-rij prijstabel-saldo ${p.saldo_openstaand <= 0 ? 'voldaan' : ''}"><span>Openstaand saldo</span><span>${fmtEuro(p.saldo_openstaand)}</span></div>
+        </div>
+        <form id="form-nieuwe-betaling" class="grid-2">
+          <label>Nieuwe betaling (€)<input type="number" id="np-betaling-bedrag" step="0.01" min="0.01" placeholder="bedrag, Enter om op te slaan" /></label>
+          <label>Opmerking<input type="text" id="np-betaling-opmerking" placeholder="optioneel, bv. 'overschrijving'" /></label>
+        </form>
+        <div class="betaling-log">${betalingLogHtml}</div>
+      </div>
     </div>
-
-    <form id="form-klantgegevens-bewerken" class="grid-2" hidden>
-      <label>Naam<input type="text" id="kg-naam" value="${b.klant_naam || ''}" /></label>
-      <label>Telefoon<input type="text" id="kg-telefoon" value="${b.klant_telefoon || ''}" /></label>
-      <label>E-mail<input type="email" id="kg-email" value="${b.klant_email || ''}" /></label>
-      <label>Leveringswijze
-        <select id="kg-leveringswijze">
-          <option value="levering" ${b.leveringswijze === 'levering' ? 'selected' : ''}>Levering door ons team</option>
-          <option value="afhaling" ${b.leveringswijze === 'afhaling' ? 'selected' : ''}>Afhaling door klant</option>
-        </select>
-      </label>
-      <label>Plaatsingsadres<input type="text" id="kg-leveringsadres" value="${b.leveringsadres || ''}" placeholder="leeg = adres van de klant" /></label>
-      <label>Type ondergrond<input type="text" id="kg-ondergrond" value="${b.type_ondergrond || ''}" /></label>
-      <label>Toegankelijkheid<input type="text" id="kg-toegankelijkheid" value="${b.toegankelijkheid || ''}" /></label>
-      <label>Tijdstip levering<select id="kg-tijdstip-levering"></select></label>
-      <label>Tijdstip afhaling<select id="kg-tijdstip-afhaling"></select></label>
-      <label class="checkbox" style="grid-column: 1 / -1;">
-        <input type="checkbox" id="kg-speciaal-verzoek" ${b.speciaal_verzoek ? 'checked' : ''} /> Speciaal verzoek voor deze boeking (paars accent in de overzichten)
-      </label>
-      <label style="grid-column: 1 / -1;">Toelichting speciaal verzoek<input type="text" id="kg-speciaal-verzoek-notitie" value="${b.speciaal_verzoek_notitie || ''}" placeholder="bv. allergie, extra toegangscode, moeilijke locatie, ..." /></label>
-      <div class="form-acties">
-        <button type="submit">Opslaan</button>
-        <button type="button" id="btn-klantgegevens-annuleren" class="linkbtn">Annuleren</button>
-      </div>
-      <p id="klantgegevens-fout" class="foutmelding"></p>
-    </form>
-
-    <h4>Locatie</h4>
-    ${mapsUrl ? `<div class="detail-rij"><span></span><span><a href="${mapsUrl}" target="_blank" rel="noopener">Bekijk op Google Maps ↗</a></span></div>` : ''}
-    <form id="form-locatie" class="grid-2">
-      <label>Afstand tot Overmere (km)<input type="number" id="dd-afstand-km" step="0.1" min="0" value="${b.afstand_km != null ? b.afstand_km : ''}" placeholder="automatisch of manueel" /></label>
-    </form>
-    <button type="button" id="btn-herbereken-afstand" class="secundair">↻ Afstand herberekenen via Google Maps</button>
-    <p id="herbereken-afstand-status" class="uitleg" style="margin-top:0.3rem"></p>
-    <p class="uitleg">De afstand wordt automatisch berekend (eerste 10km gratis, dan € 0,50/km x4 voor levering + ophaling). De voorgestelde transportkost telt pas mee in het totaal nadat je die hieronder bevestigt.</p>
-    ${toonBevestigBalk ? `
-      <div class="bevestig-balk">
-        <span>Voorgestelde transportkost o.b.v. ${b.afstand_km} km: <strong>${fmtEuro(voorgesteldeTransportkost)}</strong></span>
-        <button type="button" id="btn-bevestig-transportkost" class="secundair">✓ Bevestig transportkost</button>
-      </div>
-    ` : ''}
-
-    <h4>Producten</h4>
-    ${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}
-
-    <h4>Prijstabel &amp; betaling</h4>
-    <div class="prijstabel">
-      <div class="prijstabel-rij"><span>Producten</span><span>${fmtEuro(p.subtotaal_producten)}</span></div>
-      <div class="prijstabel-rij">
-        <span>Levering / transport</span>
-        <span class="veld-met-wissen">
-          <input type="number" id="dd-transportkost" step="0.01" min="0" value="${b.transportkost != null ? b.transportkost : ''}" placeholder="0.00" />
-          <button type="button" id="btn-transportkost-wissen" class="linkbtn gevaar" title="Transportkost wissen">✕</button>
-        </span>
-      </div>
-      <div class="prijstabel-rij">
-        <span>Toeslag / korting</span>
-        <span><input type="number" id="dd-toeslag-korting" step="0.01" value="${b.toeslag_korting != null ? b.toeslag_korting : ''}" placeholder="0.00" /></span>
-      </div>
-      <button type="button" id="btn-prijstabel-opslaan" class="secundair">Levering/toeslag opslaan</button>
-      <div class="prijstabel-rij prijstabel-totaal"><span>Totaal</span><span>${fmtEuro(p.totaal)}</span></div>
-      <div class="prijstabel-rij prijstabel-sub"><span>Incl. BTW (${p.btw_percentage}%)</span><span>${fmtEuro(p.btw_bedrag)}</span></div>
-      <div class="prijstabel-rij"><span>Reeds betaald</span><span>${fmtEuro(p.betaald_bedrag)}</span></div>
-      <div class="prijstabel-rij prijstabel-saldo ${p.saldo_openstaand <= 0 ? 'voldaan' : ''}"><span>Openstaand saldo</span><span>${fmtEuro(p.saldo_openstaand)}</span></div>
-    </div>
-    <form id="form-nieuwe-betaling" class="grid-2">
-      <label>Nieuwe betaling (€)<input type="number" id="np-betaling-bedrag" step="0.01" min="0.01" placeholder="bedrag, Enter om op te slaan" /></label>
-      <label>Opmerking<input type="text" id="np-betaling-opmerking" placeholder="optioneel, bv. 'overschrijving'" /></label>
-    </form>
-    <div class="betaling-log">${betalingLogHtml}</div>
 
     <h4>Opmerkingen</h4>
     <form id="form-notities">
@@ -596,9 +629,6 @@ async function openDetail(boekingId) {
     </form>
     <p class="uitleg" style="margin-top:0.3rem">Mails automatisch versturen vanuit dit dossier komt in een latere fase — voorlopig log je hier manueel wat je verstuurd/besproken hebt.</p>
     <div class="communicatie-lijst">${communicatieHtml}</div>
-
-    <h4>Statusovergangen</h4>
-    <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen overgangen meer mogelijk</p>'}</div>
 
     <h4>Historiek</h4>
     ${historiekHtml || '<p class="leeg-bericht">Geen historiek</p>'}
@@ -729,6 +759,57 @@ async function openDetail(boekingId) {
     await api(`/api/boekingen/${boekingId}`, {
       method: 'PUT',
       body: JSON.stringify({ afstand_km: afstand !== '' ? parseFloat(afstand) : null }),
+    });
+  });
+
+  // Periode wijzigen (bv. telefonische correctie) — sla meteen op bij wijziging,
+  // net als de afstand hierboven. De backend controleert of de reeds toegevoegde
+  // producten nog wel beschikbaar zijn op de nieuwe datum(s).
+  document.getElementById('form-periode').addEventListener('change', async (e) => {
+    if (e.target.id !== 'dd-datum-start' && e.target.id !== 'dd-datum-einde') return;
+    const veld = e.target.id === 'dd-datum-start' ? 'gewenste_datum_start' : 'gewenste_datum_einde';
+    const origineleWaarde = e.target.id === 'dd-datum-start'
+      ? String(b.gewenste_datum_start).slice(0, 10)
+      : String(b.gewenste_datum_einde).slice(0, 10);
+    const elFout = document.getElementById('periode-fout');
+    elFout.textContent = '';
+    try {
+      await api(`/api/boekingen/${boekingId}`, { method: 'PUT', body: JSON.stringify({ [veld]: e.target.value }) });
+      openDetail(boekingId);
+      laadBoekingenOverzicht();
+    } catch (err) {
+      elFout.textContent = err.message;
+      e.target.value = origineleWaarde;
+    }
+  });
+
+  // Product toevoegen aan deze bestaande boeking (bv. telefonisch bijbesteld).
+  document.getElementById('dp-categorie').addEventListener('change', (e) => {
+    document.getElementById('dp-product').innerHTML = bouwModelOpties(e.target.value, undefined, dpOnbeschikbaar);
+  });
+  document.getElementById('btn-product-toevoegen').addEventListener('click', async () => {
+    const elFout = document.getElementById('product-toevoegen-fout');
+    elFout.textContent = '';
+    const productId = document.getElementById('dp-product').value;
+    const aantal = parseInt(document.getElementById('dp-aantal').value, 10) || 1;
+    if (!productId) { elFout.textContent = 'Kies eerst een model.'; return; }
+    try {
+      await api(`/api/boekingen/${boekingId}/producten`, {
+        method: 'POST',
+        body: JSON.stringify({ product_id: productId, aantal }),
+      });
+      openDetail(boekingId);
+      laadBoekingenOverzicht();
+    } catch (err) {
+      elFout.textContent = err.message;
+    }
+  });
+  inhoud.querySelectorAll('.btn-product-verwijderen').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Dit product uit de boeking verwijderen?')) return;
+      await api(`/api/boekingen/${boekingId}/producten/${btn.dataset.id}`, { method: 'DELETE' });
+      openDetail(boekingId);
+      laadBoekingenOverzicht();
     });
   });
 
@@ -872,11 +953,12 @@ function bouwCategorieOpties(geselecteerdeCategorie) {
 
 // Modellen (producten) binnen één categorie — geen optgroups meer nodig, dus geen
 // eindeloos scrollen door alle producten om een model te kiezen.
-function bouwModelOpties(categorie, geselecteerdWaarde) {
+function bouwModelOpties(categorie, geselecteerdWaarde, onbeschikbareSetOverride) {
+  const onbeschikbareSet = onbeschikbareSetOverride || onbeschikbareProductIds;
   const producten = productenPerCategorie().get(categorie) || [];
   return producten
     .map((p) => {
-      const onbeschikbaar = onbeschikbareProductIds.has(p.id);
+      const onbeschikbaar = onbeschikbareSet.has(p.id);
       const selected = p.id === geselecteerdWaarde ? 'selected' : '';
       return `<option value="${p.id}" ${selected} ${onbeschikbaar ? 'disabled' : ''}>${p.naam}${onbeschikbaar ? ' (niet beschikbaar op deze datum)' : ''}</option>`;
     })
@@ -897,7 +979,7 @@ function herbouwAlleProductSelects() {
 
 // Voor een gegeven datum/periode: de product-id's die NIET beschikbaar zijn.
 // Gedeeld door het "Nieuwe boeking"-formulier en het Beschikbaarheid-overzicht.
-async function bepaalOnbeschikbareProductIds(datumStart, datumEinde) {
+async function bepaalOnbeschikbareProductIds(datumStart, datumEinde, exclBoekingId) {
   const nieuweSet = new Set();
   await Promise.all(
     productenCache.map(async (p) => {
@@ -909,6 +991,7 @@ async function bepaalOnbeschikbareProductIds(datumStart, datumEinde) {
             gewenste_datum_start: datumStart,
             gewenste_datum_einde: datumEinde,
             aantal: 1,
+            excl_boeking_id: exclBoekingId || undefined,
           }),
         });
         if (!resultaat.beschikbaar) nieuweSet.add(p.id);

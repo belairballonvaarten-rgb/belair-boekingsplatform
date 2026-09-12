@@ -320,6 +320,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
     'leveringsadres', 'type_ondergrond', 'toegankelijkheid', 'leveringswijze',
     'voorkeur_tijdstip_levering', 'voorkeur_tijdstip_afhaling',
     'speciaal_verzoek', 'speciaal_verzoek_notitie',
+    'gewenste_datum_start', 'gewenste_datum_einde',
   ];
   const updates = [];
   const params = [];
@@ -338,6 +339,23 @@ router.put('/:id', asyncHandler(async (req, res) => {
     updates.push('afstand_km = NULL');
   }
 
+  // Als de periode wijzigt (bv. telefonische correctie), moet elk reeds
+  // toegevoegd product nog wel beschikbaar zijn op de nieuwe datum(s) —
+  // anders zou je per ongeluk kunnen dubbelboeken.
+  if (req.body.gewenste_datum_start !== undefined || req.body.gewenste_datum_einde !== undefined) {
+    const { rows: huidige } = await db.query('SELECT * FROM boekingen WHERE id = $1', [req.params.id]);
+    if (!huidige[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+    const nieuweStart = req.body.gewenste_datum_start !== undefined ? req.body.gewenste_datum_start : huidige[0].gewenste_datum_start;
+    const nieuweEinde = req.body.gewenste_datum_einde !== undefined ? req.body.gewenste_datum_einde : huidige[0].gewenste_datum_einde;
+    const { rows: producten } = await db.query('SELECT product_id, aantal FROM boeking_producten WHERE boeking_id = $1', [req.params.id]);
+    for (const p of producten) {
+      const check = await checkBeschikbaarheid(p.product_id, nieuweStart, nieuweEinde, p.aantal, req.params.id);
+      if (!check.beschikbaar) {
+        return res.status(409).json({ fout: `Niet beschikbaar op de nieuwe periode: ${check.reden}`, product_id: p.product_id });
+      }
+    }
+  }
+
   params.push(req.params.id);
   const { rows } = await db.query(
     `UPDATE boekingen SET ${updates.join(', ')}, bijgewerkt_op = now() WHERE id = $${params.length} RETURNING *`,
@@ -346,6 +364,57 @@ router.put('/:id', asyncHandler(async (req, res) => {
   if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
   const prijstabel = await berekenPrijstabel(req.params.id);
   res.json({ ...rows[0], prijstabel, voorgestelde_transportkost: berekenVoorgesteldeTransportkost(rows[0]) });
+}));
+
+// Extra product toevoegen aan een bestaande boeking (bv. telefonisch bijbesteld).
+router.post('/:id/producten', asyncHandler(async (req, res) => {
+  const { product_id, aantal } = req.body;
+  if (!product_id) return res.status(400).json({ fout: 'product_id is verplicht' });
+  const aantalNum = aantal ? Number(aantal) : 1;
+
+  const { rows: boekingRows } = await db.query('SELECT * FROM boekingen WHERE id = $1', [req.params.id]);
+  if (!boekingRows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+  const boeking = boekingRows[0];
+
+  const check = await checkBeschikbaarheid(
+    product_id, boeking.gewenste_datum_start, boeking.gewenste_datum_einde, aantalNum, req.params.id
+  );
+  if (!check.beschikbaar) {
+    return res.status(409).json({ fout: `Niet beschikbaar: ${check.reden}` });
+  }
+
+  const { rows: productRows } = await db.query('SELECT prijs FROM producten WHERE id = $1', [product_id]);
+  if (!productRows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
+
+  await db.query(
+    'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, $3, $4)',
+    [req.params.id, product_id, aantalNum, productRows[0].prijs]
+  );
+
+  const { rows: producten } = await db.query(
+    `SELECT bp.*, p.naam AS product_naam FROM boeking_producten bp
+     JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
+    [req.params.id]
+  );
+  const prijstabel = await berekenPrijstabel(req.params.id);
+  res.status(201).json({ producten, prijstabel });
+}));
+
+// Eén productregel uit een boeking verwijderen (bv. verkeerd toegevoegd).
+router.delete('/:id/producten/:regelId', asyncHandler(async (req, res) => {
+  const { rows } = await db.query(
+    'DELETE FROM boeking_producten WHERE id = $1 AND boeking_id = $2 RETURNING id',
+    [req.params.regelId, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ fout: 'Productregel niet gevonden' });
+
+  const { rows: producten } = await db.query(
+    `SELECT bp.*, p.naam AS product_naam FROM boeking_producten bp
+     JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
+    [req.params.id]
+  );
+  const prijstabel = await berekenPrijstabel(req.params.id);
+  res.json({ producten, prijstabel });
 }));
 
 // Boeking volledig verwijderen (bv. een dubbele of foutieve aanvraag). Alle
