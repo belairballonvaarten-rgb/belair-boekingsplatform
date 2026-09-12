@@ -435,9 +435,9 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .product-regel { align-items: center; }
 .product-regel .btn-product-verwijderen { margin-left: 0.4rem; }
 .product-prijs-invoer { width: 4.5rem; text-align: right; padding: 0.15rem 0.3rem; }
-/* De periode-kalender in het dossier staat in een krapper blok samen met de
-   productenlijst -> iets minder interne padding dan de volle-breedte kalenders. */
-.detail-kolom-producten .kalender-widget-compact { padding: 0.9rem 1rem; }
+/* De periode-kalender in het dossier staat in een krapper kolomblok -> iets
+   minder interne padding dan de volle-breedte kalenders elders in de app. */
+.detail-kolom .kalender-widget-compact { padding: 0.9rem 1rem; }
 .product-toevoegen-rij { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.6rem; flex-wrap: wrap; }
 .product-toevoegen-rij select { flex: 1 1 auto; min-width: 0; }
 .product-toevoegen-rij #dp-aantal { width: 4rem; flex: 0 0 auto; }
@@ -470,7 +470,10 @@ details.paneel .paneel-inhoud > h4:first-child { margin-top: 0; }
 .prijstabel-totaal { border-top: 1px solid var(--grijs-licht); margin-top: 0.2rem; padding-top: 0.5rem; font-weight: 700; color: var(--blauw-donker); }
 .prijstabel-sub { color: var(--grijs); font-size: 0.8rem; }
 .prijstabel-productregel { padding: 0.2rem 0; }
-.prijstabel-productregel span:first-child { color: var(--grijs); }
+.prijstabel-productregel span:first-child { color: var(--grijs); min-width: 0; }
+/* "€" en het invoerveld samen als één stuk, zodat ze bij weinig plaats niet
+   over 2 regels uit elkaar vallen (zag er "los" uit naast een lange productnaam). */
+.prijstabel-prijs-invoer-wrap { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; flex-shrink: 0; }
 .prijstabel-saldo { font-weight: 700; }
 .prijstabel-saldo span:last-child { color: #b5390a; }
 .prijstabel-saldo.voldaan span:last-child { color: #1a7a3c; }

@@ -461,6 +461,15 @@ function ontleedAdresVoorFormulier(adres) {
 const ONDERGROND_OPTIES = ['Gras', 'Steen', 'Braakliggend', 'Zand', 'Klinkers'];
 const TOEGANKELIJKHEID_OPTIES = ['Vrije doorgang', 'Smalle doorgang', 'Trappen aanwezig', 'Moeilijk bereikbaar'];
 
+// Korte code voor de "Ondergrond"-kolom in het boekingenoverzicht — enkel het
+// onderscheid dat er praktisch toe doet bij het plaatsen (vastpinnen met
+// grondpinnen kan op gras, op een harde ondergrond (steen/klinkers/...) niet).
+// "O/G" = ondergrond gras, "O/H" = ondergrond hard (alle andere types).
+function ondergrondAfkorting(type) {
+  if (!type) return '—';
+  return type.trim().toLowerCase() === 'gras' ? 'O/G' : 'O/H';
+}
+
 // Bouwt <option>-elementen voor een vaste keuzelijst, met een lege eerste optie
 // (voor "niet ingevuld") en — belangrijk — de HUIDIGE waarde als extra optie
 // toegevoegd wanneer die niet in de standaardlijst voorkomt. Zo verdwijnt een
@@ -491,7 +500,7 @@ async function laadBoekingenOverzicht() {
   const tbody = document.getElementById('tabel-boekingen');
   tbody.innerHTML = '';
   if (!boekingen.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="leeg-bericht">Geen boekingen gevonden.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="10" class="leeg-bericht">Geen boekingen gevonden.</td></tr>';
     return;
   }
   for (const b of boekingen) {
@@ -511,6 +520,7 @@ async function laadBoekingenOverzicht() {
       <td>${b.klant_naam}</td>
       <td class="saldo-cel${saldoVoldaan ? ' voldaan' : ''}" title="Totale waarde: ${fmtEuro(b.waarde)}">${saldoVoldaan ? '✓ Voldaan' : fmtEuro(saldo)}</td>
       <td>${statusPillHtml(b.status, saldo)}${speciaalSterHtml(b)}</td>
+      <td title="${b.type_ondergrond || ''}">${ondergrondAfkorting(b.type_ondergrond)}</td>
       <td>Bekijk →</td>
     `;
     tr.addEventListener('click', () => openDetail(b.id));
@@ -622,7 +632,7 @@ async function openDetail(boekingId) {
   // bewerkt (zie prijstabelProductenHtml) — hier enkel welke producten (en
   // hoeveel) er op deze boeking staan, en de mogelijkheid om er één te verwijderen.
   const productenHtml = b.producten
-    .map((p) => `<div class="detail-rij product-regel"><span>${p.product_naam} × ${p.aantal}</span><span>${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`)
+    .map((p) => `<div class="detail-rij product-regel"><span><strong>${p.product_naam}</strong>${p.aantal > 1 ? ' × ' + p.aantal : ''}</span><span>${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`)
     .join('');
 
   // In de Prijstabel zelf staat elk product als aparte, manueel bij te sturen
@@ -631,7 +641,7 @@ async function openDetail(boekingId) {
   // effectief controleert/aanpast, los van de Producten-lijst hiernaast die
   // enkel gaat over wélke producten (en hoeveel) er op deze boeking staan.
   const prijstabelProductenHtml = b.producten.length
-    ? b.producten.map((pr) => `<div class="prijstabel-rij prijstabel-productregel"><span>${pr.product_naam}${pr.aantal > 1 ? ' × ' + pr.aantal : ''}</span><span>€ <input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${pr.id}" value="${Number(pr.prijs).toFixed(2)}" title="Automatisch voorgestelde prijs o.b.v. dagprijs/weekendprijs — hier manueel bij te sturen" /></span></div>`).join('')
+    ? b.producten.map((pr) => `<div class="prijstabel-rij prijstabel-productregel"><span>${pr.product_naam}${pr.aantal > 1 ? ' × ' + pr.aantal : ''}</span><span class="prijstabel-prijs-invoer-wrap">€<input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${pr.id}" value="${Number(pr.prijs).toFixed(2)}" title="Automatisch voorgestelde prijs o.b.v. dagprijs/weekendprijs — hier manueel bij te sturen" /></span></div>`).join('')
     : '<div class="prijstabel-rij prijstabel-sub"><span>Geen producten</span><span></span></div>';
 
   const historiekHtml = b.historiek
@@ -689,22 +699,21 @@ async function openDetail(boekingId) {
 
     <div class="detail-layout">
       <div class="detail-kolom detail-kolom-producten paneel">
-        <h4>Periode</h4>
-        <div id="kalender-dossier-periode" class="kalender-widget kalender-widget-compact"></div>
-        <p id="periode-fout" class="foutmelding"></p>
-
         <h4>Producten</h4>
         <div id="detail-producten-lijst">${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}</div>
         <div class="product-toevoegen-rij">
           <select id="dp-categorie">${bouwCategorieOpties(dpEersteCategorie)}</select>
           <select id="dp-product">${bouwModelOpties(dpEersteCategorie, undefined, dpOnbeschikbaar)}</select>
-          <input type="number" id="dp-aantal" min="1" value="1" title="Aantal" />
           <button type="button" id="btn-product-toevoegen" class="secundair">+ Toevoegen</button>
         </div>
         <p id="product-toevoegen-fout" class="foutmelding"></p>
       </div>
 
       <div class="detail-kolom detail-kolom-financieel paneel">
+        <h4>Periode</h4>
+        <div id="kalender-dossier-periode" class="kalender-widget kalender-widget-compact"></div>
+        <p id="periode-fout" class="foutmelding"></p>
+
         <h4>Prijstabel &amp; betaling</h4>
         <div class="prijstabel">
           ${prijstabelProductenHtml}
@@ -1072,12 +1081,15 @@ async function openDetail(boekingId) {
     const elFout = document.getElementById('product-toevoegen-fout');
     elFout.textContent = '';
     const productId = document.getElementById('dp-product').value;
-    const aantal = parseInt(document.getElementById('dp-aantal').value, 10) || 1;
     if (!productId) { elFout.textContent = 'Kies eerst een model.'; return; }
     try {
+      // Aantal is hier altijd 1: van elk springkasteel-model kan een aanvraag
+      // maar 1 exemplaar kiezen (ook al hebben we van sommige modellen meerdere
+      // fysieke exemplaren in voorraad). Enkel bij later toegevoegd meubilair
+      // (waar een echt aantal zin heeft) komt er hier opnieuw een aantal-veld.
       await api(`/api/boekingen/${boekingId}/producten`, {
         method: 'POST',
-        body: JSON.stringify({ product_id: productId, aantal }),
+        body: JSON.stringify({ product_id: productId, aantal: 1 }),
       });
       openDetail(boekingId);
       laadBoekingenOverzicht();
