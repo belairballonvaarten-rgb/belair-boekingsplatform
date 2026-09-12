@@ -17,11 +17,18 @@ const TOEGELATEN_OVERGANGEN = {
   ingepland: ['bevestigd'],
   bevestigd: ['betaalverzoek_verstuurd'],
   betaalverzoek_verstuurd: ['betaald_deels', 'betaald_volledig'],
-  betaald_deels: ['betaald_volledig', 'gefactureerd'],
-  betaald_volledig: ['gefactureerd'],
+  betaald_deels: ['betaald_volledig', 'gefactureerd', 'voldaan_manueel'],
+  betaald_volledig: ['gefactureerd', 'voldaan_manueel'],
   geweigerd: [],
   gefactureerd: [],
+  voldaan_manueel: [],
 };
+
+// Statussen die voor Jonas betekenen "dit is afgehandeld, het saldo staat op
+// nul" — bij een overgang hiernaartoe wordt een eventueel nog openstaand
+// saldo automatisch als betaald geregistreerd, zodat hij niet ook nog apart
+// een betaling van het resterende bedrag moet ingeven.
+const STATUSSEN_MET_AUTOMATISCHE_VOLLEDIGE_BETALING = ['gefactureerd', 'voldaan_manueel'];
 
 // Let op: deze route moet vóór '/:id' staan
 router.post('/beschikbaarheid-check', asyncHandler(async (req, res) => {
@@ -269,7 +276,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const boeking = await zorgVoorAutomatischeAfstand(rows[0]);
 
   const { rows: producten } = await db.query(
-    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen FROM boeking_producten bp
+    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen, p.categorieen AS product_categorieen FROM boeking_producten bp
      JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
     [req.params.id]
   );
@@ -447,7 +454,7 @@ router.put('/:id/producten/:regelId', asyncHandler(async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Productregel niet gevonden' });
   const { rows: producten } = await db.query(
-    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen FROM boeking_producten bp
+    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen, p.categorieen AS product_categorieen FROM boeking_producten bp
      JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
     [req.params.id]
   );
@@ -486,7 +493,7 @@ router.post('/:id/producten', asyncHandler(async (req, res) => {
   );
 
   const { rows: producten } = await db.query(
-    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen FROM boeking_producten bp
+    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen, p.categorieen AS product_categorieen FROM boeking_producten bp
      JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
     [req.params.id]
   );
@@ -503,7 +510,7 @@ router.delete('/:id/producten/:regelId', asyncHandler(async (req, res) => {
   if (!rows[0]) return res.status(404).json({ fout: 'Productregel niet gevonden' });
 
   const { rows: producten } = await db.query(
-    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen FROM boeking_producten bp
+    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen, p.categorieen AS product_categorieen FROM boeking_producten bp
      JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
     [req.params.id]
   );
@@ -725,6 +732,28 @@ router.post('/:id/status', asyncHandler(async (req, res) => {
          ON CONFLICT (boeking_id) DO NOTHING`,
         [req.params.id]
       );
+    }
+
+    // Bij "Gefactureerd" of "Voldaan manueel" het eventueel nog openstaand
+    // saldo automatisch als betaald registreren (zie STATUSSEN_MET_...
+    // hierboven) — Jonas hoeft dan zelf geen aparte betaling meer in te geven.
+    if (STATUSSEN_MET_AUTOMATISCHE_VOLLEDIGE_BETALING.includes(nieuweStatus)) {
+      const prijstabel = await berekenPrijstabel(req.params.id);
+      if (prijstabel.saldo_openstaand > 0.01) {
+        const statusLabel = nieuweStatus === 'gefactureerd' ? 'Gefactureerd' : 'Voldaan manueel';
+        await client.query(
+          'INSERT INTO betaling_transacties (boeking_id, bedrag, opmerking) VALUES ($1, $2, $3)',
+          [req.params.id, prijstabel.saldo_openstaand, `Automatisch volledig betaald gezet bij status "${statusLabel}"`]
+        );
+        await client.query(
+          `INSERT INTO betalingen (boeking_id, bedrag, betaald_bedrag, betaalstatus)
+           VALUES ($1, $2, $3, 'volledig')
+           ON CONFLICT (boeking_id) DO UPDATE
+             SET bedrag = EXCLUDED.bedrag, betaald_bedrag = EXCLUDED.betaald_bedrag,
+                 betaalstatus = EXCLUDED.betaalstatus, bijgewerkt_op = now()`,
+          [req.params.id, prijstabel.totaal, prijstabel.totaal]
+        );
+      }
     }
 
     await client.query('COMMIT');

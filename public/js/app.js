@@ -11,6 +11,7 @@ const STATUS_LABELS = {
   betaald_deels: 'Betaald (deels)',
   betaald_volledig: 'Betaald (volledig)',
   gefactureerd: 'Gefactureerd',
+  voldaan_manueel: 'Voldaan manueel',
 };
 
 // Kleurcode per status, voor snel visueel overzicht: rood = nog niet bevestigd
@@ -27,6 +28,7 @@ const STATUS_KLEUR = {
   betaald_deels: 'oranje',
   betaald_volledig: 'groen',
   gefactureerd: 'groen',
+  voldaan_manueel: 'groen',
   geweigerd: 'grijs',
 };
 
@@ -38,7 +40,8 @@ const STATUS_KLEUR = {
 // die de statusbalk zelf al gebruikt (zie statusStepperHtml hieronder).
 // saldoOpenstaand is optioneel: enkel meegeven waar het gekend is.
 function weergaveStatusLabel(status, saldoOpenstaand) {
-  if (status === 'betaald_volledig' && saldoOpenstaand != null && Number(saldoOpenstaand) > 0.01) {
+  if (['betaald_volledig', 'gefactureerd', 'voldaan_manueel'].includes(status)
+    && saldoOpenstaand != null && Number(saldoOpenstaand) > 0.01) {
     return 'Klaar voor levering (open saldo)';
   }
   return STATUS_LABELS[status];
@@ -83,7 +86,7 @@ const STATUS_FASEN = [
   { label: 'In verwerking', kleur: 'rood', statussen: ['nieuw', 'in_behandeling', 'geaccepteerd', 'ingepland'] },
   { label: 'Bevestigd', kleur: 'geel', statussen: ['bevestigd'] },
   { label: 'Betaalverzoek', kleur: 'oranje', statussen: ['betaalverzoek_verstuurd', 'betaald_deels'] },
-  { label: 'Klaar voor levering', kleur: 'groen', statussen: ['betaald_volledig', 'gefactureerd'] },
+  { label: 'Klaar voor levering', kleur: 'groen', statussen: ['betaald_volledig', 'gefactureerd', 'voldaan_manueel'] },
 ];
 
 // saldoOpenstaand is optioneel: enkel gekend/relevant in het dossier zelf (niet in
@@ -129,10 +132,11 @@ const TOEGELATEN_OVERGANGEN = {
   ingepland: ['bevestigd'],
   bevestigd: ['betaalverzoek_verstuurd'],
   betaalverzoek_verstuurd: ['betaald_deels', 'betaald_volledig'],
-  betaald_deels: ['betaald_volledig', 'gefactureerd'],
-  betaald_volledig: ['gefactureerd'],
+  betaald_deels: ['betaald_volledig', 'gefactureerd', 'voldaan_manueel'],
+  betaald_volledig: ['gefactureerd', 'voldaan_manueel'],
   geweigerd: [],
   gefactureerd: [],
+  voldaan_manueel: [],
 };
 
 async function api(pad, opties = {}) {
@@ -573,6 +577,14 @@ function berekenDatumRange(bereik) {
       eind.setDate(start.getDate() + 6);
       return [naarISO(start), naarISO(eind)];
     }
+    case 'volgende-week': {
+      const dagVanWeek = (vandaag.getDay() + 6) % 7; // 0 = maandag
+      const start = new Date(vandaag);
+      start.setDate(vandaag.getDate() - dagVanWeek + 7);
+      const eind = new Date(start);
+      eind.setDate(start.getDate() + 6);
+      return [naarISO(start), naarISO(eind)];
+    }
     case 'deze-maand': {
       const start = new Date(vandaag.getFullYear(), vandaag.getMonth(), 1);
       const eind = new Date(vandaag.getFullYear(), vandaag.getMonth() + 1, 0);
@@ -598,9 +610,18 @@ function berekenDatumRange(bereik) {
       const eind = new Date(vandaag.getFullYear(), 11, 31);
       return [naarISO(start), naarISO(eind)];
     }
+    case 'vorig-jaar': {
+      const start = new Date(vandaag.getFullYear() - 1, 0, 1);
+      const eind = new Date(vandaag.getFullYear() - 1, 11, 31);
+      return [naarISO(start), naarISO(eind)];
+    }
+    // "Alles" toont niet letterlijk alles: het verleden moet je bewust opzoeken
+    // (via "Vorige maand", de eigen Vanaf/Tot-datums, ...) — de standaardweergave
+    // toont vanaf vandaag, zodat afgelopen boekingen niet standaard tussen de
+    // toekomstige blijven staan.
     case 'alles':
     default:
-      return ['', ''];
+      return [naarISO(vandaag), ''];
   }
 }
 
@@ -614,6 +635,15 @@ document.querySelectorAll('#snelfilters button').forEach((btn) => {
   });
 });
 
+// Bij het laden van de pagina staat "Alles" al actief (zie index.html) — meteen
+// hetzelfde "vanaf vandaag"-standaardbereik toepassen, zodat het Boekingenoverzicht
+// er meteen zo uitziet als na een klik op die knop.
+{
+  const [standaardVanaf, standaardTot] = berekenDatumRange('alles');
+  document.getElementById('filter-vanaf').value = standaardVanaf;
+  document.getElementById('filter-tot').value = standaardTot;
+}
+
 // ============================================================
 // BOEKING DETAIL (volledige pagina)
 // ============================================================
@@ -624,8 +654,18 @@ const COMMUNICATIE_TYPE_LABELS = { email: 'E-mail', telefoon: 'Telefoon', sms: '
 const COMMUNICATIE_RICHTING_LABELS = { uitgaand: 'Uitgaand', inkomend: 'Inkomend', intern: 'Intern' };
 
 async function openDetail(boekingId) {
+  // openDetail() wordt op twee verschillende manieren aangeroepen: (1) om
+  // vanuit een lijst (Aanvragen/Boekingenoverzicht) NAAR het dossier te
+  // navigeren, en (2) om enkel de inhoud van een reeds open dossier te
+  // verversen na een opslag-actie (prijs/aantal wijzigen, betaling loggen, ...).
+  // Onthoud hier VOOR de (asynchrone) fetch of we al in het dossier zaten —
+  // enkel in geval (1) moet aan het einde ook effectief naar die pagina
+  // omgeschakeld worden. Zonder deze check kon een trage ververs-aanroep na
+  // een opslag Jonas tegen zijn wil terug het dossier intrekken, ook nadat hij
+  // ondertussen alweer naar een ander tabblad was geklikt.
+  const navigeertNaarDetail = document.getElementById('view-boeking-detail').hidden;
   // Onthoud van welke pagina we komen, zodat "Terug naar overzicht" daar naartoe gaat.
-  if (document.getElementById('view-boeking-detail').hidden) {
+  if (navigeertNaarDetail) {
     boekingDetailVorigeView = huidigeViewNaam();
   }
   const b = await api(`/api/boekingen/${boekingId}`);
@@ -655,8 +695,18 @@ async function openDetail(boekingId) {
     return url ? `<img class="product-thumbnail" src="${url}" alt="" />` : '';
   };
 
+  // Bij Feestmaterialen/Servies/Bestek (zie AANTAL_CATEGORIEEN) is het aantal
+  // ook ná het toevoegen nog manueel bij te sturen (bv. toch 4 stoelen i.p.v.
+  // 3) — bij de andere categorieën (max. 1 exemplaar per model per boeking)
+  // blijft het gewoon een vaste tekst.
   const productenHtml = b.producten
-    .map((p) => `<div class="detail-rij product-regel"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${p.aantal > 1 ? ' × ' + p.aantal : ''}</span><span>${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`)
+    .map((p) => {
+      const magAantalAanpassen = (p.product_categorieen || []).some((c) => AANTAL_CATEGORIEEN.includes(c));
+      const aantalHtml = magAantalAanpassen
+        ? ` × <input type="number" min="1" class="product-aantal-invoer" data-id="${p.id}" value="${p.aantal}" title="Aantal" />`
+        : (p.aantal > 1 ? ` × ${p.aantal}` : '');
+      return `<div class="detail-rij product-regel"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}</span><span>${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
+    })
     .join('');
 
   // In de Prijstabel zelf staat elk product als aparte, manueel bij te sturen
@@ -1171,6 +1221,25 @@ async function openDetail(boekingId) {
     });
   });
 
+  // Aantal per productregel (enkel bij Feestmaterialen/Servies/Bestek, zie
+  // AANTAL_CATEGORIEEN) — ook ná het toevoegen nog manueel bij te sturen.
+  inhoud.querySelectorAll('.product-aantal-invoer').forEach((el) => {
+    el.addEventListener('change', async () => {
+      const nieuwAantal = parseInt(el.value, 10) || 1;
+      try {
+        await api(`/api/boekingen/${boekingId}/producten/${el.dataset.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ aantal: nieuwAantal }),
+        });
+        toonToast('Aantal opgeslagen');
+        await openDetail(boekingId);
+        laadBoekingenOverzicht();
+      } catch (err) {
+        document.getElementById('product-toevoegen-fout').textContent = `Kon aantal niet opslaan: ${err.message}`;
+      }
+    });
+  });
+
   document.getElementById('btn-herbereken-afstand').addEventListener('click', async (e) => {
     const btn = e.target;
     const elStatus = document.getElementById('herbereken-afstand-status');
@@ -1224,7 +1293,11 @@ async function openDetail(boekingId) {
     openDetail(boekingId);
   });
 
-  wisselView('boeking-detail');
+  // Enkel effectief naar het dossier omschakelen als dit een echte navigatie
+  // was (zie de uitleg bovenaan deze functie) — anders zou een trage
+  // ververs-aanroep na een opslag Jonas terug het dossier kunnen intrekken
+  // nadat hij ondertussen al naar een andere pagina was genavigeerd.
+  if (navigeertNaarDetail) wisselView('boeking-detail');
 }
 
 // ============================================================

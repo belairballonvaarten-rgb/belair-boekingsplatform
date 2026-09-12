@@ -472,6 +472,7 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
    er een afbeelding is ingesteld bij het product zelf (Producten-beheer). */
 .product-thumbnail { width: 28px; height: 28px; object-fit: cover; border-radius: 4px; margin-right: 0.5rem; vertical-align: middle; }
 .product-prijs-invoer { width: 4.5rem; text-align: right; padding: 0.15rem 0.3rem; }
+.product-aantal-invoer { width: 3.2rem; padding: 0.15rem 0.3rem; margin-left: 0.2rem; }
 /* De periode-kalender in het dossier staat in een krapper kolomblok -> iets
    minder interne padding dan de volle-breedte kalenders elders in de app. */
 .detail-kolom .kalender-widget-compact { padding: 0.9rem 1rem; }
