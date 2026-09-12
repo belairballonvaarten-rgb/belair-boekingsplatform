@@ -177,7 +177,7 @@ router.post('/preview', asyncHandler(async (req, res) => {
   }
 }));
 
-async function vindOfMaakKlant(client, { naam, adres, postcode, gemeente, telefoon, email }) {
+async function vindOfMaakKlant(client, { klantNaam, adres, postcode, gemeente, telefoon, email }) {
   if (email) {
     const { rows } = await client.query('SELECT id FROM klanten WHERE email = $1 LIMIT 1', [email]);
     if (rows[0]) return rows[0].id;
@@ -189,7 +189,7 @@ async function vindOfMaakKlant(client, { naam, adres, postcode, gemeente, telefo
   const { rows } = await client.query(
     `INSERT INTO klanten (naam, klant_type, adres, postcode, gemeente, telefoon, email)
      VALUES ($1, 'particulier', $2, $3, $4, $5, $6) RETURNING id`,
-    [naam, adres || null, postcode || null, gemeente || null, telefoon || null, email || null]
+    [klantNaam, adres || null, postcode || null, gemeente || null, telefoon || null, email || null]
   );
   return rows[0].id;
 }
