@@ -131,13 +131,25 @@ router.post('/bulk-import', asyncHandler(async (req, res) => {
 
   const lijnen = regels.split(/\r?\n/).map((l) => l.trim()).filter((l) => l.length);
   // Scheidingsteken bepalen o.b.v. de eerste regel: telkens wat het vaakst voorkomt.
+  // Excel plakt een gekopieerde celselectie standaard met TABS i.p.v. komma's/
+  // puntkomma's — ook dat herkennen we, naast "," en ";".
   const eersteRegel = lijnen[0] || '';
-  const scheidingsteken = (eersteRegel.split(';').length - 1) > (eersteRegel.split(',').length - 1) ? ';' : ',';
+  const tellingen = { ',': eersteRegel.split(',').length - 1, ';': eersteRegel.split(';').length - 1, '\t': eersteRegel.split('\t').length - 1 };
+  const scheidingsteken = Object.entries(tellingen).sort((a, b) => b[1] - a[1])[0][0];
 
   const resultaat = { aangemaakt: 0, bijgewerkt: 0, overgeslagen: [], onherkendeCategorie: [] };
 
   for (const lijn of lijnen) {
-    const [naamRuw, prijsRuw, typeRuw, categorieRuw, afbeeldingRuw] = parseCsvRegel(lijn, scheidingsteken);
+    let velden = parseCsvRegel(lijn, scheidingsteken);
+    // Bekend Excel-probleem op een Belgische computer: prijzen met een komma
+    // als decimaalteken ("150,00") worden — als "," toch het scheidingsteken
+    // is — foutief in twee velden opgesplitst ("150" en "00"). Dat schuift alle
+    // velden erna één plaats op. Dit patroon herkennen we en herstellen we:
+    // 1 veld te veel, en het 3de veld is een kort getal (de "decimalen").
+    if (scheidingsteken === ',' && velden.length === 6 && /^\d{1,2}$/.test(velden[2])) {
+      velden = [velden[0], `${velden[1]}.${velden[2]}`, velden[3], velden[4], velden[5]];
+    }
+    const [naamRuw, prijsRuw, typeRuw, categorieRuw, afbeeldingRuw] = velden;
     const naam = (naamRuw || '').trim();
     if (!naam || naam.toLowerCase() === 'naam') continue; // lege regel of kopregel overslaan
 
