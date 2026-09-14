@@ -260,7 +260,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['aanvragen', 'boekingen', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'boeking-detail'];
+const views = ['aanvragen', 'boekingen', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'boeking-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -283,6 +283,7 @@ function wisselView(naam) {
   if (naam === 'beschikbaarheid') laadBeschikbaarheidsoverzicht();
   if (naam === 'nieuwe-boeking' && !document.getElementById('producten-rijen').children.length) nieuweProductRij();
   if (naam === 'producten') laadProductenOverzicht();
+  if (naam === 'statistieken') laadStatistieken();
   if (naam === 'webinzendingen') laadWebinzendingen();
 }
 
@@ -2241,6 +2242,76 @@ function raadWebinzendingTitel(data) {
   const naam = `${voornaam} ${achternaam}`.trim();
   return naam || data['Product'] || data.product || 'Website-inzending';
 }
+
+// ============================================================
+// STATISTIEKEN
+// ============================================================
+let statHuidigJaar = null;
+
+function statEscapeHtml(s) {
+  return (s || '').toString().replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// Kolomgrafiek "Reservaties per maand" — 12 kolommen die vanaf dezelfde
+// basislijn omhoog groeien, hoogte relatief t.o.v. de drukste maand. Bij
+// "geen enkele boeking bevestigd dit jaar" krijgt elke kolom een minimale,
+// duidelijk grijze streep i.p.v. een misleidend lege grafiek.
+function statRenderKolomgrafiek(perMaand) {
+  const maxAantal = Math.max(1, ...perMaand.map((m) => m.aantal));
+  return perMaand.map((m) => {
+    const hoogtePct = m.aantal > 0 ? Math.max(4, Math.round((m.aantal / maxAantal) * 100)) : 3;
+    return `
+      <div class="stat-kolom-item${m.aantal === 0 ? ' stat-leeg' : ''}" title="${m.label}: ${m.aantal} bevestigde reservatie(s)">
+        <span class="stat-kolom-waarde">${m.aantal > 0 ? m.aantal : ''}</span>
+        <div class="stat-kolom" style="height: ${hoogtePct}%"></div>
+        <span class="stat-kolom-label">${m.label}</span>
+      </div>`;
+  }).join('');
+}
+
+// Balkgrafiek voor de top-gemeentes/top-producten — horizontale balken
+// vanaf een gedeelde linker basislijn, lengte relatief t.o.v. het hoogste
+// aantal in de getoonde top-8.
+function statRenderBalkgrafiek(rijen, labelVeld) {
+  if (!rijen.length) return '<p class="stat-leeg-bericht">Nog geen gegevens voor dit jaar.</p>';
+  const maxAantal = Math.max(1, ...rijen.map((r) => r.aantal));
+  return rijen.map((r) => {
+    const breedtePct = Math.max(3, Math.round((r.aantal / maxAantal) * 100));
+    const label = statEscapeHtml(r[labelVeld]);
+    return `
+      <div class="stat-balk-rij" title="${label}: ${r.aantal}">
+        <span class="stat-balk-label">${label}</span>
+        <div class="stat-balk-track"><div class="stat-balk-vulling" style="width: ${breedtePct}%"></div></div>
+        <span class="stat-balk-waarde">${r.aantal}</span>
+      </div>`;
+  }).join('');
+}
+
+async function laadStatistieken() {
+  const selJaar = document.getElementById('stat-jaar');
+  const jaarParam = statHuidigJaar || selJaar.value || '';
+  const data = await api(`/api/statistieken${jaarParam ? '?jaar=' + jaarParam : ''}`);
+  statHuidigJaar = data.jaar;
+
+  if (!selJaar.dataset.gevuld) {
+    selJaar.innerHTML = data.beschikbareJaren.map((j) => `<option value="${j}">${j}</option>`).join('');
+    selJaar.dataset.gevuld = '1';
+  }
+  selJaar.value = data.jaar;
+
+  document.getElementById('stat-tegel-aantal').textContent = data.totaalBoekingen;
+  document.getElementById('stat-tegel-waarde').textContent = fmtEuro(data.totaleWaarde);
+  document.getElementById('stat-tegel-bevestigd').textContent = data.totaalBevestigd;
+
+  document.getElementById('stat-grafiek-maand').innerHTML = statRenderKolomgrafiek(data.perMaand);
+  document.getElementById('stat-grafiek-gemeentes').innerHTML = statRenderBalkgrafiek(data.topGemeentes, 'gemeente');
+  document.getElementById('stat-grafiek-producten').innerHTML = statRenderBalkgrafiek(data.topProducten, 'product_naam');
+}
+
+document.getElementById('stat-jaar').addEventListener('change', (e) => {
+  statHuidigJaar = e.target.value;
+  laadStatistieken();
+});
 
 async function laadWebinzendingen() {
   const container = document.getElementById('lijst-webinzendingen');

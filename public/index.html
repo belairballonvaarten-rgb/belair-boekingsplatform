@@ -33,6 +33,7 @@
       <button class="navbtn" data-view="nieuwe-boeking">+ Nieuwe boeking</button>
       <button class="navbtn" data-view="producten">Producten</button>
       <button class="navbtn" data-view="reservatie-import">Reservaties importeren</button>
+      <button class="navbtn" data-view="statistieken">Statistieken</button>
     </nav>
     <button id="btn-uitloggen" class="linkbtn">Uitloggen</button>
   </header>
@@ -308,6 +309,48 @@
         </div>
         <p id="ri-import-status" class="uitleg"></p>
         <div id="ri-tabel"></div>
+      </div>
+    </section>
+
+    <!-- STATISTIEKEN -->
+    <section id="view-statistieken" class="pagina" hidden>
+      <div class="statistieken-kop">
+        <h2>Statistieken</h2>
+        <label class="statistieken-jaar-label">Jaar
+          <select id="stat-jaar"></select>
+        </label>
+      </div>
+      <p class="uitleg">Reservaties per maand tellen vanaf de datum waarop ze bevestigd zijn; gemeentes en producten gaan over de leverdatum van dat jaar (geweigerde aanvragen tellen niet mee).</p>
+
+      <div class="stat-tegels">
+        <div class="stat-tegel">
+          <span class="stat-tegel-label">Boekingen dit jaar</span>
+          <span class="stat-tegel-waarde" id="stat-tegel-aantal">—</span>
+        </div>
+        <div class="stat-tegel">
+          <span class="stat-tegel-label">Totale waarde dit jaar</span>
+          <span class="stat-tegel-waarde" id="stat-tegel-waarde">—</span>
+        </div>
+        <div class="stat-tegel">
+          <span class="stat-tegel-label">Bevestigd dit jaar</span>
+          <span class="stat-tegel-waarde" id="stat-tegel-bevestigd">—</span>
+        </div>
+      </div>
+
+      <div class="paneel stat-paneel">
+        <h3>Reservaties per maand <span class="uitleg">(op datum van bevestiging)</span></h3>
+        <div id="stat-grafiek-maand" class="stat-kolomgrafiek"></div>
+      </div>
+
+      <div class="stat-paneel-rij">
+        <div class="paneel stat-paneel">
+          <h3>Populairste gemeentes</h3>
+          <div id="stat-grafiek-gemeentes" class="stat-balkgrafiek"></div>
+        </div>
+        <div class="paneel stat-paneel">
+          <h3>Meest geboekte producten (aantal)</h3>
+          <div id="stat-grafiek-producten" class="stat-balkgrafiek"></div>
+        </div>
       </div>
     </section>
 

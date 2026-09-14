@@ -542,10 +542,59 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .communicatie-item-onderwerp { font-weight: 600; margin-top: 0.2rem; }
 .communicatie-item-inhoud { color: var(--grijs); margin-top: 0.15rem; }
 
+/* STATISTIEKEN */
+.statistieken-kop { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.statistieken-kop h2 { margin-bottom: 0; }
+.statistieken-jaar-label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; color: var(--grijs); }
+.statistieken-jaar-label select { padding: 0.3rem 0.5rem; }
+
+.stat-tegels { display: flex; gap: 1rem; margin: 1rem 0 1.2rem; flex-wrap: wrap; }
+.stat-tegel {
+  flex: 1 1 180px; background: white; border: 1px solid var(--rand); border-radius: 10px;
+  padding: 0.9rem 1.1rem; display: flex; flex-direction: column; gap: 0.3rem;
+}
+.stat-tegel-label { color: var(--grijs); font-size: 0.85rem; }
+.stat-tegel-waarde { font-size: 1.7rem; font-weight: 600; color: var(--blauw-donker); }
+
+.stat-paneel h3 { margin-top: 0; display: flex; align-items: baseline; gap: 0.5rem; }
+.stat-paneel-rij { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+
+/* Kolomgrafiek (reservaties per maand) — 12 kolommen die vanaf eenzelfde
+   basislijn omhoog groeien; hoogte in % van de hoogste maand. */
+.stat-kolomgrafiek {
+  display: flex; align-items: flex-end; gap: 6px; height: 180px;
+  border-bottom: 1px solid var(--rand); padding-top: 1.6rem;
+}
+.stat-kolom-item { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
+.stat-kolom-waarde { font-size: 0.75rem; color: var(--grijs); margin-bottom: 0.2rem; min-height: 1em; }
+.stat-kolom {
+  width: 100%; max-width: 26px; background: var(--blauw);
+  border-radius: 4px 4px 0 0; min-height: 2px; transition: background 0.12s;
+}
+.stat-kolom-item:hover .stat-kolom { background: var(--blauw-donker); }
+.stat-kolom-item.stat-leeg .stat-kolom { background: var(--grijs-licht); }
+.stat-kolom-label { font-size: 0.78rem; color: var(--grijs); margin-top: 0.4rem; }
+
+/* Balkgrafiek (gemeentes/producten) — horizontale balken vanaf een gedeelde
+   linker basislijn, lengte in % van het hoogste aantal in de lijst. */
+.stat-balkgrafiek { display: flex; flex-direction: column; gap: 10px; }
+.stat-balk-rij { display: grid; grid-template-columns: 12rem 1fr 2.4rem; align-items: center; gap: 0.6rem; }
+.stat-balk-label { font-size: 0.85rem; color: var(--tekst); line-height: 1.2; }
+.stat-balk-track { background: var(--grijs-licht); border-radius: 4px; height: 20px; position: relative; }
+.stat-balk-vulling {
+  height: 100%; background: var(--blauw); border-radius: 4px 0 0 4px; min-width: 4px;
+  transition: background 0.12s;
+}
+.stat-balk-rij:hover .stat-balk-vulling { background: var(--blauw-donker); }
+.stat-balk-waarde { font-size: 0.85rem; color: var(--grijs); text-align: right; font-variant-numeric: tabular-nums; }
+.stat-leeg-bericht { color: var(--grijs); font-size: 0.9rem; }
+
 @media (max-width: 700px) {
   .grid-2 { grid-template-columns: 1fr; }
   .topbar { flex-wrap: wrap; }
   main { padding: 1rem; }
+  .stat-paneel-rij { grid-template-columns: 1fr; }
+  .stat-balk-rij { grid-template-columns: 7.5rem 1fr 2.2rem; }
 }
 
 /* AFDRUKKEN (bv. Boekingenoverzicht) — enkel de tabel, geen navigatie/filters/knoppen */

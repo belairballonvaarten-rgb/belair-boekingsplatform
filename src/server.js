@@ -13,6 +13,7 @@ const productenRoutes = require('./routes/producten');
 const boekingenRoutes = require('./routes/boekingen');
 const webinzendingenRoutes = require('./routes/webinzendingen');
 const reservatieImportRoutes = require('./routes/reservatie-import');
+const statistiekenRoutes = require('./routes/statistieken');
 
 const app = express();
 
@@ -50,6 +51,7 @@ app.use('/api/producten', productenRoutes);
 app.use('/api/boekingen', boekingenRoutes);
 app.use('/api/webinzendingen', webinzendingenRoutes);
 app.use('/api/reservatie-import', reservatieImportRoutes);
+app.use('/api/statistieken', statistiekenRoutes);
 
 // Beheerscherm (statische front-end) — public/index.html is het startpunt
 app.use(express.static(path.join(__dirname, '..', 'public')));
