@@ -748,3 +748,25 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
   body:not(.print-modus-dropsheet) .drop-sheet-print { display: none !important; }
   body.print-modus-dropsheet .drop-sheet-print { display: block !important; }
 }
+
+/* DASHBOARD */
+.dashboard-titelrij { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 0.8rem; margin-bottom: 1rem; }
+.dashboard-datumkiezer { display: flex; align-items: center; gap: 0.5rem; }
+.dashboard-datumkiezer input[type="date"] { padding: 0.3rem 0.5rem; }
+.dashboard-map { width: 100%; height: 320px; border-radius: 8px; border: 1px solid var(--rand); margin-bottom: 1.5rem; background: var(--grijs-licht); }
+.dashboard-kolommen { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+.dashboard-kolom h3 { display: flex; align-items: center; gap: 0.4rem; }
+.dashboard-kaarten { display: flex; flex-direction: column; gap: 0.8rem; }
+.dashboard-kaart { background: white; border: 1px solid var(--rand); border-radius: 8px; padding: 0.9rem 1rem; }
+.dashboard-kaart-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.3rem; }
+.dashboard-kaart-klant { font-size: 1rem; }
+.dashboard-kaart-adres { color: var(--grijs); font-size: 0.9rem; }
+.dashboard-kaart-producten { margin-top: 0.3rem; font-size: 0.9rem; }
+.dashboard-kaart-onder { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--grijs-licht); }
+.dashboard-tijd-invoer { display: flex; align-items: center; gap: 0.3rem; font-size: 0.9rem; }
+.dashboard-tijd-input { padding: 0.2rem 0.3rem; }
+.dashboard-kaart-routelink { white-space: nowrap; }
+
+@media (max-width: 900px) {
+  .dashboard-kolommen { grid-template-columns: 1fr; }
+}

@@ -32,14 +32,15 @@
       <nav class="sidebar-nav">
         <div class="sidebar-groep">
           <p class="sidebar-groep-titel">Overzicht</p>
+          <button class="navbtn" data-view="dashboard"><span class="navbtn-icoon">🗺️</span> Dashboard</button>
           <button class="navbtn" data-view="aanvragen"><span class="navbtn-icoon">📥</span> Aanvragen-inbox <span id="badge-aanvragen" class="badge" hidden>0</span></button>
           <button class="navbtn" data-view="boekingen"><span class="navbtn-icoon">📋</span> Reservatieoverzicht</button>
-          <button class="navbtn" data-view="klanten"><span class="navbtn-icoon">👥</span> Klanten</button>
           <button class="navbtn" data-view="beschikbaarheid"><span class="navbtn-icoon">📆</span> Beschikbaarheid</button>
         </div>
         <div class="sidebar-groep">
           <p class="sidebar-groep-titel">Beheer</p>
           <button class="navbtn" data-view="producten"><span class="navbtn-icoon">📦</span> Producten</button>
+          <button class="navbtn" data-view="klanten"><span class="navbtn-icoon">👥</span> Klanten</button>
           <button class="navbtn" data-view="reservatie-import"><span class="navbtn-icoon">⬆️</span> Reservaties importeren</button>
         </div>
         <div class="sidebar-groep">
@@ -60,6 +61,33 @@
       </header>
 
   <main>
+    <!-- DASHBOARD -->
+    <section id="view-dashboard" class="pagina" hidden>
+      <div class="dashboard-titelrij">
+        <h2>Dashboard</h2>
+        <div class="dashboard-datumkiezer">
+          <button type="button" id="btn-dashboard-vorige" class="linkbtn" title="Vorige dag">‹</button>
+          <input type="date" id="dashboard-datum" />
+          <button type="button" id="btn-dashboard-vandaag" class="linkbtn">Vandaag</button>
+          <button type="button" id="btn-dashboard-volgende" class="linkbtn" title="Volgende dag">›</button>
+        </div>
+      </div>
+      <p id="dashboard-maps-niet-geconfigureerd" class="uitleg" hidden>
+        De kaart met locaties vereist een Google Maps-sleutel (GOOGLE_MAPS_API_KEY) — zie .env.example. Zonder sleutel werkt de rest van het Dashboard gewoon verder.
+      </p>
+      <div id="dashboard-map" class="dashboard-map" hidden></div>
+      <div class="dashboard-kolommen">
+        <div class="dashboard-kolom">
+          <h3>📦 Te leveren <span id="dash-aantal-leveringen" class="stat-categorie-totaal"></span></h3>
+          <div id="dashboard-leveringen-lijst" class="dashboard-kaarten"></div>
+        </div>
+        <div class="dashboard-kolom">
+          <h3>🔙 Af te halen <span id="dash-aantal-ophalingen" class="stat-categorie-totaal"></span></h3>
+          <div id="dashboard-ophalingen-lijst" class="dashboard-kaarten"></div>
+        </div>
+      </div>
+    </section>
+
     <!-- AANVRAGEN-INBOX -->
     <section id="view-aanvragen" class="pagina">
       <h2>Aanvragen-inbox</h2>

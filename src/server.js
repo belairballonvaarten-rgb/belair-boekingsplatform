@@ -15,6 +15,7 @@ const webinzendingenRoutes = require('./routes/webinzendingen');
 const reservatieImportRoutes = require('./routes/reservatie-import');
 const statistiekenRoutes = require('./routes/statistieken');
 const gebruikersRoutes = require('./routes/gebruikers');
+const dashboardRoutes = require('./routes/dashboard');
 
 const app = express();
 
@@ -54,6 +55,7 @@ app.use('/api/webinzendingen', webinzendingenRoutes);
 app.use('/api/reservatie-import', reservatieImportRoutes);
 app.use('/api/statistieken', statistiekenRoutes);
 app.use('/api/gebruikers', gebruikersRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Beheerscherm (statische front-end) — public/index.html is het startpunt
 app.use(express.static(path.join(__dirname, '..', 'public')));

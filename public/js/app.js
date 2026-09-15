@@ -267,7 +267,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'boeking-detail', 'klant-detail'];
+const views = ['dashboard', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'boeking-detail', 'klant-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -285,6 +285,7 @@ function wisselView(naam) {
   document.querySelectorAll('.navbtn').forEach((btn) => {
     btn.classList.toggle('actief', btn.dataset.view === naam);
   });
+  if (naam === 'dashboard') laadDashboard();
   if (naam === 'aanvragen') laadAanvragen();
   if (naam === 'boekingen') laadBoekingenOverzicht();
   if (naam === 'klanten') laadKlantenOverzicht();
@@ -298,6 +299,196 @@ function wisselView(naam) {
 
 document.querySelectorAll('.navbtn').forEach((btn) => {
   btn.addEventListener('click', () => wisselView(btn.dataset.view));
+});
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+// Toont wat er op een gekozen dag te leveren en af te halen is, met een kaart
+// bovenaan (indien een Google Maps-sleutel geconfigureerd is) en per kaart een
+// eenvoudig invoerveld om het geplande tijdstip aan te passen. Dit tijdstip
+// wordt bewaard in de leveringen-tabel — dezelfde die later gekoppeld wordt aan
+// de leveringen-app, zodat een live status daar gewoon bovenop kan.
+let dashboardKaartInstantie = null;
+let dashboardKaartMarkers = [];
+let dashboardGoogleMapsLaadPoging = null;
+
+function dashboardVandaagIso() {
+  const nu = new Date();
+  nu.setMinutes(nu.getMinutes() - nu.getTimezoneOffset()); // lokale datum, niet UTC
+  return nu.toISOString().slice(0, 10);
+}
+
+async function laadDashboard() {
+  const datumVeld = document.getElementById('dashboard-datum');
+  if (!datumVeld.value) datumVeld.value = dashboardVandaagIso();
+  const datum = datumVeld.value;
+
+  const leveringenEl = document.getElementById('dashboard-leveringen-lijst');
+  const ophalingenEl = document.getElementById('dashboard-ophalingen-lijst');
+  leveringenEl.innerHTML = '<p class="leeg-bericht">Laden...</p>';
+  ophalingenEl.innerHTML = '<p class="leeg-bericht">Laden...</p>';
+
+  const data = await api(`/api/dashboard?datum=${datum}`);
+
+  document.getElementById('dash-aantal-leveringen').textContent = `(${data.leveringen.length})`;
+  document.getElementById('dash-aantal-ophalingen').textContent = `(${data.ophalingen.length})`;
+
+  renderDashboardKolom(leveringenEl, data.leveringen, 'levering', datum);
+  renderDashboardKolom(ophalingenEl, data.ophalingen, 'afhaling', datum);
+  dashboardRenderKaart(data);
+}
+
+function dashboardAdresTekst(b) {
+  if (b.leveringswijze === 'afhaling') return 'Klant haalt zelf op / brengt zelf terug';
+  return b.leveringsadres
+    || [b.klant_adres, [b.klant_postcode, b.klant_gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ')
+    || 'Geen adres gekend';
+}
+
+function renderDashboardKolom(container, items, type, datum) {
+  if (!items.length) {
+    container.innerHTML = '<p class="leeg-bericht">Niets gepland voor deze dag.</p>';
+    return;
+  }
+  const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
+  const voorkeurVeld = type === 'levering' ? 'voorkeur_tijdstip_levering' : 'voorkeur_tijdstip_afhaling';
+  container.innerHTML = items.map((b) => {
+    const adres = dashboardAdresTekst(b);
+    const tijdWaarde = b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(11, 16) : '';
+    const kaartLink = b.leveringswijze !== 'afhaling'
+      ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(adres)}" target="_blank" rel="noopener" class="dashboard-kaart-routelink">📍 Route</a>`
+      : '';
+    return `
+      <div class="dashboard-kaart" data-boeking-id="${b.id}">
+        <div class="dashboard-kaart-top">
+          <strong class="dashboard-kaart-klant">${b.klant_naam}</strong>
+          ${statusPillHtml(b.status)}
+        </div>
+        <div class="dashboard-kaart-adres">${adres}</div>
+        <div class="dashboard-kaart-producten">${b.producten_namen || '—'}</div>
+        ${b[voorkeurVeld] ? `<div class="uitleg">Voorkeur klant: ${b[voorkeurVeld]}</div>` : ''}
+        <div class="dashboard-kaart-onder">
+          <label class="dashboard-tijd-invoer">🕐
+            <input type="time" class="dashboard-tijd-input" value="${tijdWaarde}"
+                   data-boeking-id="${b.id}" data-type="${type}" data-datum="${datum}" />
+          </label>
+          ${b.klant_telefoon ? `<a href="tel:${b.klant_telefoon}" class="linkbtn">📞 ${b.klant_telefoon}</a>` : ''}
+          ${kaartLink}
+          <button type="button" class="linkbtn dashboard-kaart-dossier">Dossier →</button>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.querySelectorAll('.dashboard-kaart-dossier').forEach((btn) => {
+    btn.addEventListener('click', () => openDetail(btn.closest('.dashboard-kaart').dataset.boekingId));
+  });
+  container.querySelectorAll('.dashboard-tijd-input').forEach((input) => {
+    input.addEventListener('change', async () => {
+      if (!input.value) return;
+      try {
+        await api(`/api/dashboard/${input.dataset.boekingId}/tijdstip`, {
+          method: 'PUT',
+          body: JSON.stringify({ type: input.dataset.type, datum: input.dataset.datum, tijd: input.value }),
+        });
+        toonToast('Tijdstip opgeslagen');
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+async function dashboardLaadGoogleMapsScript(apiKey) {
+  if (window.google && window.google.maps) return;
+  if (!dashboardGoogleMapsLaadPoging) {
+    dashboardGoogleMapsLaadPoging = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+      script.async = true;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error('Google Maps kon niet geladen worden'));
+      document.head.appendChild(script);
+    });
+  }
+  await dashboardGoogleMapsLaadPoging;
+}
+
+async function dashboardRenderKaart(data) {
+  const mapEl = document.getElementById('dashboard-map');
+  const meldingEl = document.getElementById('dashboard-maps-niet-geconfigureerd');
+
+  if (!data.googleMapsApiKey) {
+    mapEl.hidden = true;
+    meldingEl.hidden = false;
+    return;
+  }
+
+  try {
+    await dashboardLaadGoogleMapsScript(data.googleMapsApiKey);
+  } catch (err) {
+    mapEl.hidden = true;
+    meldingEl.hidden = false;
+    meldingEl.textContent = 'De kaart kon niet geladen worden — de rest van het Dashboard werkt gewoon verder.';
+    return;
+  }
+
+  meldingEl.hidden = true;
+  mapEl.hidden = false;
+
+  const alleLocaties = [
+    ...(data.magazijn ? [{ ...data.magazijn, soort: 'magazijn', label: 'Belair-Fun (magazijn)' }] : []),
+    ...data.leveringen.filter((b) => b.lat != null).map((b) => ({ ...b, soort: 'levering', label: `${b.klant_naam} — levering` })),
+    ...data.ophalingen.filter((b) => b.lat != null).map((b) => ({ ...b, soort: 'afhaling', label: `${b.klant_naam} — afhaling` })),
+  ];
+
+  if (!dashboardKaartInstantie) {
+    dashboardKaartInstantie = new google.maps.Map(mapEl, {
+      center: { lat: 51.05, lng: 3.85 }, // ongeveer regio Overmere, tot er markers zijn
+      zoom: 10,
+    });
+  }
+
+  dashboardKaartMarkers.forEach((m) => m.setMap(null));
+  dashboardKaartMarkers = [];
+
+  if (!alleLocaties.length) return;
+
+  const KLEUR = { magazijn: 'green', levering: 'blue', afhaling: 'orange' };
+  const bounds = new google.maps.LatLngBounds();
+  alleLocaties.forEach((loc) => {
+    const positie = { lat: Number(loc.lat), lng: Number(loc.lng) };
+    const marker = new google.maps.Marker({
+      position: positie,
+      map: dashboardKaartInstantie,
+      title: loc.label,
+      icon: `https://maps.google.com/mapfiles/ms/icons/${KLEUR[loc.soort]}-dot.png`,
+    });
+    dashboardKaartMarkers.push(marker);
+    bounds.extend(positie);
+  });
+  dashboardKaartInstantie.fitBounds(bounds);
+}
+
+document.getElementById('dashboard-datum').addEventListener('change', laadDashboard);
+document.getElementById('btn-dashboard-vandaag').addEventListener('click', () => {
+  document.getElementById('dashboard-datum').value = dashboardVandaagIso();
+  laadDashboard();
+});
+document.getElementById('btn-dashboard-vorige').addEventListener('click', () => {
+  const veld = document.getElementById('dashboard-datum');
+  const d = new Date(veld.value || dashboardVandaagIso());
+  d.setDate(d.getDate() - 1);
+  veld.value = d.toISOString().slice(0, 10);
+  laadDashboard();
+});
+document.getElementById('btn-dashboard-volgende').addEventListener('click', () => {
+  const veld = document.getElementById('dashboard-datum');
+  const d = new Date(veld.value || dashboardVandaagIso());
+  d.setDate(d.getDate() + 1);
+  veld.value = d.toISOString().slice(0, 10);
+  laadDashboard();
 });
 
 // ============================================================
