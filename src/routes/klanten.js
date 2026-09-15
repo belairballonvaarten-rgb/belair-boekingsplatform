@@ -49,7 +49,31 @@ router.get('/', asyncHandler(async (req, res) => {
 router.get('/:id', asyncHandler(async (req, res) => {
   const { rows } = await db.query(`${KLANTEN_MET_TOTALEN_SELECT} WHERE k.id = $1`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ fout: 'Klant niet gevonden' });
-  res.json(rows[0]);
+
+  // Volledige boekingshistoriek van deze klant erbij, zodat Jonas op de
+  // klantdetailpagina meteen ziet wat er ooit geboekt is — niet enkel de
+  // samengevatte totalen hierboven.
+  const { rows: boekingenHistoriek } = await db.query(
+    `SELECT b.id, b.gewenste_datum_start, b.gewenste_datum_einde, b.status,
+            COALESCE(bp_totaal.waarde, 0) AS waarde,
+            bp_namen.producten_namen
+     FROM boekingen b
+     LEFT JOIN (
+       SELECT boeking_id, SUM(prijs * aantal) AS waarde
+       FROM boeking_producten GROUP BY boeking_id
+     ) bp_totaal ON bp_totaal.boeking_id = b.id
+     LEFT JOIN (
+       SELECT bp.boeking_id,
+              string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen
+       FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id
+       GROUP BY bp.boeking_id
+     ) bp_namen ON bp_namen.boeking_id = b.id
+     WHERE b.klant_id = $1
+     ORDER BY b.gewenste_datum_start DESC`,
+    [req.params.id]
+  );
+
+  res.json({ ...rows[0], boekingen: boekingenHistoriek });
 }));
 
 router.post('/', asyncHandler(async (req, res) => {

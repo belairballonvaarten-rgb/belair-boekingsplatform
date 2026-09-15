@@ -216,9 +216,14 @@ function naarISO(datum) {
 const elLogin = document.getElementById('view-login');
 const elShell = document.getElementById('app-shell');
 
+// Wie momenteel is ingelogd — vooral nodig op de Gebruikers-pagina, om jezelf
+// niet per ongeluk te kunnen verwijderen (de server blokkeert dit ook, maar
+// zo is het meteen duidelijk in de lijst zelf).
+let huidigeGebruiker = null;
+
 async function checkSessie() {
   try {
-    await api('/api/auth/me');
+    huidigeGebruiker = await api('/api/auth/me');
     toonApp();
   } catch (_) {
     toonLogin();
@@ -247,6 +252,7 @@ document.getElementById('form-login').addEventListener('submit', async (e) => {
   elFout.textContent = '';
   try {
     await api('/api/auth/login', { method: 'POST', body: JSON.stringify({ email, wachtwoord }) });
+    huidigeGebruiker = await api('/api/auth/me');
     toonApp();
   } catch (err) {
     elFout.textContent = 'Ongeldige inloggegevens.';
@@ -261,7 +267,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['aanvragen', 'boekingen', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'boeking-detail'];
+const views = ['aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'boeking-detail', 'klant-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -281,10 +287,12 @@ function wisselView(naam) {
   });
   if (naam === 'aanvragen') laadAanvragen();
   if (naam === 'boekingen') laadBoekingenOverzicht();
+  if (naam === 'klanten') laadKlantenOverzicht();
   if (naam === 'beschikbaarheid') laadBeschikbaarheidsoverzicht();
   if (naam === 'nieuwe-boeking' && !document.getElementById('producten-rijen').children.length) nieuweProductRij();
   if (naam === 'producten') laadProductenOverzicht();
   if (naam === 'statistieken') laadStatistieken();
+  if (naam === 'gebruikers') laadGebruikersOverzicht();
   if (naam === 'webinzendingen') laadWebinzendingen();
 }
 
@@ -739,6 +747,256 @@ document.getElementById('btn-bulk-email').addEventListener('click', async () => 
     }
   });
 });
+
+// KLANTEN: lijst + zoeken, en klantdetail (gegevens + volledige boekingshistoriek).
+async function laadKlantenOverzicht() {
+  const zoek = document.getElementById('klanten-zoek').value.trim();
+  const params = new URLSearchParams();
+  if (zoek) params.set('zoek', zoek);
+  const klanten = await api(`/api/klanten?${params.toString()}`);
+
+  const tbody = document.getElementById('tabel-klanten');
+  tbody.innerHTML = '';
+  if (!klanten.length) {
+    tbody.innerHTML = '<tr><td colspan="8" class="leeg-bericht">Geen klanten gevonden.</td></tr>';
+    return;
+  }
+  for (const k of klanten) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${k.naam}</td>
+      <td>${k.klant_type === 'bedrijf' ? 'Bedrijf' : 'Particulier'}</td>
+      <td>${k.telefoon || '—'}</td>
+      <td>${k.email || '—'}</td>
+      <td>${k.aantal_boekingen}</td>
+      <td>${fmtEuro(k.totale_waarde)}</td>
+      <td>${k.laatste_boeking ? fmtDatum(k.laatste_boeking) : '—'}</td>
+      <td>Bekijk →</td>
+    `;
+    tr.addEventListener('click', () => openKlantDetail(k.id));
+    tbody.appendChild(tr);
+  }
+}
+
+document.getElementById('btn-klanten-filter-toepassen').addEventListener('click', () => laadKlantenOverzicht());
+document.getElementById('klanten-zoek').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('btn-klanten-filter-toepassen').click();
+});
+
+document.getElementById('btn-klant-detail-terug').addEventListener('click', () => wisselView('klanten'));
+
+async function openKlantDetail(klantId) {
+  const k = await api(`/api/klanten/${klantId}`);
+  const inhoud = document.getElementById('klant-detail-inhoud');
+
+  const boekingenRijenHtml = (k.boekingen || []).length
+    ? k.boekingen.map((b) => `
+        <tr class="klikbaar-rij" data-boeking-id="${b.id}">
+          <td>${fmtDatum(b.gewenste_datum_start)}${b.gewenste_datum_einde && b.gewenste_datum_einde !== b.gewenste_datum_start ? ' t/m ' + fmtDatum(b.gewenste_datum_einde) : ''}</td>
+          <td>${b.producten_namen || '—'}</td>
+          <td>${fmtEuro(b.waarde)}</td>
+          <td>${statusPillHtml(b.status)}</td>
+          <td>Bekijk →</td>
+        </tr>`).join('')
+    : '<tr><td colspan="5" class="leeg-bericht">Nog geen boekingen.</td></tr>';
+
+  inhoud.innerHTML = `
+    <div class="detail-layout">
+      <div class="detail-kolom detail-kolom-links">
+        <div class="paneel">
+          <div class="detail-kolom-kop">
+            <h3>${k.naam}</h3>
+            <button type="button" id="btn-klant-bewerken" class="linkbtn">✎ Bewerken</button>
+          </div>
+          <div id="klant-gegevens-weergave">
+            <div class="detail-rij"><span>Type</span><span>${k.klant_type === 'bedrijf' ? 'Bedrijf' : 'Particulier'}</span></div>
+            ${k.klant_type === 'bedrijf' ? `<div class="detail-rij"><span>BTW-nummer</span><span>${k.btw_nummer || '—'}</span></div>` : ''}
+            <div class="detail-rij"><span>Telefoon</span><span>${k.telefoon || '—'}</span></div>
+            <div class="detail-rij"><span>E-mail</span><span>${k.email || '—'}</span></div>
+            <div class="detail-rij"><span>Adres</span><span>${[k.adres, [k.postcode, k.gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '—'}</span></div>
+            <div class="detail-rij"><span>Marketing opt-in</span><span>${{ ja: 'Ja', nee: 'Nee', nog_niet_gevraagd: 'Nog niet gevraagd' }[k.marketing_opt_in] || '—'}</span></div>
+          </div>
+          <form id="form-klant-bewerken" hidden>
+            <label>Naam / bedrijfsnaam<input type="text" id="kb-naam" value="${k.naam || ''}" /></label>
+            <label>Type
+              <select id="kb-type">
+                <option value="particulier" ${k.klant_type !== 'bedrijf' ? 'selected' : ''}>Particulier</option>
+                <option value="bedrijf" ${k.klant_type === 'bedrijf' ? 'selected' : ''}>Bedrijf</option>
+              </select>
+            </label>
+            <label>BTW-nummer (indien bedrijf)<input type="text" id="kb-btw" value="${k.btw_nummer || ''}" /></label>
+            <label>Telefoon<input type="text" id="kb-telefoon" value="${k.telefoon || ''}" /></label>
+            <label>E-mail<input type="email" id="kb-email" value="${k.email || ''}" /></label>
+            <label>Adres<input type="text" id="kb-adres" value="${k.adres || ''}" /></label>
+            <label>Postcode<input type="text" id="kb-postcode" value="${k.postcode || ''}" /></label>
+            <label>Gemeente<input type="text" id="kb-gemeente" value="${k.gemeente || ''}" /></label>
+            <label>Marketing opt-in
+              <select id="kb-marketing">
+                <option value="nog_niet_gevraagd" ${k.marketing_opt_in === 'nog_niet_gevraagd' ? 'selected' : ''}>Nog niet gevraagd</option>
+                <option value="ja" ${k.marketing_opt_in === 'ja' ? 'selected' : ''}>Ja</option>
+                <option value="nee" ${k.marketing_opt_in === 'nee' ? 'selected' : ''}>Nee</option>
+              </select>
+            </label>
+            <div class="form-acties">
+              <button type="submit">Opslaan</button>
+              <button type="button" id="btn-klant-bewerken-annuleren" class="linkbtn">Annuleren</button>
+            </div>
+            <p id="klant-bewerken-fout" class="foutmelding"></p>
+          </form>
+        </div>
+      </div>
+      <div class="detail-kolom detail-kolom-rechts">
+        <div class="paneel">
+          <h4>Boekingshistoriek (${k.aantal_boekingen} boeking${k.aantal_boekingen === 1 ? '' : 'en'}, totaal ${fmtEuro(k.totale_waarde)})</h4>
+          <table class="tabel">
+            <thead><tr><th>Datum</th><th>Product(en)</th><th>Waarde</th><th>Status</th><th></th></tr></thead>
+            <tbody>${boekingenRijenHtml}</tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  `;
+
+  inhoud.querySelectorAll('.klikbaar-rij').forEach((tr) => {
+    tr.addEventListener('click', () => openDetail(tr.dataset.boekingId));
+  });
+
+  document.getElementById('btn-klant-bewerken').addEventListener('click', () => {
+    document.getElementById('klant-gegevens-weergave').hidden = true;
+    document.getElementById('form-klant-bewerken').hidden = false;
+  });
+  document.getElementById('btn-klant-bewerken-annuleren').addEventListener('click', () => {
+    document.getElementById('klant-gegevens-weergave').hidden = false;
+    document.getElementById('form-klant-bewerken').hidden = true;
+  });
+  document.getElementById('form-klant-bewerken').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const elFout = document.getElementById('klant-bewerken-fout');
+    elFout.textContent = '';
+    try {
+      await api(`/api/klanten/${klantId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          naam: document.getElementById('kb-naam').value.trim() || null,
+          klant_type: document.getElementById('kb-type').value,
+          btw_nummer: document.getElementById('kb-btw').value.trim() || null,
+          telefoon: document.getElementById('kb-telefoon').value.trim() || null,
+          email: document.getElementById('kb-email').value.trim() || null,
+          adres: document.getElementById('kb-adres').value.trim() || null,
+          postcode: document.getElementById('kb-postcode').value.trim() || null,
+          gemeente: document.getElementById('kb-gemeente').value.trim() || null,
+          marketing_opt_in: document.getElementById('kb-marketing').value,
+        }),
+      });
+      openKlantDetail(klantId);
+    } catch (err) {
+      elFout.textContent = err.message;
+    }
+  });
+
+  wisselView('klant-detail');
+}
+
+// GEBRUIKERS: accounts voor het beheerscherm — lijst, toevoegen, bewerken
+// (naam/e-mail/wachtwoord resetten) en verwijderen. Elke ingelogde gebruiker
+// mag dit beheren; de server blokkeert enkel zelf-verwijderen en het
+// verwijderen van de laatste overblijvende gebruiker.
+async function laadGebruikersOverzicht() {
+  const gebruikers = await api('/api/gebruikers');
+  const tbody = document.getElementById('tabel-gebruikers');
+  tbody.innerHTML = '';
+  for (const g of gebruikers) {
+    const isJezelf = huidigeGebruiker && g.id === huidigeGebruiker.adminId;
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${g.naam || '—'}${isJezelf ? ' <span class="uitleg">(jij)</span>' : ''}</td>
+      <td>${g.email}</td>
+      <td>${fmtDatum(g.aangemaakt_op)}</td>
+      <td><button type="button" class="linkbtn btn-gebruiker-bewerken" data-id="${g.id}">✎ Bewerken</button></td>
+      <td>${isJezelf ? '' : `<button type="button" class="linkbtn gevaar btn-gebruiker-verwijderen" data-id="${g.id}" data-naam="${(g.naam || g.email).replace(/"/g, '&quot;')}">🗑 Verwijderen</button>`}</td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  tbody.querySelectorAll('.btn-gebruiker-bewerken').forEach((btn) => {
+    btn.addEventListener('click', () => openGebruikerBewerken(btn.dataset.id, gebruikers.find((g) => g.id === btn.dataset.id)));
+  });
+  tbody.querySelectorAll('.btn-gebruiker-verwijderen').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Gebruiker "${btn.dataset.naam}" verwijderen? Die kan dan niet meer inloggen.`)) return;
+      try {
+        await api(`/api/gebruikers/${btn.dataset.id}`, { method: 'DELETE' });
+        laadGebruikersOverzicht();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+document.getElementById('form-nieuwe-gebruiker').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const elFout = document.getElementById('nieuwe-gebruiker-fout');
+  elFout.textContent = '';
+  try {
+    await api('/api/gebruikers', {
+      method: 'POST',
+      body: JSON.stringify({
+        naam: document.getElementById('ng-naam').value.trim() || null,
+        email: document.getElementById('ng-email').value.trim(),
+        wachtwoord: document.getElementById('ng-wachtwoord').value,
+      }),
+    });
+    document.getElementById('form-nieuwe-gebruiker').reset();
+    document.getElementById('nieuwe-gebruiker-details').open = false;
+    laadGebruikersOverzicht();
+  } catch (err) {
+    elFout.textContent = err.message;
+  }
+});
+
+const modalGebruikerBewerken = document.getElementById('modal-gebruiker-bewerken');
+document.getElementById('btn-modal-gebruiker-bewerken-sluiten').addEventListener('click', () => { modalGebruikerBewerken.hidden = true; });
+modalGebruikerBewerken.addEventListener('click', (e) => { if (e.target === modalGebruikerBewerken) modalGebruikerBewerken.hidden = true; });
+
+function openGebruikerBewerken(id, gebruiker) {
+  const inhoud = document.getElementById('modal-gebruiker-bewerken-inhoud');
+  inhoud.innerHTML = `
+    <h3>Gebruiker bewerken</h3>
+    <form id="form-gebruiker-bewerken">
+      <label>Naam<input type="text" id="gb-naam" value="${gebruiker.naam || ''}" /></label>
+      <label>E-mail<input type="email" id="gb-email" value="${gebruiker.email}" /></label>
+      <label>Nieuw wachtwoord <span class="uitleg">(leeg laten om het huidige te behouden)</span><input type="password" id="gb-wachtwoord" minlength="8" /></label>
+      <div class="form-acties">
+        <button type="submit">Opslaan</button>
+        <button type="button" id="btn-gebruiker-bewerken-annuleren" class="linkbtn">Annuleren</button>
+      </div>
+      <p id="gebruiker-bewerken-fout" class="foutmelding"></p>
+    </form>
+  `;
+  document.getElementById('btn-gebruiker-bewerken-annuleren').addEventListener('click', () => { modalGebruikerBewerken.hidden = true; });
+  document.getElementById('form-gebruiker-bewerken').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const elFout = document.getElementById('gebruiker-bewerken-fout');
+    elFout.textContent = '';
+    try {
+      const wachtwoord = document.getElementById('gb-wachtwoord').value;
+      await api(`/api/gebruikers/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          naam: document.getElementById('gb-naam').value.trim() || null,
+          email: document.getElementById('gb-email').value.trim(),
+          wachtwoord: wachtwoord || undefined,
+        }),
+      });
+      modalGebruikerBewerken.hidden = true;
+      laadGebruikersOverzicht();
+    } catch (err) {
+      elFout.textContent = err.message;
+    }
+  });
+  modalGebruikerBewerken.hidden = false;
+}
 
 // Snelfilters (zoals in het huidige bookingonline.co.uk-systeem)
 function berekenDatumRange(bereik) {
@@ -2529,16 +2787,23 @@ function statRenderBalkgrafiek(rijen, labelVeld) {
 // Producten per categorie — per categorie een subkopje + dezelfde balkgrafiek
 // als voorheen voor "top producten", maar nu per categorie i.p.v. één
 // algemene top-8, en binnen de vrij gekozen periode (zie laadProductenPeriode).
+// Elke categorie staat in een <details>, standaard ingeklapt (op vraag van
+// Jonas — anders wordt dit paneel al snel te lang) — het totaal aantal
+// verhuringen staat mee in de titel, zodat dat ook zichtbaar is zonder open te
+// klappen. Zelfde uitklap-patroon als bij Beschikbaarheid hierboven.
 function statRenderProductenPerCategorie(productenPerCategorie) {
   if (!productenPerCategorie.length) {
     return '<p class="stat-leeg-bericht">Geen verhuringen in deze periode.</p>';
   }
-  return productenPerCategorie.map((cat) => `
-    <div class="stat-categorie-blok">
-      <h4 class="stat-categorie-titel">${statEscapeHtml(cat.categorie)}</h4>
+  return productenPerCategorie.map((cat) => {
+    const totaalAantal = cat.producten.reduce((som, p) => som + Number(p.aantal || 0), 0);
+    return `
+    <details class="stat-categorie-blok">
+      <summary class="stat-categorie-titel">${statEscapeHtml(cat.categorie)} <span class="stat-categorie-totaal">(${totaalAantal})</span></summary>
       <div class="stat-balkgrafiek">${statRenderBalkgrafiek(cat.producten, 'product_naam')}</div>
-    </div>
-  `).join('');
+    </details>
+  `;
+  }).join('');
 }
 
 // Ververst enkel het "Producten per categorie"-paneel, o.b.v. de vrij gekozen

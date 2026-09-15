@@ -32,11 +32,17 @@ router.post('/logout', (req, res) => {
   req.session.destroy(() => res.json({ ok: true }));
 });
 
-router.get('/me', (req, res) => {
+router.get('/me', asyncHandler(async (req, res) => {
   if (!req.session.adminId) {
     return res.status(401).json({ fout: 'Niet ingelogd' });
   }
-  res.json({ adminId: req.session.adminId });
-});
+  const { rows } = await db.query('SELECT id, email, naam FROM admins WHERE id = $1', [req.session.adminId]);
+  if (!rows[0]) {
+    // Account ondertussen verwijderd door een collega, maar sessie nog actief.
+    req.session.destroy(() => {});
+    return res.status(401).json({ fout: 'Niet ingelogd' });
+  }
+  res.json({ adminId: req.session.adminId, email: rows[0].email, naam: rows[0].naam });
+}));
 
 module.exports = router;

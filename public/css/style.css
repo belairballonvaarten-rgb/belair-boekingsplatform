@@ -101,27 +101,64 @@ button[type="submit"]:hover, .login-box button:hover, .primaire-actie:hover { ba
 .melding.ok { background: #e6f4ea; color: var(--groen); }
 .melding.fout { background: #fdecea; color: var(--rood); }
 
-/* APP SHELL */
+/* APP SHELL — donkere linker menubalk met gegroepeerde navigatie (op vraag van
+   Jonas: navigatie links i.p.v. bovenaan, in de stijl van het vorige
+   bookingonline.co.uk-systeem — gegroepeerde secties + icoontjes), en rechts
+   een hoofdkolom met een dunne topbar voor de snelle acties. */
+:root {
+  --sidebar-bg: #1b2540;
+  --sidebar-bg-actief: #2a3a63;
+  --sidebar-tekst: #aeb8d6;
+  --sidebar-tekst-actief: #ffffff;
+  --sidebar-titel: #6b78a3;
+}
+.app-layout { display: flex; align-items: stretch; min-height: 100vh; }
+.sidebar {
+  width: 240px; flex-shrink: 0;
+  display: flex; flex-direction: column; gap: 0.6rem;
+  background: var(--sidebar-bg);
+  padding: 1.1rem 0.9rem;
+}
+.sidebar-merk { padding: 0.4rem 0.5rem 0.8rem; }
+.sidebar .logo { display: block; height: 34px; width: auto; }
+.sidebar-nav { display: flex; flex-direction: column; gap: 1rem; flex: 1; overflow-y: auto; }
+.sidebar-groep { display: flex; flex-direction: column; gap: 0.15rem; }
+.sidebar-groep-titel {
+  color: var(--sidebar-titel); font-size: 0.72rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  margin: 0 0 0.3rem 0.6rem;
+}
+.sidebar-uitloggen { align-self: flex-start; margin: 0.4rem 0 0 0.5rem; color: var(--sidebar-tekst); }
+.sidebar-uitloggen:hover { color: var(--sidebar-tekst-actief); }
+.app-hoofdkolom { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .topbar {
   display: flex;
   align-items: center;
-  gap: 2rem;
+  justify-content: flex-end;
+  gap: 0.8rem;
   background: white;
   border-bottom: 1px solid var(--rand);
-  padding: 0.8rem 1.5rem;
+  padding: 0.7rem 1.5rem;
 }
-.topbar .logo { display: block; height: 34px; width: auto; }
-.topbar nav { display: flex; gap: 0.5rem; flex: 1; }
 .navbtn {
+  display: flex; align-items: center; gap: 0.6rem;
   background: none;
   border: none;
-  padding: 0.55rem 0.95rem;
+  padding: 0.55rem 0.7rem;
   border-radius: 6px;
   font-weight: 600;
-  font-size: 0.98rem;
-  color: var(--grijs);
+  font-size: 0.95rem;
+  color: var(--sidebar-tekst);
+  text-align: left;
 }
-.navbtn.actief { background: var(--grijs-licht); color: var(--blauw-donker); }
+.navbtn .navbtn-icoon { font-size: 1rem; line-height: 1; }
+.navbtn:hover { background: rgba(255, 255, 255, 0.06); color: var(--sidebar-tekst-actief); }
+.navbtn.actief { background: var(--sidebar-bg-actief); color: var(--sidebar-tekst-actief); }
+.navbtn .badge { margin-left: auto; }
+.navbtn.snelknop {
+  background: var(--blauw); color: white; text-align: center; justify-content: center;
+}
+.navbtn.snelknop:hover, .navbtn.snelknop.actief { background: var(--blauw-donker); color: white; }
 .badge {
   background: var(--rood);
   color: white;
@@ -578,19 +615,36 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .stat-tegel-label { color: var(--grijs); font-size: 0.85rem; }
 .stat-tegel-waarde { font-size: 1.7rem; font-weight: 600; color: var(--blauw-donker); }
 
-.stat-paneel h3 { margin-top: 0; display: flex; align-items: baseline; gap: 0.5rem; }
+.stat-paneel h3 { margin-top: 0; display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; }
 .stat-paneel-rij { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
-.stat-paneel-titelrij { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+/* Titel op een eigen regel, de vergelijk-toggle daaronder rechts uitgelijnd —
+   zo kunnen de twee elkaar nooit in de weg zitten of overlappen, ongeacht de
+   schermbreedte of de lengte van de titel. */
+.stat-paneel-titelrij { display: flex; flex-direction: column; gap: 0.4rem; }
 .stat-paneel-titelrij h3 { margin: 0; }
-.stat-vergelijk-toggle { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--grijs); font-weight: normal; cursor: pointer; }
+.stat-vergelijk-toggle {
+  display: flex; align-items: center; gap: 0.45rem; font-size: 0.85rem;
+  color: var(--grijs); font-weight: normal; cursor: pointer;
+  align-self: flex-end; white-space: nowrap;
+}
 
 .stat-periode-picker { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
 .stat-periode-picker label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--grijs); font-weight: normal; }
 .stat-periode-picker input[type="date"] { padding: 0.25rem 0.4rem; font-size: 0.85rem; }
 
-.stat-categorie-blok { margin-top: 1.1rem; }
-.stat-categorie-blok:first-child { margin-top: 0.6rem; }
-.stat-categorie-titel { margin: 0 0 0.5rem; font-size: 0.9rem; color: var(--blauw-donker); }
+/* Elke categorie is een <details>, standaard ingeklapt — zelfde uitklap-stijl
+   (chevron, geen standaard bullet) als .besch-categorie bij Beschikbaarheid. */
+.stat-categorie-blok { margin-top: 0.6rem; border-top: 1px solid var(--grijs-licht); padding-top: 0.6rem; }
+.stat-categorie-blok:first-child { margin-top: 0.6rem; border-top: none; padding-top: 0; }
+.stat-categorie-titel {
+  margin: 0; font-size: 0.9rem; font-weight: 600; color: var(--blauw-donker);
+  cursor: pointer; list-style: none; display: flex; align-items: center; gap: 0.4rem;
+}
+.stat-categorie-titel::-webkit-details-marker { display: none; }
+.stat-categorie-titel::before { content: '▾'; color: var(--grijs); transition: transform 0.1s; }
+.stat-categorie-blok[open] .stat-categorie-titel::before { transform: rotate(-180deg); }
+.stat-categorie-totaal { color: var(--grijs); font-weight: normal; }
+.stat-categorie-blok .stat-balkgrafiek { margin-top: 0.6rem; }
 
 /* Legende: enkel zichtbaar zodra de jaar-op-jaar-vergelijking aanstaat (bij
    één reeks zegt de titel al genoeg — zie dataviz-richtlijn). */
@@ -638,6 +692,24 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .stat-balk-waarde { font-size: 0.85rem; color: var(--grijs); text-align: right; font-variant-numeric: tabular-nums; }
 .stat-leeg-bericht { color: var(--grijs); font-size: 0.9rem; }
 
+@media (max-width: 900px) {
+  /* Op smalle schermen wordt de linker menubalk weer een bovenbalk: alles op
+     één horizontaal scrollbare rij (logo, navigatie zonder groepstitels,
+     uitloggen), zodat er nog voldoende ruimte overblijft voor de pagina-inhoud. */
+  .app-layout { flex-direction: column; min-height: 0; }
+  .sidebar {
+    width: auto; flex-direction: row; align-items: center; gap: 0.6rem;
+    padding: 0.5rem 0.8rem; overflow-x: auto;
+  }
+  .sidebar-merk { padding: 0; flex-shrink: 0; }
+  .sidebar .logo { height: 26px; }
+  .sidebar-nav { flex-direction: row; flex: none; gap: 0.3rem; overflow: visible; }
+  .sidebar-groep { flex-direction: row; align-items: center; gap: 0.2rem; }
+  .sidebar-groep-titel { display: none; }
+  .sidebar .navbtn { padding: 0.45rem 0.6rem; white-space: nowrap; }
+  .sidebar-uitloggen { margin: 0; white-space: nowrap; flex-shrink: 0; }
+}
+
 @media (max-width: 700px) {
   .grid-2 { grid-template-columns: 1fr; }
   .topbar { flex-wrap: wrap; }
@@ -648,7 +720,7 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 
 /* AFDRUKKEN (bv. Boekingenoverzicht) — enkel de tabel, geen navigatie/filters/knoppen */
 @media print {
-  .topbar, .snelfilters, .filterbalk, .overzicht-acties, .kleuren-legende, .statsbalk,
+  .sidebar, .topbar, .snelfilters, .filterbalk, .overzicht-acties, .kleuren-legende, .statsbalk,
   .status-acties, #btn-boeking-detail-terug, .navbtn, #view-boekingen > h2 {
     display: none !important;
   }

@@ -24,19 +24,40 @@
 
 <!-- APP SHELL -->
 <div id="app-shell" class="view" hidden>
-  <header class="topbar">
-    <img src="/img/logo-belair-fun.svg" alt="Belair-Fun" class="logo" />
-    <nav>
-      <button class="navbtn" data-view="aanvragen">Aanvragen-inbox <span id="badge-aanvragen" class="badge" hidden>0</span></button>
-      <button class="navbtn" data-view="boekingen">Boekingenoverzicht</button>
-      <button class="navbtn" data-view="beschikbaarheid">Beschikbaarheid</button>
-      <button class="navbtn" data-view="nieuwe-boeking">+ Nieuwe boeking</button>
-      <button class="navbtn" data-view="producten">Producten</button>
-      <button class="navbtn" data-view="reservatie-import">Reservaties importeren</button>
-      <button class="navbtn" data-view="statistieken">Statistieken</button>
-    </nav>
-    <button id="btn-uitloggen" class="linkbtn">Uitloggen</button>
-  </header>
+  <div class="app-layout">
+    <aside class="sidebar">
+      <div class="sidebar-merk">
+        <img src="/img/logo-belair-fun.svg" alt="Belair-Fun" class="logo" />
+      </div>
+      <nav class="sidebar-nav">
+        <div class="sidebar-groep">
+          <p class="sidebar-groep-titel">Overzicht</p>
+          <button class="navbtn" data-view="aanvragen"><span class="navbtn-icoon">📥</span> Aanvragen-inbox <span id="badge-aanvragen" class="badge" hidden>0</span></button>
+          <button class="navbtn" data-view="boekingen"><span class="navbtn-icoon">📋</span> Reservatieoverzicht</button>
+          <button class="navbtn" data-view="klanten"><span class="navbtn-icoon">👥</span> Klanten</button>
+          <button class="navbtn" data-view="beschikbaarheid"><span class="navbtn-icoon">📆</span> Beschikbaarheid</button>
+        </div>
+        <div class="sidebar-groep">
+          <p class="sidebar-groep-titel">Beheer</p>
+          <button class="navbtn" data-view="producten"><span class="navbtn-icoon">📦</span> Producten</button>
+          <button class="navbtn" data-view="reservatie-import"><span class="navbtn-icoon">⬆️</span> Reservaties importeren</button>
+        </div>
+        <div class="sidebar-groep">
+          <p class="sidebar-groep-titel">Inzichten</p>
+          <button class="navbtn" data-view="statistieken"><span class="navbtn-icoon">📊</span> Statistieken</button>
+        </div>
+        <div class="sidebar-groep">
+          <p class="sidebar-groep-titel">Systeem</p>
+          <button class="navbtn" data-view="gebruikers"><span class="navbtn-icoon">🔑</span> Gebruikers</button>
+        </div>
+      </nav>
+      <button id="btn-uitloggen" class="linkbtn sidebar-uitloggen">↪ Uitloggen</button>
+    </aside>
+
+    <div class="app-hoofdkolom">
+      <header class="topbar">
+        <button class="navbtn snelknop" data-view="nieuwe-boeking">+ Nieuwe boeking</button>
+      </header>
 
   <main>
     <!-- AANVRAGEN-INBOX -->
@@ -48,7 +69,7 @@
 
     <!-- BOEKINGENOVERZICHT -->
     <section id="view-boekingen" class="pagina" hidden>
-      <h2>Boekingenoverzicht</h2>
+      <h2>Reservatieoverzicht</h2>
       <div class="kleuren-legende">
         <span><span class="legende-stip rood"></span>In verwerking</span>
         <span><span class="legende-stip geel"></span>Bevestigd</span>
@@ -128,6 +149,54 @@
     <section id="view-boeking-detail" class="pagina" hidden>
       <button type="button" id="btn-boeking-detail-terug" class="linkbtn">← Terug naar overzicht</button>
       <div id="boeking-detail-inhoud"></div>
+    </section>
+
+    <!-- KLANTEN (lijst + zoeken) -->
+    <section id="view-klanten" class="pagina" hidden>
+      <h2>Klanten</h2>
+      <p class="uitleg">Klantgegevens en hun volledige boekingshistoriek opvragen.</p>
+      <div class="filterbalk">
+        <label class="filter-zoek-label">Zoek op naam, e-mail of telefoon
+          <input type="text" id="klanten-zoek" placeholder="bv. Peeters of sofie@..." />
+        </label>
+        <button id="btn-klanten-filter-toepassen">Zoeken</button>
+      </div>
+      <table class="tabel">
+        <thead>
+          <tr><th>Naam</th><th>Type</th><th>Telefoon</th><th>E-mail</th><th>Aantal boekingen</th><th>Totale waarde</th><th>Laatste boeking</th><th></th></tr>
+        </thead>
+        <tbody id="tabel-klanten"></tbody>
+      </table>
+    </section>
+
+    <!-- KLANT DETAIL (volledige pagina) -->
+    <section id="view-klant-detail" class="pagina" hidden>
+      <button type="button" id="btn-klant-detail-terug" class="linkbtn">← Terug naar klanten</button>
+      <div id="klant-detail-inhoud"></div>
+    </section>
+
+    <!-- GEBRUIKERS (accounts voor het beheerscherm) -->
+    <section id="view-gebruikers" class="pagina" hidden>
+      <h2>Gebruikers</h2>
+      <p class="uitleg">Wie kan inloggen op dit beheerscherm — elke gebruiker heeft zijn eigen inloggegevens.</p>
+
+      <details id="nieuwe-gebruiker-details">
+        <summary>+ Nieuwe gebruiker toevoegen</summary>
+        <form id="form-nieuwe-gebruiker">
+          <div class="grid-2">
+            <label>Naam<input type="text" id="ng-naam" /></label>
+            <label>E-mail*<input type="email" id="ng-email" required /></label>
+            <label>Wachtwoord* (minstens 8 tekens)<input type="password" id="ng-wachtwoord" required minlength="8" /></label>
+          </div>
+          <button type="submit">Gebruiker toevoegen</button>
+          <p id="nieuwe-gebruiker-fout" class="foutmelding"></p>
+        </form>
+      </details>
+
+      <table class="tabel">
+        <thead><tr><th>Naam</th><th>E-mail</th><th>Sinds</th><th></th><th></th></tr></thead>
+        <tbody id="tabel-gebruikers"></tbody>
+      </table>
     </section>
 
     <!-- BESCHIKBAARHEID (snel overzicht: wat is nog vrij op een datum/periode) -->
@@ -397,7 +466,17 @@
         <div id="modal-bulk-email-inhoud"></div>
       </div>
     </div>
+
+    <!-- GEBRUIKER BEWERKEN (modal) -->
+    <div id="modal-gebruiker-bewerken" class="modal" hidden>
+      <div class="modal-inhoud">
+        <button id="btn-modal-gebruiker-bewerken-sluiten" class="modal-sluiten">&times;</button>
+        <div id="modal-gebruiker-bewerken-inhoud"></div>
+      </div>
+    </div>
   </main>
+    </div>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
