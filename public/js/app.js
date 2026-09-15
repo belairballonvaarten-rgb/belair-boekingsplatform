@@ -178,6 +178,19 @@ const TIJDSTIP_FLEXIBEL_WAARDE = 'Tussen 07:00 en 12:00 uur (gratis)';
 
 const TIJDSTIP_HHMM_PATROON = /^([01]\d|2[0-3]):(00|15|30|45)$/;
 
+// Losse kwartier-opties (00:00 t/m 23:45), herbruikt door zowel het
+// voorkeur-tijdstip-veld in het reservatieformulier als de Dashboard-selects.
+function genereerKwartierOpties(geselecteerdeTijd) {
+  const opties = [];
+  for (let m = 0; m < 24 * 60; m += 15) {
+    const uur = String(Math.floor(m / 60)).padStart(2, '0');
+    const minuut = String(m % 60).padStart(2, '0');
+    const tijd = `${uur}:${minuut}`;
+    opties.push(`<option value="${tijd}"${tijd === geselecteerdeTijd ? ' selected' : ''}>${tijd}</option>`);
+  }
+  return opties.join('');
+}
+
 function bouwTijdstipOpties(selectEl, standaardTijd) {
   if (!selectEl) return;
   const isBekendeWaarde = standaardTijd === undefined
@@ -194,12 +207,7 @@ function bouwTijdstipOpties(selectEl, standaardTijd) {
     opties.push(`<option value="${standaardTijd}" selected>${standaardTijd} (bestaande waarde)</option>`);
   }
   opties.push(`<option value="${TIJDSTIP_FLEXIBEL_WAARDE}">Tussen 07:00 en 12:00 uur (GRATIS)</option>`);
-  for (let m = 0; m < 24 * 60; m += 15) {
-    const uur = String(Math.floor(m / 60)).padStart(2, '0');
-    const minuut = String(m % 60).padStart(2, '0');
-    const tijd = `${uur}:${minuut}`;
-    opties.push(`<option value="${tijd}"${tijd === standaardTijd ? ' selected' : ''}>${tijd}</option>`);
-  }
+  opties.push(genereerKwartierOpties(standaardTijd));
   selectEl.innerHTML = opties.join('');
 }
 
@@ -267,7 +275,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['dashboard', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'boeking-detail', 'klant-detail'];
+const views = ['dashboard', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'boeking-detail', 'klant-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -294,6 +302,7 @@ function wisselView(naam) {
   if (naam === 'producten') laadProductenOverzicht();
   if (naam === 'statistieken') laadStatistieken();
   if (naam === 'gebruikers') laadGebruikersOverzicht();
+  if (naam === 'instellingen') laadInstellingen();
   if (naam === 'webinzendingen') laadWebinzendingen();
 }
 
@@ -366,9 +375,13 @@ function dashboardAdresTekst(b) {
 
 // Vaste lijst voor de voertuig-select op elke kaart — Jonas werkt met 2 eigen
 // voertuigen (geen individuele chauffeurs, de bemanning per voertuig wisselt
-// per shift). Namen zijn voorlopig generiek; makkelijk aan te passen zodra de
-// echte namen/kentekens gekend zijn.
-const DASHBOARD_VOERTUIGEN = ['Voertuig 1', 'Voertuig 2'];
+// per shift). "naam" is de volledige waarde die opgeslagen wordt (en die later
+// ook matcht met de teamnaam in de leveringen-app bij de sync), "label" is de
+// korte tekst in de compacte dropdown.
+const DASHBOARD_VOERTUIGEN = [
+  { naam: 'Belair Camionette', label: 'Camionette' },
+  { naam: 'Linirent bus', label: 'Linirent' },
+];
 
 function renderDashboardKolom(container, items, type, opties = {}) {
   const { bereikModus = false } = opties;
@@ -411,18 +424,23 @@ function renderDashboardKolom(container, items, type, opties = {}) {
     // Korte labels (V1/V2 i.p.v. de volledige naam) om de kaart compact te
     // houden — de volledige naam staat als title-tooltip op de select zelf.
     const voertuigOpties = ['<option value="">🚐 —</option>']
-      .concat(DASHBOARD_VOERTUIGEN.map((v, i) => `<option value="${v}"${b.voertuig === v ? ' selected' : ''}>🚐 V${i + 1}</option>`))
+      .concat(DASHBOARD_VOERTUIGEN.map((v) => `<option value="${v.naam}"${b.voertuig === v.naam ? ' selected' : ''}>🚐 ${v.label}</option>`))
       .join('');
+    // Standaard 08:00 bij levering, 20:00 bij afhaling zodat het veld nooit
+    // leeg oogt — pas effectief opgeslagen zodra iemand het veld ook echt wijzigt.
+    const standaardTijd = type === 'levering' ? '08:00' : '20:00';
+    // Rij 1 blijft beperkt tot de compacte bedieningselementen (tijd, voertuig,
+    // status, acties) — de productnaam kreeg daar te weinig plaats en werd
+    // afgekapt. Rij 2 toont nu productnaam + adres op volle breedte; de
+    // klantnaam blijft als tooltip beschikbaar i.p.v. op de kaart zelf.
     return `
-      <div class="dashboard-kaart${isVoltooid ? ' dashboard-kaart-voltooid' : ''}" data-boeking-id="${b.id}">
+      <div class="dashboard-kaart${isVoltooid ? ' dashboard-kaart-voltooid' : ''}" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
         <div class="dashboard-kaart-rij1">
           <button type="button" class="dashboard-icoonbtn dashboard-kaart-voltooid-toggle"
                   data-boeking-id="${b.id}" data-type="${type}" data-voltooid="${isVoltooid}"
                   title="${isVoltooid ? `Gemarkeerd als ${voltooidWoord} — klik om terug te zetten` : `Markeer als ${voltooidWoord}`}">${isVoltooid ? '✅' : '⬜'}</button>
-          <input type="time" class="dashboard-tijd-input" value="${tijdWaarde}"
-                 data-boeking-id="${b.id}" data-type="${type}" data-datum="${kaartDatum}" title="Tijdstip" />
+          <select class="dashboard-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${kaartDatum}" title="Tijdstip">${genereerKwartierOpties(tijdWaarde || standaardTijd)}</select>
           <select class="dashboard-voertuig-select" data-boeking-id="${b.id}" title="${b.voertuig ? `Voertuig: ${b.voertuig}` : 'Geen voertuig toegewezen'}">${voertuigOpties}</select>
-          <strong class="dashboard-kaart-titel" title="${b.producten_namen || ''}">${productHeadline}</strong>
           ${statusPillHtml(b.status)}
           <span class="dashboard-kaart-acties">
             ${telLink}
@@ -430,8 +448,8 @@ function renderDashboardKolom(container, items, type, opties = {}) {
             <button type="button" class="linkbtn dashboard-kaart-dossier" title="Open dossier">Dossier →</button>
           </span>
         </div>
-        <div class="dashboard-kaart-rij2" title="${b[voorkeurVeld] ? `Voorkeur klant: ${b[voorkeurVeld]}` : ''}">
-          <span class="dashboard-kaart-klantnaam">${b.klant_naam}</span> · <span class="dashboard-kaart-adres">${adres}</span>
+        <div class="dashboard-kaart-rij2" title="${b.klant_naam}${b[voorkeurVeld] ? ` — voorkeur klant: ${b[voorkeurVeld]}` : ''}">
+          <strong class="dashboard-kaart-product" title="${b.producten_namen || ''}">${productHeadline}</strong> · <span class="dashboard-kaart-adres">${adres}</span>
         </div>
       </div>
     `;
@@ -3098,6 +3116,50 @@ function raadWebinzendingTitel(data) {
   const naam = `${voornaam} ${achternaam}`.trim();
   return naam || data['Product'] || data.product || 'Website-inzending';
 }
+
+// ============================================================
+// INSTELLINGEN (systeemkoppelingen)
+// ============================================================
+async function laadInstellingen() {
+  const meldingNietGeconfigureerd = document.getElementById('instellingen-sync-niet-geconfigureerd');
+  const knop = document.getElementById('btn-sync-leveringen-app');
+  const resultaat = document.getElementById('instellingen-sync-resultaat');
+  resultaat.hidden = true;
+  try {
+    const status = await api('/api/sync/leveringen-app/status');
+    meldingNietGeconfigureerd.hidden = !!status.geconfigureerd;
+    knop.disabled = !status.geconfigureerd;
+  } catch (err) {
+    meldingNietGeconfigureerd.hidden = true;
+  }
+}
+
+document.getElementById('btn-sync-leveringen-app').addEventListener('click', async () => {
+  const knop = document.getElementById('btn-sync-leveringen-app');
+  const resultaat = document.getElementById('instellingen-sync-resultaat');
+  knop.disabled = true;
+  const oorspronkelijkeTekst = knop.textContent;
+  knop.textContent = 'Synchroniseren...';
+  resultaat.hidden = true;
+  try {
+    const data = await api('/api/sync/leveringen-app', { method: 'POST' });
+    const onherkend = (data.onherkendeVoertuigen || []).length
+      ? ` Let op — niet-herkende voertuignaam in de leveringen-app: ${data.onherkendeVoertuigen.join(', ')}.`
+      : '';
+    const fouten = (data.fouten || []).length ? ` (${data.fouten.length} fout(en), zie console)` : '';
+    if ((data.fouten || []).length) console.error('Sync-fouten:', data.fouten);
+    resultaat.textContent = `${data.verstuurd} boeking(en) verstuurd — ${data.aangemaakt} nieuw, ${data.bijgewerkt} bijgewerkt.${onherkend}${fouten}`;
+    resultaat.className = 'melding ok';
+    resultaat.hidden = false;
+  } catch (err) {
+    resultaat.textContent = err.message;
+    resultaat.className = 'melding fout';
+    resultaat.hidden = false;
+  } finally {
+    knop.disabled = false;
+    knop.textContent = oorspronkelijkeTekst;
+  }
+});
 
 // ============================================================
 // STATISTIEKEN

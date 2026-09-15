@@ -50,6 +50,7 @@
         <div class="sidebar-groep">
           <p class="sidebar-groep-titel">Systeem</p>
           <button class="navbtn" data-view="gebruikers"><span class="navbtn-icoon">🔑</span> Gebruikers</button>
+          <button class="navbtn" data-view="instellingen"><span class="navbtn-icoon">⚙️</span> Instellingen</button>
         </div>
       </nav>
       <button id="btn-uitloggen" class="linkbtn sidebar-uitloggen">↪ Uitloggen</button>
@@ -239,6 +240,19 @@
         <thead><tr><th>Naam</th><th>E-mail</th><th>Sinds</th><th></th><th></th></tr></thead>
         <tbody id="tabel-gebruikers"></tbody>
       </table>
+    </section>
+
+    <!-- INSTELLINGEN (systeemkoppelingen) -->
+    <section id="view-instellingen" class="pagina" hidden>
+      <h2>Instellingen</h2>
+
+      <div class="instellingen-blok">
+        <h3>Koppeling met de leveringen-app</h3>
+        <p class="uitleg">Stuurt geplande boekingen (leverdatum, afhaaldatum, artikelen, voertuig) door naar de leveringen-app, zodat de crew ze daar niet manueel moet overtypen. Gebeurt enkel wanneer je hier op de knop drukt — niets automatisch, niets op de achtergrond.</p>
+        <p id="instellingen-sync-niet-geconfigureerd" class="uitleg" hidden>Nog niet gekoppeld — zet <code>LEVERINGEN_APP_URL</code> en <code>LEVERINGEN_APP_SYNC_SECRET</code> bij de omgevingsvariabelen op Render (zie .env.example).</p>
+        <button type="button" id="btn-sync-leveringen-app" class="linkbtn">🔄 Nu synchroniseren</button>
+        <p id="instellingen-sync-resultaat" class="melding" hidden></p>
+      </div>
     </section>
 
     <!-- BESCHIKBAARHEID (snel overzicht: wat is nog vrij op een datum/periode) -->

@@ -16,6 +16,7 @@ const reservatieImportRoutes = require('./routes/reservatie-import');
 const statistiekenRoutes = require('./routes/statistieken');
 const gebruikersRoutes = require('./routes/gebruikers');
 const dashboardRoutes = require('./routes/dashboard');
+const syncRoutes = require('./routes/sync');
 
 const app = express();
 
@@ -56,6 +57,7 @@ app.use('/api/reservatie-import', reservatieImportRoutes);
 app.use('/api/statistieken', statistiekenRoutes);
 app.use('/api/gebruikers', gebruikersRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/sync', syncRoutes);
 
 // Beheerscherm (statische front-end) — public/index.html is het startpunt
 app.use(express.static(path.join(__dirname, '..', 'public')));

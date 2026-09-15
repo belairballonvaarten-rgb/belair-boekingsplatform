@@ -187,6 +187,9 @@ button[type="submit"]:hover, .login-box button:hover, .primaire-actie:hover { ba
 main { padding: 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
 .pagina h2 { color: var(--blauw-donker); }
 .uitleg { color: var(--grijs); margin-top: -0.5rem; }
+.instellingen-blok { max-width: 40rem; }
+.instellingen-blok h3 { margin-bottom: 0.2rem; }
+.instellingen-blok .melding { margin-top: 0.6rem; }
 
 /* AANVRAGEN */
 .kaarten-lijst { display: flex; flex-direction: column; gap: 0.8rem; }
@@ -788,19 +791,19 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .dashboard-kaart-voltooid { background: #f0f9f2; border-left-color: var(--groen); }
 .dashboard-kaart-rij1 { display: flex; align-items: center; gap: 0.5rem; }
 .dashboard-kaart-voltooid-toggle { flex-shrink: 0; padding: 0; }
-.dashboard-kaart-titel {
-  font-size: 0.9rem; flex: 1; min-width: 0;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
 .dashboard-kaart-acties { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; flex-shrink: 0; }
 .dashboard-icoonbtn { text-decoration: none; font-size: 0.95rem; line-height: 1; background: none; border: none; cursor: pointer; }
 .dashboard-kaart-dossier { font-size: 0.78rem; white-space: nowrap; padding: 0; }
+/* Volle breedte voor productnaam + adres — dit was voorheen in rij 1 verdrongen
+   door de tijd-/voertuig-selects en werd daardoor onleesbaar afgekapt. */
 .dashboard-kaart-rij2 {
-  margin-top: 0.15rem; font-size: 0.78rem; color: var(--grijs);
+  margin-top: 0.2rem; font-size: 0.84rem;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.dashboard-tijd-input { padding: 0.05rem 0.2rem; font-size: 0.78rem; width: 6.4rem; flex-shrink: 0; }
-.dashboard-voertuig-select { padding: 0.05rem 0.1rem; font-size: 0.78rem; width: 3.6rem; flex-shrink: 0; }
+.dashboard-kaart-product { color: var(--tekst); }
+.dashboard-kaart-adres { color: var(--grijs); }
+.dashboard-tijd-input { padding: 0.05rem 0.2rem; font-size: 0.78rem; width: 4.4rem; flex-shrink: 0; }
+.dashboard-voertuig-select { padding: 0.05rem 0.1rem; font-size: 0.78rem; width: 6.4rem; flex-shrink: 0; }
 .dashboard-titel-eerstvolgende { color: var(--oranje); }
 
 @media (max-width: 900px) {
