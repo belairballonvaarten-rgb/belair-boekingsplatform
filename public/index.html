@@ -65,12 +65,26 @@
     <section id="view-dashboard" class="pagina">
       <div class="dashboard-titelrij">
         <h2>Dashboard</h2>
-        <div class="dashboard-datumkiezer">
+        <div class="dashboard-datumkiezer" id="dashboard-datumkiezer">
           <button type="button" id="btn-dashboard-vorige" class="linkbtn" title="Vorige dag">‹</button>
           <input type="date" id="dashboard-datum" />
           <button type="button" id="btn-dashboard-vandaag" class="linkbtn">Vandaag</button>
           <button type="button" id="btn-dashboard-volgende" class="linkbtn" title="Volgende dag">›</button>
         </div>
+        <div class="dashboard-bereik-info" id="dashboard-bereik-info" hidden></div>
+      </div>
+      <div class="dashboard-snelfilters" id="dashboard-snelfilters">
+        <button type="button" data-dbereik="vandaag" class="actief">Vandaag</button>
+        <button type="button" data-dbereik="morgen">Morgen</button>
+        <button type="button" data-dbereik="deze-week">Deze week</button>
+        <button type="button" data-dbereik="vorige-week">Vorige week</button>
+        <button type="button" data-dbereik="vorige-maand">Vorige maand</button>
+        <button type="button" data-dbereik="aangepast">Aangepast</button>
+      </div>
+      <div class="dashboard-aangepast-bereik" id="dashboard-aangepast-bereik" hidden>
+        <label>Van <input type="date" id="dashboard-bereik-vanaf" /></label>
+        <label>Tot <input type="date" id="dashboard-bereik-tot" /></label>
+        <button type="button" id="btn-dashboard-bereik-toepassen" class="linkbtn">Toepassen</button>
       </div>
       <p id="dashboard-maps-niet-geconfigureerd" class="uitleg" hidden>
         De kaart met locaties vereist een Google Maps-sleutel (GOOGLE_MAPS_API_KEY) — zie .env.example. Zonder sleutel werkt de rest van het Dashboard gewoon verder.

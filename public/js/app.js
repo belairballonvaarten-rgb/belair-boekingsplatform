@@ -312,6 +312,12 @@ document.querySelectorAll('.navbtn').forEach((btn) => {
 let dashboardKaartInstantie = null;
 let dashboardKaartMarkers = [];
 let dashboardGoogleMapsLaadPoging = null;
+// 'dag' = één specifieke dag (Vandaag/Morgen/de datumkiezer met pijltjes);
+// 'bereik' = een periode (Deze week/Vorige week/Vorige maand/Aangepast) —
+// dan groeperen de kolommen de kaarten per dag i.p.v. één platte lijst.
+let dashboardModus = 'dag';
+let dashboardBereikVanaf = null;
+let dashboardBereikTot = null;
 
 function dashboardVandaagIso() {
   const nu = new Date();
@@ -320,27 +326,28 @@ function dashboardVandaagIso() {
 }
 
 async function laadDashboard() {
-  const datumVeld = document.getElementById('dashboard-datum');
-  if (!datumVeld.value) datumVeld.value = dashboardVandaagIso();
-  const datum = datumVeld.value;
-
   const leveringenEl = document.getElementById('dashboard-leveringen-lijst');
   const ophalingenEl = document.getElementById('dashboard-ophalingen-lijst');
   leveringenEl.innerHTML = '<p class="leeg-bericht">Laden...</p>';
   ophalingenEl.innerHTML = '<p class="leeg-bericht">Laden...</p>';
 
-  const data = await api(`/api/dashboard?datum=${datum}`);
+  const bereikModus = dashboardModus === 'bereik';
+  let data;
+  if (bereikModus) {
+    data = await api(`/api/dashboard?vanaf=${dashboardBereikVanaf}&tot=${dashboardBereikTot}`);
+  } else {
+    const datumVeld = document.getElementById('dashboard-datum');
+    if (!datumVeld.value) datumVeld.value = dashboardVandaagIso();
+    data = await api(`/api/dashboard?datum=${datumVeld.value}`);
+  }
 
   dashboardZetKolomTitel('dash-titel-leveringen', '📦 Te leveren', '📦 Eerstvolgende levering', data.leveringenType, data.leveringenDatum);
   dashboardZetKolomTitel('dash-titel-ophalingen', '🔙 Af te halen', '🔙 Eerstvolgende afhaling', data.ophalingenType, data.ophalingenDatum);
   document.getElementById('dash-aantal-leveringen').textContent = `(${data.leveringen.length})`;
   document.getElementById('dash-aantal-ophalingen').textContent = `(${data.ophalingen.length})`;
 
-  // Bij "eerstvolgende" (niets gepland op de gekozen dag) hoort een aangepast
-  // tijdstip-veld bij de datum van díe eerstvolgende dag, niet bij de gekozen
-  // (lege) dag — anders zou een tijdstip-wijziging op de verkeerde dag belanden.
-  renderDashboardKolom(leveringenEl, data.leveringen, 'levering', data.leveringenDatum || datum);
-  renderDashboardKolom(ophalingenEl, data.ophalingen, 'afhaling', data.ophalingenDatum || datum);
+  renderDashboardKolom(leveringenEl, data.leveringen, 'levering', { bereikModus });
+  renderDashboardKolom(ophalingenEl, data.ophalingen, 'afhaling', { bereikModus });
   dashboardRenderKaart(data);
 }
 
@@ -357,22 +364,36 @@ function dashboardAdresTekst(b) {
     || 'Geen adres gekend';
 }
 
-function renderDashboardKolom(container, items, type, datum) {
+// Vaste lijst voor de voertuig-select op elke kaart — Jonas werkt met 2 eigen
+// voertuigen (geen individuele chauffeurs, de bemanning per voertuig wisselt
+// per shift). Namen zijn voorlopig generiek; makkelijk aan te passen zodra de
+// echte namen/kentekens gekend zijn.
+const DASHBOARD_VOERTUIGEN = ['Voertuig 1', 'Voertuig 2'];
+
+function renderDashboardKolom(container, items, type, opties = {}) {
+  const { bereikModus = false } = opties;
   if (!items.length) {
-    container.innerHTML = '<p class="leeg-bericht">Niets gepland voor deze dag.</p>';
+    container.innerHTML = `<p class="leeg-bericht">Niets gepland ${bereikModus ? 'in deze periode' : 'voor deze dag'}.</p>`;
     return;
   }
   // Compacte 2-regelige kaart (i.p.v. de eerdere 5 gestapelde regels) — op een
   // drukke dag zijn dit er soms 20+, dus elke kaart moet klein blijven. Regel 1:
-  // tijdstip, klant, status en de acties (bellen/route/dossier) als iconen op
-  // één lijn; regel 2: adres + producten, kleiner en gedimd. De voorkeur van de
-  // klant blijft wel bewaard, maar als tooltip i.p.v. een eigen regel.
+  // tijdstip, voertuig, klant, status en de acties (bellen/route/dossier) als
+  // iconen op één lijn; regel 2: adres + producten, kleiner en gedimd. De
+  // voorkeur van de klant blijft wel bewaard, maar als tooltip i.p.v. een eigen regel.
   const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
+  const datumVeld = type === 'levering' ? 'gewenste_datum_start' : 'gewenste_datum_einde';
   const voorkeurVeld = type === 'levering' ? 'voorkeur_tijdstip_levering' : 'voorkeur_tijdstip_afhaling';
   const voltooidVeld = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
   const voltooidWoord = type === 'levering' ? 'geleverd' : 'opgehaald';
-  container.innerHTML = items.map((b) => {
+
+  const kaartHtml = (b) => {
     const adres = dashboardAdresTekst(b);
+    // Elke kaart draagt haar eigen datum (i.p.v. één gedeelde kolomdatum) — zo
+    // werkt hetzelfde stukje HTML zowel op een gewone dag, bij "eerstvolgende"
+    // (een andere dag dan de gekozen lege dag) als bij een bereik met meerdere
+    // dagen door elkaar, zonder aparte gevallen.
+    const kaartDatum = (b[datumVeld] || '').slice(0, 10);
     const tijdWaarde = b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(11, 16) : '';
     const kaartLink = b.leveringswijze !== 'afhaling'
       ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(adres)}" target="_blank" rel="noopener" class="dashboard-icoonbtn dashboard-kaart-routelink" title="Route naar ${adres}">📍</a>`
@@ -387,6 +408,11 @@ function renderDashboardKolom(container, items, type, datum) {
     const meerdereProducten = Number(b.aantal_producten) > 1;
     const productHeadline = meerdereProducten ? `${eersteProduct}…` : eersteProduct;
     const isVoltooid = !!b[voltooidVeld];
+    // Korte labels (V1/V2 i.p.v. de volledige naam) om de kaart compact te
+    // houden — de volledige naam staat als title-tooltip op de select zelf.
+    const voertuigOpties = ['<option value="">🚐 —</option>']
+      .concat(DASHBOARD_VOERTUIGEN.map((v, i) => `<option value="${v}"${b.voertuig === v ? ' selected' : ''}>🚐 V${i + 1}</option>`))
+      .join('');
     return `
       <div class="dashboard-kaart${isVoltooid ? ' dashboard-kaart-voltooid' : ''}" data-boeking-id="${b.id}">
         <div class="dashboard-kaart-rij1">
@@ -394,7 +420,8 @@ function renderDashboardKolom(container, items, type, datum) {
                   data-boeking-id="${b.id}" data-type="${type}" data-voltooid="${isVoltooid}"
                   title="${isVoltooid ? `Gemarkeerd als ${voltooidWoord} — klik om terug te zetten` : `Markeer als ${voltooidWoord}`}">${isVoltooid ? '✅' : '⬜'}</button>
           <input type="time" class="dashboard-tijd-input" value="${tijdWaarde}"
-                 data-boeking-id="${b.id}" data-type="${type}" data-datum="${datum}" title="Tijdstip" />
+                 data-boeking-id="${b.id}" data-type="${type}" data-datum="${kaartDatum}" title="Tijdstip" />
+          <select class="dashboard-voertuig-select" data-boeking-id="${b.id}" title="${b.voertuig ? `Voertuig: ${b.voertuig}` : 'Geen voertuig toegewezen'}">${voertuigOpties}</select>
           <strong class="dashboard-kaart-titel" title="${b.producten_namen || ''}">${productHeadline}</strong>
           ${statusPillHtml(b.status)}
           <span class="dashboard-kaart-acties">
@@ -408,7 +435,24 @@ function renderDashboardKolom(container, items, type, datum) {
         </div>
       </div>
     `;
-  }).join('');
+  };
+
+  if (!bereikModus) {
+    container.innerHTML = items.map(kaartHtml).join('');
+  } else {
+    // Bij een periode (meerdere dagen) groeperen we per dag, zodat het net zo
+    // overzichtelijk blijft als de dagweergave — gewoon meerdere dagen na elkaar.
+    const groepen = new Map();
+    items.forEach((b) => {
+      const d = (b[datumVeld] || '').slice(0, 10);
+      if (!groepen.has(d)) groepen.set(d, []);
+      groepen.get(d).push(b);
+    });
+    container.innerHTML = [...groepen.entries()]
+      .sort(([a], [c]) => a.localeCompare(c))
+      .map(([d, lijst]) => `<div class="dashboard-datumgroep-kop">${fmtDatum(d)}</div>${lijst.map(kaartHtml).join('')}`)
+      .join('');
+  }
 
   container.querySelectorAll('.dashboard-kaart-dossier').forEach((btn) => {
     btn.addEventListener('click', () => openDetail(btn.closest('.dashboard-kaart').dataset.boekingId));
@@ -442,6 +486,19 @@ function renderDashboardKolom(container, items, type, datum) {
         btn.title = nieuweWaarde ? `Gemarkeerd als ${woord} — klik om terug te zetten` : `Markeer als ${woord}`;
         kaart.classList.toggle('dashboard-kaart-voltooid', nieuweWaarde);
         toonToast(nieuweWaarde ? 'Gemarkeerd als voltooid' : 'Markering ongedaan gemaakt');
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  container.querySelectorAll('.dashboard-voertuig-select').forEach((select) => {
+    select.addEventListener('change', async () => {
+      try {
+        await api(`/api/dashboard/${select.dataset.boekingId}/voertuig`, {
+          method: 'PUT',
+          body: JSON.stringify({ voertuig: select.value }),
+        });
+        toonToast(select.value ? `${select.value} toegewezen` : 'Voertuig verwijderd');
       } catch (err) {
         alert(err.message);
       }
@@ -520,24 +577,85 @@ async function dashboardRenderKaart(data) {
   dashboardKaartInstantie.fitBounds(bounds);
 }
 
-document.getElementById('dashboard-datum').addEventListener('change', laadDashboard);
-document.getElementById('btn-dashboard-vandaag').addEventListener('click', () => {
-  document.getElementById('dashboard-datum').value = dashboardVandaagIso();
+// Toont/verbergt de dagkiezer (pijltjes + datumveld) t.o.v. de periode-info,
+// naargelang de huidige modus, en markeert de actieve snelfilterknop.
+function dashboardToonModusUI(actieveSleutel) {
+  document.getElementById('dashboard-datumkiezer').hidden = dashboardModus === 'bereik';
+  const bereikInfoEl = document.getElementById('dashboard-bereik-info');
+  bereikInfoEl.hidden = dashboardModus !== 'bereik';
+  if (dashboardModus === 'bereik') {
+    bereikInfoEl.textContent = `${fmtDatum(dashboardBereikVanaf)} — ${fmtDatum(dashboardBereikTot)}`;
+  }
+  document.querySelectorAll('#dashboard-snelfilters button').forEach((btn) => {
+    btn.classList.toggle('actief', btn.dataset.dbereik === actieveSleutel);
+  });
+}
+
+function dashboardGaNaarDag(iso) {
+  dashboardModus = 'dag';
+  document.getElementById('dashboard-aangepast-bereik').hidden = true;
+  document.getElementById('dashboard-datum').value = iso;
+  dashboardToonModusUI(iso === dashboardVandaagIso() ? 'vandaag' : null);
   laadDashboard();
-});
+}
+
+function dashboardGaNaarBereik(vanaf, tot, sleutel) {
+  dashboardModus = 'bereik';
+  dashboardBereikVanaf = vanaf;
+  dashboardBereikTot = tot;
+  document.getElementById('dashboard-aangepast-bereik').hidden = sleutel !== 'aangepast';
+  dashboardToonModusUI(sleutel);
+  laadDashboard();
+}
+
+document.getElementById('dashboard-datum').addEventListener('change', (e) => dashboardGaNaarDag(e.target.value));
+document.getElementById('btn-dashboard-vandaag').addEventListener('click', () => dashboardGaNaarDag(dashboardVandaagIso()));
 document.getElementById('btn-dashboard-vorige').addEventListener('click', () => {
   const veld = document.getElementById('dashboard-datum');
   const d = new Date(veld.value || dashboardVandaagIso());
   d.setDate(d.getDate() - 1);
-  veld.value = d.toISOString().slice(0, 10);
-  laadDashboard();
+  dashboardGaNaarDag(d.toISOString().slice(0, 10));
 });
 document.getElementById('btn-dashboard-volgende').addEventListener('click', () => {
   const veld = document.getElementById('dashboard-datum');
   const d = new Date(veld.value || dashboardVandaagIso());
   d.setDate(d.getDate() + 1);
-  veld.value = d.toISOString().slice(0, 10);
-  laadDashboard();
+  dashboardGaNaarDag(d.toISOString().slice(0, 10));
+});
+
+// Snelfilters boven de kaart: Vandaag/Morgen (dagmodus) en Deze/Vorige week,
+// Vorige maand (periodemodus, met de kaarten per dag gegroepeerd) — dezelfde
+// datumberekeningen als bij Reservatieoverzicht (zie berekenDatumRange), plus
+// "Aangepast" voor een zelf gekozen periode.
+document.querySelectorAll('#dashboard-snelfilters button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const sleutel = btn.dataset.dbereik;
+    if (sleutel === 'aangepast') {
+      const [vanaf, tot] = dashboardModus === 'bereik'
+        ? [dashboardBereikVanaf, dashboardBereikTot]
+        : [dashboardVandaagIso(), dashboardVandaagIso()];
+      document.getElementById('dashboard-bereik-vanaf').value = vanaf;
+      document.getElementById('dashboard-bereik-tot').value = tot;
+      document.getElementById('dashboard-aangepast-bereik').hidden = false;
+      document.querySelectorAll('#dashboard-snelfilters button').forEach((b) => b.classList.toggle('actief', b === btn));
+      return;
+    }
+    if (sleutel === 'vandaag' || sleutel === 'morgen') {
+      const [iso] = berekenDatumRange(sleutel);
+      dashboardGaNaarDag(iso);
+      return;
+    }
+    const [vanaf, tot] = berekenDatumRange(sleutel);
+    dashboardGaNaarBereik(vanaf, tot, sleutel);
+  });
+});
+
+document.getElementById('btn-dashboard-bereik-toepassen').addEventListener('click', () => {
+  const vanaf = document.getElementById('dashboard-bereik-vanaf').value;
+  const tot = document.getElementById('dashboard-bereik-tot').value;
+  if (!vanaf || !tot) return alert('Kies zowel een "van"- als een "tot"-datum.');
+  if (vanaf > tot) return alert('De "van"-datum moet vóór de "tot"-datum liggen.');
+  dashboardGaNaarBereik(vanaf, tot, 'aangepast');
 });
 
 // ============================================================
@@ -1246,6 +1364,19 @@ function berekenDatumRange(bereik) {
   switch (bereik) {
     case 'vandaag':
       return [naarISO(vandaag), naarISO(vandaag)];
+    case 'morgen': {
+      const morgen = new Date(vandaag);
+      morgen.setDate(morgen.getDate() + 1);
+      return [naarISO(morgen), naarISO(morgen)];
+    }
+    case 'vorige-week': {
+      const dagVanWeek = (vandaag.getDay() + 6) % 7; // 0 = maandag
+      const start = new Date(vandaag);
+      start.setDate(vandaag.getDate() - dagVanWeek - 7);
+      const eind = new Date(start);
+      eind.setDate(start.getDate() + 6);
+      return [naarISO(start), naarISO(eind)];
+    }
     case 'deze-week': {
       const dagVanWeek = (vandaag.getDay() + 6) % 7; // 0 = maandag
       const start = new Date(vandaag);

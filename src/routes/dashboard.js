@@ -22,7 +22,7 @@ const DASHBOARD_SELECT = `
          b.notities,
          k.id AS klant_id, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
-         l.leveringstijd, l.afhaaltijd, l.checklist_status, l.lat, l.lng, l.geocode_adres,
+         l.leveringstijd, l.afhaaltijd, l.checklist_status, l.lat, l.lng, l.geocode_adres, l.voertuig,
          COALESCE(l.levering_voltooid, false) AS levering_voltooid,
          COALESCE(l.afhaling_voltooid, false) AS afhaling_voltooid,
          bp_namen.producten_namen, bp_namen.eerste_product_naam, bp_namen.aantal_producten
@@ -120,8 +120,44 @@ async function haalKolom(soort, datum) {
   return { type: 'eerstvolgende', datum: volgendeDatum, items: volgendeItems };
 }
 
+// Voor een gekozen periode (i.p.v. één dag) — de snelfilters boven de kaart
+// (Deze week / Vorige week / Vorige maand / Aangepast). Geen "eerstvolgende"-
+// terugval hier: een expliciet gekozen periode die leeg is, is gewoon leeg.
+async function haalBereik(soort, vanaf, tot) {
+  const kolom = DATUMKOLOM[soort];
+  const tijdKolom = soort === 'levering' ? 'l.leveringstijd' : 'l.afhaaltijd';
+  const { rows } = await db.query(
+    `${DASHBOARD_SELECT} AND b.${kolom} BETWEEN $2 AND $3 ORDER BY b.${kolom}, ${tijdKolom} NULLS LAST, k.naam`,
+    [GEPLANDE_STATUSSEN, vanaf, tot]
+  );
+  return { items: rows };
+}
+
 router.get('/', asyncHandler(async (req, res) => {
-  const datum = /^\d{4}-\d{2}-\d{2}$/.test(req.query.datum || '')
+  const isoRegex = /^\d{4}-\d{2}-\d{2}$/;
+  const vanaf = isoRegex.test(req.query.vanaf || '') ? req.query.vanaf : null;
+  const tot = isoRegex.test(req.query.tot || '') ? req.query.tot : null;
+
+  if (vanaf && tot) {
+    const [levering, afhaling, magazijn] = await Promise.all([
+      haalBereik('levering', vanaf, tot),
+      haalBereik('afhaling', vanaf, tot),
+      haalMagazijnLocatieOp(),
+    ]);
+    await Promise.all([zorgVoorGeocodering(levering.items), zorgVoorGeocodering(afhaling.items)]);
+    return res.json({
+      vanaf,
+      tot,
+      leveringen: levering.items,
+      leveringenType: 'bereik',
+      ophalingen: afhaling.items,
+      ophalingenType: 'bereik',
+      magazijn: magazijn ? { adres: ONS_MAGAZIJN_ADRES, ...magazijn } : null,
+      googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || null,
+    });
+  }
+
+  const datum = isoRegex.test(req.query.datum || '')
     ? req.query.datum
     : new Date().toISOString().slice(0, 10);
 
@@ -196,6 +232,27 @@ router.put('/:boekingId/voltooid', asyncHandler(async (req, res) => {
   const { rows: nieuw } = await db.query(
     `INSERT INTO leveringen (boeking_id, ${kolom}) VALUES ($1, $2) RETURNING *`,
     [req.params.boekingId, voltooid]
+  );
+  res.status(201).json(nieuw[0]);
+}));
+
+// Voertuig toewijzen aan een levering/afhaling vanop het Dashboard — dezelfde
+// leveringen-tabel/kolom die later ook door de leveringen-app gebruikt wordt,
+// dus dit komt daar straks gewoon in mee. Los van type (levering/afhaling):
+// Jonas werkt met voertuigen (niet individuele chauffeurs) die voor beide
+// richtingen van dezelfde boeking hetzelfde voertuig gebruiken.
+router.put('/:boekingId/voertuig', asyncHandler(async (req, res) => {
+  const waarde = (req.body.voertuig || '').trim() || null;
+
+  const { rows } = await db.query(
+    'UPDATE leveringen SET voertuig = $1 WHERE boeking_id = $2 RETURNING *',
+    [waarde, req.params.boekingId]
+  );
+  if (rows[0]) return res.json(rows[0]);
+
+  const { rows: nieuw } = await db.query(
+    'INSERT INTO leveringen (boeking_id, voertuig) VALUES ($1, $2) RETURNING *',
+    [req.params.boekingId, waarde]
   );
   res.status(201).json(nieuw[0]);
 }));
