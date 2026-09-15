@@ -65,7 +65,7 @@ input, select, textarea {
    het [hidden]-attribuut hoort, waardoor een verborgen invoerveld (bv. het
    aantal-veld dat enkel bij bepaalde categorieën verschijnt) toch zichtbaar
    zou blijven staan. */
-input[hidden], select[hidden], textarea[hidden] { display: none; }
+input[hidden], select[hidden], textarea[hidden], label[hidden] { display: none; }
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--blauw);
@@ -208,6 +208,9 @@ main { padding: 1.5rem 2rem; max-width: 1100px; margin: 0 auto; }
 .filterbalk button { padding: 0.55rem 1.2rem; border-radius: 6px; border: none; background: var(--blauw); color: white; font-weight: 600; }
 .overzicht-acties { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem; flex-wrap: wrap; }
 .overzicht-acties .uitleg { margin: 0; }
+.overzicht-acties button.secundair { margin: 0; }
+#btn-laatste-nieuwe.actief { background: var(--blauw); color: white; }
+.filter-zoek-label { min-width: 220px; flex: 1 1 220px; }
 
 .tabel { width: 100%; border-collapse: collapse; background: white; border: 1px solid var(--rand); border-radius: 8px; overflow: hidden; }
 .tabel th, .tabel td { text-align: left; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--rand); font-size: 0.88rem; }
@@ -339,7 +342,11 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .besch-categorie:first-child h4 { margin-top: 0; }
 .besch-item { background: white; border-radius: 6px; padding: 0.45rem 0.6rem; margin-bottom: 0.35rem; font-size: 0.9rem; }
 .besch-item.klikbaar { cursor: pointer; border: 1px solid transparent; }
-.besch-item.klikbaar:hover { border-color: var(--groen); font-weight: 600; }
+/* Groen = "start hiermee een nieuwe boeking" (bij "Nog beschikbaar"); blauw =
+   "ga naar de bestaande boeking" (bij "Reeds bezet") — bewust een ander accent
+   zodat het duidelijk twee verschillende acties zijn. */
+#besch-beschikbaar .besch-item.klikbaar:hover { border-color: var(--groen); font-weight: 600; }
+#besch-bezet .besch-item.klikbaar:hover { border-color: var(--blauw); font-weight: 600; }
 .besch-categorie summary {
   cursor: pointer; font-size: 0.82rem; color: var(--grijs); text-transform: uppercase;
   letter-spacing: 0.02em; margin: 0.6rem 0 0.3rem; list-style: none;
@@ -425,6 +432,21 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
   font-size: 1.4rem; color: var(--grijs); cursor: pointer;
 }
 .modal-inhoud h3 { color: var(--blauw-donker); }
+
+/* BULK E-MAIL (modal) */
+#tabel-boekingen .check-boeking-rij,
+.tabel thead input[type="checkbox"] { width: 1.1rem; height: 1.1rem; cursor: pointer; }
+#modal-bulk-email-inhoud textarea { font-family: inherit; resize: vertical; }
+.be-resultaten-lijst { margin-top: 1rem; max-height: 40vh; overflow-y: auto; }
+.be-resultaat-rij {
+  display: flex; justify-content: space-between; gap: 1rem;
+  padding: 0.4rem 0; border-bottom: 1px solid var(--grijs-licht);
+  font-size: 0.92rem;
+}
+.be-resultaat-rij:last-child { border-bottom: none; }
+.be-resultaat-verstuurd span:last-child { color: var(--groen); }
+.be-resultaat-overgeslagen span:last-child { color: #b8860b; }
+.be-resultaat-mislukt span:last-child { color: var(--rood); }
 
 /* BOEKING DETAIL (volledige pagina) */
 #btn-boeking-detail-terug { margin-bottom: 1rem; font-size: 0.95rem; }
@@ -558,21 +580,48 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 
 .stat-paneel h3 { margin-top: 0; display: flex; align-items: baseline; gap: 0.5rem; }
 .stat-paneel-rij { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
+.stat-paneel-titelrij { display: flex; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: 0.5rem; }
+.stat-paneel-titelrij h3 { margin: 0; }
+.stat-vergelijk-toggle { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--grijs); font-weight: normal; cursor: pointer; }
+
+.stat-periode-picker { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+.stat-periode-picker label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; color: var(--grijs); font-weight: normal; }
+.stat-periode-picker input[type="date"] { padding: 0.25rem 0.4rem; font-size: 0.85rem; }
+
+.stat-categorie-blok { margin-top: 1.1rem; }
+.stat-categorie-blok:first-child { margin-top: 0.6rem; }
+.stat-categorie-titel { margin: 0 0 0.5rem; font-size: 0.9rem; color: var(--blauw-donker); }
+
+/* Legende: enkel zichtbaar zodra de jaar-op-jaar-vergelijking aanstaat (bij
+   één reeks zegt de titel al genoeg — zie dataviz-richtlijn). */
+.stat-legende { display: flex; gap: 1.2rem; margin: 0.4rem 0 0.6rem; }
+.stat-legende-item { display: flex; align-items: center; gap: 0.4rem; font-size: 0.82rem; color: var(--grijs); }
+.stat-legende-swatch { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+.stat-legende-huidig { background: var(--blauw); }
+.stat-legende-vorig { background: var(--stat-vorig-jaar-kleur); }
 
 /* Kolomgrafiek (reservaties per maand) — 12 kolommen die vanaf eenzelfde
-   basislijn omhoog groeien; hoogte in % van de hoogste maand. */
+   basislijn omhoog groeien; hoogte in % van de hoogste maand. Elke kolom kan
+   uit één balk (enkel dit jaar) of een gegroepeerd paar (+ vorig jaar)
+   bestaan, met een 2px tussenruimte tussen de twee balken van eenzelfde maand. */
+:root { --stat-vorig-jaar-kleur: #eb6834; }
 .stat-kolomgrafiek {
   display: flex; align-items: flex-end; gap: 6px; height: 180px;
   border-bottom: 1px solid var(--rand); padding-top: 1.6rem;
 }
 .stat-kolom-item { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
-.stat-kolom-waarde { font-size: 0.75rem; color: var(--grijs); margin-bottom: 0.2rem; min-height: 1em; }
+.stat-kolom-waarden { display: flex; gap: 2px; margin-bottom: 0.2rem; min-height: 1em; }
+.stat-kolom-waarde { font-size: 0.75rem; color: var(--grijs); }
+.stat-kolom-waarde-vorig { color: var(--stat-vorig-jaar-kleur); }
+.stat-kolom-paar { display: flex; align-items: flex-end; gap: 2px; width: 100%; justify-content: center; height: 100%; }
 .stat-kolom {
   width: 100%; max-width: 26px; background: var(--blauw);
   border-radius: 4px 4px 0 0; min-height: 2px; transition: background 0.12s;
 }
-.stat-kolom-item:hover .stat-kolom { background: var(--blauw-donker); }
-.stat-kolom-item.stat-leeg .stat-kolom { background: var(--grijs-licht); }
+.stat-kolom-paar .stat-kolom { max-width: 16px; }
+.stat-kolom-vorig { background: var(--stat-vorig-jaar-kleur); }
+.stat-kolom-item:hover .stat-kolom-huidig { background: var(--blauw-donker); }
+.stat-kolom.stat-leeg { background: var(--grijs-licht); }
 .stat-kolom-label { font-size: 0.78rem; color: var(--grijs); margin-top: 0.4rem; }
 
 /* Balkgrafiek (gemeentes/producten) — horizontale balken vanaf een gedeelde
@@ -605,4 +654,25 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
   }
   .tabel th:last-child, .tabel td:last-child { display: none; }
   body { background: white; }
+}
+
+/* DROP SHEET — leveringsgerichte afdruk vanuit Boekingenoverzicht, zie
+   btn-drop-sheet in app.js. Op het scherm altijd verborgen; tijdens het
+   afdrukken (via de "print-modus-dropsheet"-klasse op body) verdringt dit de
+   gewone tabel i.p.v. ernaast te tonen. */
+.drop-sheet-print { display: none; }
+.ds-tabel { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.ds-tabel th, .ds-tabel td { border: 1px solid #999; padding: 0.5rem 0.6rem; text-align: left; vertical-align: top; }
+.ds-tabel th { background: #eee; }
+.ds-vink { width: 1.6rem; text-align: center; }
+.ds-checkbox { display: inline-block; width: 1.1rem; height: 1.1rem; border: 1.5px solid #333; }
+.ds-opmerking { min-width: 8rem; }
+@media print {
+  body.print-modus-dropsheet .tabel,
+  body.print-modus-dropsheet .kleuren-legende,
+  body.print-modus-dropsheet .statsbalk {
+    display: none !important;
+  }
+  body:not(.print-modus-dropsheet) .drop-sheet-print { display: none !important; }
+  body.print-modus-dropsheet .drop-sheet-print { display: block !important; }
 }

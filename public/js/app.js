@@ -234,6 +234,7 @@ function toonApp() {
   elLogin.hidden = true;
   elShell.hidden = false;
   laadProductenCache().then(() => {
+    vulBoekingenProductFilter();
     wisselView('aanvragen');
   });
 }
@@ -406,20 +407,41 @@ async function wijzigStatus(boekingId, nieuweStatus, opmerking) {
 // De actieve status/periode-filters van het Boekingenoverzicht — gedeeld tussen het
 // laden van de lijst en de export/afdruk-knoppen, zodat die altijd overeenkomen
 // met wat er op het scherm staat.
+// "Laatste nieuwe reservaties" is een losse sorteer-knop (geen periode/status-
+// filter): toont wat het RECENTST is aangemaakt, los van de leverdatum — handig
+// om snel na te kijken wat er net is ingevoerd/geïmporteerd. Blijft aanstaan tot
+// Jonas hem opnieuw uitklikt of op "Filteren" klikt.
+let boekingenSorteringLaatsteNieuwe = false;
+
 function huidigeBoekingenFilterParams() {
   const status = document.getElementById('filter-status').value;
+  const productId = document.getElementById('filter-product').value;
   const vanaf = document.getElementById('filter-vanaf').value;
   const tot = document.getElementById('filter-tot').value;
-  const openSaldo = document.getElementById('filter-open-saldo').checked;
+  const zoek = document.getElementById('filter-zoek').value;
   const params = new URLSearchParams();
   if (status) params.set('status', status);
+  if (productId) params.set('product_id', productId);
   if (vanaf) params.set('vanaf', vanaf);
   if (tot) params.set('tot', tot);
-  // Los van de gekozen periode: zowel toekomstige als reeds verlopen boekingen
-  // met een openstaand saldo — daarom geen eigen datum-restrictie, enkel te
-  // combineren met de bestaande periode-snelfilters/Vanaf-Tot hierboven.
-  if (openSaldo) params.set('open_saldo', '1');
+  if (zoek.trim()) params.set('zoek', zoek.trim());
+  if (boekingenSorteringLaatsteNieuwe) params.set('sortering', 'laatst_toegevoegd');
   return params;
+}
+
+// Productfilter-dropdown vullen zodra de productenlijst gekend is (gedeelde
+// cache, zie laadProductenCache) — gegroepeerd per categorie, zoals overal elders.
+function vulBoekingenProductFilter() {
+  const select = document.getElementById('filter-product');
+  if (select.dataset.gevuld) return;
+  const groepen = groepeerLijstPerCategorie(productenCache);
+  let html = '<option value="">Alle</option>';
+  groepen.forEach((lijst, categorie) => {
+    if (!lijst.length) return;
+    html += `<optgroup label="${categorie}">${lijst.map((p) => `<option value="${p.id}">${p.naam}</option>`).join('')}</optgroup>`;
+  });
+  select.innerHTML = html;
+  select.dataset.gevuld = '1';
 }
 
 // Ontleedt het (vrije-tekst) leveringsadres of het klantadres in 3 kolommen:
@@ -504,9 +526,15 @@ function bouwKeuzeOpties(opties, huidigeWaarde) {
     .join('');
 }
 
+// Laatst opgehaalde lijst bijhouden, zodat "Print drop sheet" dezelfde
+// resultaten kan hergebruiken zonder een aparte fetch (en zodat de kolom exact
+// overeenkomt met wat op het scherm staat).
+let laatsteBoekingenOverzichtData = [];
+
 async function laadBoekingenOverzicht() {
   const params = huidigeBoekingenFilterParams();
   const boekingen = await api(`/api/boekingen?${params.toString()}`);
+  laatsteBoekingenOverzichtData = boekingen;
 
   const totaal = boekingen.reduce((som, b) => som + Number(b.waarde || 0), 0);
   const ontvangen = boekingen.reduce((som, b) => som + Number(b.betaling_ontvangen || 0), 0);
@@ -520,8 +548,9 @@ async function laadBoekingenOverzicht() {
 
   const tbody = document.getElementById('tabel-boekingen');
   tbody.innerHTML = '';
+  document.getElementById('check-alles').checked = false;
   if (!boekingen.length) {
-    tbody.innerHTML = '<tr><td colspan="10" class="leeg-bericht">Geen boekingen gevonden.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="11" class="leeg-bericht">Geen boekingen gevonden.</td></tr>';
     return;
   }
   for (const b of boekingen) {
@@ -533,6 +562,7 @@ async function laadBoekingenOverzicht() {
     const tr = document.createElement('tr');
     tr.className = `rij-kleur-${STATUS_KLEUR[b.status] || 'grijs'}`;
     tr.innerHTML = `
+      <td><input type="checkbox" class="check-boeking-rij" data-boeking-id="${b.id}" /></td>
       <td>${fmtDatum(b.gewenste_datum_start)}</td>
       <td>${b.producten_namen || '—'}</td>
       <td>${adres.straat}</td>
@@ -544,12 +574,31 @@ async function laadBoekingenOverzicht() {
       <td title="${b.type_ondergrond || ''}">${ondergrondAfkorting(b.type_ondergrond)}</td>
       <td>Bekijk →</td>
     `;
+    tr.querySelector('.check-boeking-rij').addEventListener('click', (e) => e.stopPropagation());
     tr.addEventListener('click', () => openDetail(b.id));
     tbody.appendChild(tr);
   }
 }
 
-document.getElementById('btn-filter-toepassen').addEventListener('click', laadBoekingenOverzicht);
+document.getElementById('check-alles').addEventListener('change', (e) => {
+  document.querySelectorAll('#tabel-boekingen .check-boeking-rij').forEach((c) => { c.checked = e.target.checked; });
+});
+
+document.getElementById('btn-filter-toepassen').addEventListener('click', () => {
+  boekingenSorteringLaatsteNieuwe = false;
+  document.getElementById('btn-laatste-nieuwe').classList.remove('actief');
+  laadBoekingenOverzicht();
+});
+// Ook filteren bij Enter in het zoekveld, zonder dat "Filteren" apart aangeklikt hoeft te worden.
+document.getElementById('filter-zoek').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('btn-filter-toepassen').click();
+});
+
+document.getElementById('btn-laatste-nieuwe').addEventListener('click', (e) => {
+  boekingenSorteringLaatsteNieuwe = !boekingenSorteringLaatsteNieuwe;
+  e.target.classList.toggle('actief', boekingenSorteringLaatsteNieuwe);
+  laadBoekingenOverzicht();
+});
 
 // Exporteren (Excel/CSV) en afdrukken van het overzicht — op basis van dezelfde
 // status/periode-filter die nu op het scherm staat.
@@ -560,6 +609,135 @@ document.getElementById('btn-boekingen-exporteren').addEventListener('click', ()
 
 document.getElementById('btn-boekingen-afdrukken').addEventListener('click', () => {
   window.print();
+});
+
+// "Print drop sheet": een leveringsgerichte afdruk (i.p.v. de gewone tabel) voor
+// de chauffeur/crew — adres, tijdstip en product groot en overzichtelijk, met
+// ruimte om af te vinken. Werkt op dezelfde, al geladen resultaten als het scherm
+// (zelfde filter/periode), gesorteerd op leverdatum zodat de route logisch loopt.
+function bouwDropSheetHtml(boekingenLijst) {
+  if (!boekingenLijst.length) {
+    return '<p class="leeg-bericht">Geen boekingen in deze selectie.</p>';
+  }
+  const gesorteerd = boekingenLijst.slice().sort((a, b) => (a.gewenste_datum_start || '').localeCompare(b.gewenste_datum_start || ''));
+  const rijenHtml = gesorteerd.map((b) => {
+    const adres = ontleedAdres(b);
+    const adresTekst = b.leveringswijze === 'afhaling' ? 'Afhaling in het depot' : [adres.straat, [adres.postcode, adres.gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+    return `
+      <tr>
+        <td class="ds-vink"><span class="ds-checkbox"></span></td>
+        <td>${fmtDatum(b.gewenste_datum_start)}${b.gewenste_datum_einde && b.gewenste_datum_einde !== b.gewenste_datum_start ? ' t/m ' + fmtDatum(b.gewenste_datum_einde) : ''}</td>
+        <td>${b.voorkeur_tijdstip_levering || '—'} / ${b.voorkeur_tijdstip_afhaling || '—'}</td>
+        <td>${b.producten_namen || '—'}</td>
+        <td><strong>${b.klant_naam}</strong><br>${b.klant_telefoon || ''}</td>
+        <td>${adresTekst}</td>
+        <td class="ds-opmerking"></td>
+      </tr>`;
+  }).join('');
+  const vandaag = new Date().toLocaleDateString('nl-BE');
+  return `
+    <h2>Drop sheet — afgedrukt op ${vandaag}</h2>
+    <table class="ds-tabel">
+      <thead>
+        <tr><th></th><th>Datum</th><th>Levering / afhaling</th><th>Product(en)</th><th>Klant</th><th>Adres</th><th>Opmerking</th></tr>
+      </thead>
+      <tbody>${rijenHtml}</tbody>
+    </table>`;
+}
+
+document.getElementById('btn-drop-sheet').addEventListener('click', () => {
+  document.getElementById('drop-sheet-print').innerHTML = bouwDropSheetHtml(laatsteBoekingenOverzichtData);
+  document.body.classList.add('print-modus-dropsheet');
+  window.print();
+});
+window.addEventListener('afterprint', () => {
+  document.body.classList.remove('print-modus-dropsheet');
+});
+
+// Bulk e-mail: verstuurt via Jonas' eigen Microsoft 365-account (Graph API,
+// zie src/utils/mailer.js) naar de klanten van de aangevinkte boekingen.
+const modalBulkEmail = document.getElementById('modal-bulk-email');
+document.getElementById('btn-modal-bulk-email-sluiten').addEventListener('click', () => { modalBulkEmail.hidden = true; });
+modalBulkEmail.addEventListener('click', (e) => { if (e.target === modalBulkEmail) modalBulkEmail.hidden = true; });
+
+function geselecteerdeBoekingIds() {
+  return Array.from(document.querySelectorAll('#tabel-boekingen .check-boeking-rij:checked')).map((c) => c.dataset.boekingId);
+}
+
+function bouwBulkEmailNietGeconfigureerdHtml() {
+  return `
+    <h3>✉️ Bulk e-mail versturen</h3>
+    <p class="leeg-bericht">Microsoft 365 is nog niet gekoppeld aan dit platform. Zodra dat is ingesteld (zie de opzet-instructies), kan je hier mails versturen vanaf je eigen mailadres.</p>
+  `;
+}
+
+function bouwBulkEmailFormulierHtml(aantal) {
+  return `
+    <h3>✉️ Bulk e-mail versturen</h3>
+    <p class="uitleg">Naar de klanten van de ${aantal} geselecteerde boeking${aantal === 1 ? '' : 'en'}. Gebruik <code>{{naam}}</code> in onderwerp of tekst om automatisch de klantnaam in te vullen. De mail vertrekt vanaf je eigen gekoppelde mailadres.</p>
+    <form id="form-bulk-email">
+      <label>Onderwerp<input type="text" id="be-onderwerp" placeholder="bv. Herinnering: uw reservatie bij Belair-Fun" required /></label>
+      <label>Bericht<textarea id="be-inhoud" rows="8" placeholder="Beste {{naam}}," required></textarea></label>
+      <p class="foutmelding" id="be-fout"></p>
+      <button type="submit">Versturen</button>
+    </form>
+    <div id="be-resultaten"></div>
+  `;
+}
+
+function bouwBulkEmailResultatenHtml(resultaten) {
+  const statusLabel = { verstuurd: '✓ Verstuurd', overgeslagen: '⚠ Overgeslagen', mislukt: '✗ Mislukt' };
+  const rijen = resultaten
+    .map((r) => `<div class="be-resultaat-rij be-resultaat-${r.status}"><span>${r.klant_naam}</span><span>${statusLabel[r.status] || r.status}${r.reden ? ' — ' + r.reden : ''}</span></div>`)
+    .join('');
+  const aantalVerstuurd = resultaten.filter((r) => r.status === 'verstuurd').length;
+  return `
+    <h4>Resultaat: ${aantalVerstuurd} van ${resultaten.length} verstuurd</h4>
+    <div class="be-resultaten-lijst">${rijen}</div>
+  `;
+}
+
+document.getElementById('btn-bulk-email').addEventListener('click', async () => {
+  const ids = geselecteerdeBoekingIds();
+  if (!ids.length) {
+    alert('Vink eerst één of meer boekingen aan in de tabel.');
+    return;
+  }
+  const inhoud = document.getElementById('modal-bulk-email-inhoud');
+  inhoud.innerHTML = '<p class="leeg-bericht">Bezig met laden…</p>';
+  modalBulkEmail.hidden = false;
+
+  const status = await api('/api/boekingen/mail-status');
+  if (!status.geconfigureerd) {
+    inhoud.innerHTML = bouwBulkEmailNietGeconfigureerdHtml();
+    return;
+  }
+  inhoud.innerHTML = bouwBulkEmailFormulierHtml(ids.length);
+
+  document.getElementById('form-bulk-email').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const elFout = document.getElementById('be-fout');
+    const knop = e.target.querySelector('button[type="submit"]');
+    elFout.textContent = '';
+    knop.disabled = true;
+    knop.textContent = 'Bezig met versturen…';
+    try {
+      const resultaat = await api('/api/boekingen/bulk-email', {
+        method: 'POST',
+        body: JSON.stringify({
+          boeking_ids: ids,
+          onderwerp: document.getElementById('be-onderwerp').value,
+          inhoud: document.getElementById('be-inhoud').value,
+        }),
+      });
+      document.getElementById('be-resultaten').innerHTML = bouwBulkEmailResultatenHtml(resultaat.resultaten);
+      e.target.hidden = true;
+    } catch (err) {
+      elFout.textContent = err.message;
+      knop.disabled = false;
+      knop.textContent = 'Versturen';
+    }
+  });
 });
 
 // Snelfilters (zoals in het huidige bookingonline.co.uk-systeem)
@@ -632,6 +810,8 @@ document.querySelectorAll('#snelfilters button').forEach((btn) => {
     document.getElementById('filter-vanaf').value = vanaf;
     document.getElementById('filter-tot').value = tot;
     document.querySelectorAll('#snelfilters button').forEach((b) => b.classList.toggle('actief', b === btn));
+    boekingenSorteringLaatsteNieuwe = false;
+    document.getElementById('btn-laatste-nieuwe').classList.remove('actief');
     laadBoekingenOverzicht();
   });
 });
@@ -1492,6 +1672,27 @@ async function bepaalOnbeschikbareProductIds(datumStart, datumEinde, exclBoeking
   return nieuweSet;
 }
 
+// Zelfde beschikbaarheidscheck, maar dan met de concrete overlappende boeking(en)
+// erbij — enkel gebruikt door het Beschikbaarheid-overzicht, om vanuit "reeds
+// bezet" rechtstreeks naar die boeking te kunnen doorklikken.
+async function bepaalBezetteProductenMetBoeking(datumStart, datumEinde) {
+  const resultaatPerProduct = new Map();
+  await Promise.all(
+    productenCache.map(async (p) => {
+      try {
+        const resultaat = await api('/api/boekingen/beschikbaarheid-check', {
+          method: 'POST',
+          body: JSON.stringify({ product_id: p.id, gewenste_datum_start: datumStart, gewenste_datum_einde: datumEinde, aantal: 1 }),
+        });
+        if (!resultaat.beschikbaar) resultaatPerProduct.set(p.id, resultaat.overlappendeBoekingen || []);
+      } catch (_) {
+        // bij twijfel niet blokkeren
+      }
+    })
+  );
+  return resultaatPerProduct;
+}
+
 async function verversBeschikbaarheid() {
   const datumStart = document.getElementById('datum-start').value;
   if (!datumStart) {
@@ -1725,20 +1926,31 @@ function groepeerLijstPerCategorie(lijst) {
   return groepen;
 }
 
-// "Reeds bezet" toont gewoon meteen alles (louter ter info, niet klikbaar).
+// "Reeds bezet" toont gewoon meteen alles — en is, sinds Jonas dat vroeg,
+// aanklikbaar zodra we weten welke boeking het product bezet houdt: dan gaat
+// een klik rechtstreeks naar dat dossier (bij meerdere overlappende boekingen
+// naar de eerst gevonden). Zonder gekende boeking (zou niet mogen voorkomen,
+// maar bij twijfel niet blokkeren) blijft het item gewoon niet-klikbaar.
 // "Nog beschikbaar" toont per categorie een uitklapbare lijst (dicht bij
 // binnenkomst) — met 107+ producten is een altijd-open lijst te lang, maar
 // Jonas wil hier geen dropdown: een categorie aanklikken schuift open.
-function renderBeschikbaarheidKolom(containerId, producten, klikbaar) {
+function renderBeschikbaarheidKolom(containerId, producten, modus, boekingPerProduct) {
   const container = document.getElementById(containerId);
   const groepen = groepeerLijstPerCategorie(producten);
   let html = '';
   groepen.forEach((lijst, categorie) => {
     if (!lijst.length) return;
     const itemsHtml = lijst
-      .map((p) => `<div class="besch-item${klikbaar ? ' klikbaar' : ''}" data-id="${p.id}">${p.naam}</div>`)
+      .map((p) => {
+        if (modus === 'bezet') {
+          const boekingId = boekingPerProduct && boekingPerProduct.get(p.id);
+          const klikbaar = !!boekingId;
+          return `<div class="besch-item${klikbaar ? ' klikbaar' : ''}"${klikbaar ? ` data-boeking-id="${boekingId}" title="Klik om naar deze boeking te gaan"` : ''}>${p.naam}</div>`;
+        }
+        return `<div class="besch-item klikbaar" data-id="${p.id}">${p.naam}</div>`;
+      })
       .join('');
-    html += klikbaar
+    html += modus === 'beschikbaar'
       ? `<details class="besch-categorie">
            <summary>${categorie} (${lijst.length})</summary>
            ${itemsHtml}
@@ -1749,7 +1961,7 @@ function renderBeschikbaarheidKolom(containerId, producten, klikbaar) {
          </div>`;
   });
   container.innerHTML = html || '<p class="leeg-bericht">Geen producten in deze lijst.</p>';
-  if (klikbaar) {
+  if (modus === 'beschikbaar') {
     container.querySelectorAll('.besch-item').forEach((el) => {
       el.addEventListener('click', () => {
         startNieuweBoekingVoorProduct(
@@ -1758,6 +1970,10 @@ function renderBeschikbaarheidKolom(containerId, producten, klikbaar) {
           document.getElementById('besch-datum-einde').value
         );
       });
+    });
+  } else {
+    container.querySelectorAll('.besch-item.klikbaar').forEach((el) => {
+      el.addEventListener('click', () => openDetail(el.dataset.boekingId));
     });
   }
 }
@@ -1770,11 +1986,15 @@ async function ververBeschikbaarheidsoverzicht() {
     return;
   }
   const datumEinde = document.getElementById('besch-datum-einde').value || datumStart;
-  const onbeschikbaar = await bepaalOnbeschikbareProductIds(datumStart, datumEinde);
-  const beschikbaar = productenCache.filter((p) => !onbeschikbaar.has(p.id));
-  const bezet = productenCache.filter((p) => onbeschikbaar.has(p.id));
-  renderBeschikbaarheidKolom('besch-beschikbaar', beschikbaar, true);
-  renderBeschikbaarheidKolom('besch-bezet', bezet, false);
+  const bezetMetBoeking = await bepaalBezetteProductenMetBoeking(datumStart, datumEinde);
+  const beschikbaar = productenCache.filter((p) => !bezetMetBoeking.has(p.id));
+  const bezet = productenCache.filter((p) => bezetMetBoeking.has(p.id));
+  const boekingPerProduct = new Map();
+  bezetMetBoeking.forEach((overlappendeBoekingen, productId) => {
+    if (overlappendeBoekingen.length) boekingPerProduct.set(productId, overlappendeBoekingen[0].id);
+  });
+  renderBeschikbaarheidKolom('besch-beschikbaar', beschikbaar, 'beschikbaar');
+  renderBeschikbaarheidKolom('besch-bezet', bezet, 'bezet', boekingPerProduct);
 }
 
 const beschikbaarheidKalender = maakKalenderWidget({
@@ -1822,11 +2042,18 @@ function nieuweProductRij(voorkeurProductId) {
   rij.innerHTML = `
     <label>Categorie<select class="rij-categorie">${bouwCategorieOpties(startCategorie)}</select></label>
     <label>Model<select class="rij-product">${bouwModelOpties(startCategorie, voorkeurProductId)}</select></label>
-    <label>Aantal<input type="number" class="rij-aantal" value="1" min="1" /></label>
+    <label class="rij-aantal-label" ${AANTAL_CATEGORIEEN.includes(startCategorie) ? '' : 'hidden'}>Aantal<input type="number" class="rij-aantal" value="1" min="1" /></label>
     <button type="button" class="verwijder">✕</button>
   `;
+  // Aantal > 1 heeft enkel zin bij Feestmaterialen/Servies-Bestek (zie
+  // AANTAL_CATEGORIEEN) — bij Springkastelen/Attracties/Obstakelbanen is er
+  // sowieso maar 1 exemplaar per model per boeking, dus blijft dat veld hier
+  // verborgen (en het aantal op 1) net zoals in het dossier zelf.
   rij.querySelector('.rij-categorie').addEventListener('change', (e) => {
     rij.querySelector('.rij-product').innerHTML = bouwModelOpties(e.target.value);
+    const aantalLabel = rij.querySelector('.rij-aantal-label');
+    aantalLabel.hidden = !AANTAL_CATEGORIEEN.includes(e.target.value);
+    if (aantalLabel.hidden) rij.querySelector('.rij-aantal').value = 1;
   });
   rij.querySelector('.verwijder').addEventListener('click', () => rij.remove());
   document.getElementById('producten-rijen').appendChild(rij);
@@ -2256,14 +2483,26 @@ function statEscapeHtml(s) {
 // basislijn omhoog groeien, hoogte relatief t.o.v. de drukste maand. Bij
 // "geen enkele boeking bevestigd dit jaar" krijgt elke kolom een minimale,
 // duidelijk grijze streep i.p.v. een misleidend lege grafiek.
-function statRenderKolomgrafiek(perMaand) {
-  const maxAantal = Math.max(1, ...perMaand.map((m) => m.aantal));
-  return perMaand.map((m) => {
-    const hoogtePct = m.aantal > 0 ? Math.max(4, Math.round((m.aantal / maxAantal) * 100)) : 3;
+// Optioneel (toonVergelijking) een tweede reeks (vorig jaar) ernaast als
+// gegroepeerde kolommen, zodat het verschil met vorig jaar in één oogopslag
+// te zien is — beide reeksen delen dezelfde schaal (max over beide jaren).
+function statRenderKolomgrafiek(perMaand, perMaandVorigJaar, toonVergelijking, huidigJaarLabel, vorigJaarLabel) {
+  const reeksen = toonVergelijking ? perMaand.concat(perMaandVorigJaar) : perMaand;
+  const maxAantal = Math.max(1, ...reeksen.map((m) => m.aantal));
+  const hoogtePct = (aantal) => (aantal > 0 ? Math.max(4, Math.round((aantal / maxAantal) * 100)) : 3);
+  return perMaand.map((m, i) => {
+    const vorigM = perMaandVorigJaar[i];
+    const huidigeBalk = `<div class="stat-kolom stat-kolom-huidig${m.aantal === 0 ? ' stat-leeg' : ''}" style="height: ${hoogtePct(m.aantal)}%" title="${huidigJaarLabel}: ${m.aantal}"></div>`;
+    const vorigeBalk = toonVergelijking
+      ? `<div class="stat-kolom stat-kolom-vorig${vorigM.aantal === 0 ? ' stat-leeg' : ''}" style="height: ${hoogtePct(vorigM.aantal)}%" title="${vorigJaarLabel}: ${vorigM.aantal}"></div>`
+      : '';
     return `
-      <div class="stat-kolom-item${m.aantal === 0 ? ' stat-leeg' : ''}" title="${m.label}: ${m.aantal} bevestigde reservatie(s)">
-        <span class="stat-kolom-waarde">${m.aantal > 0 ? m.aantal : ''}</span>
-        <div class="stat-kolom" style="height: ${hoogtePct}%"></div>
+      <div class="stat-kolom-item">
+        <div class="stat-kolom-waarden">
+          <span class="stat-kolom-waarde">${m.aantal > 0 ? m.aantal : ''}</span>
+          ${toonVergelijking ? `<span class="stat-kolom-waarde stat-kolom-waarde-vorig">${vorigM.aantal > 0 ? vorigM.aantal : ''}</span>` : ''}
+        </div>
+        <div class="stat-kolom-paar">${huidigeBalk}${vorigeBalk}</div>
         <span class="stat-kolom-label">${m.label}</span>
       </div>`;
   }).join('');
@@ -2287,6 +2526,39 @@ function statRenderBalkgrafiek(rijen, labelVeld) {
   }).join('');
 }
 
+// Producten per categorie — per categorie een subkopje + dezelfde balkgrafiek
+// als voorheen voor "top producten", maar nu per categorie i.p.v. één
+// algemene top-8, en binnen de vrij gekozen periode (zie laadProductenPeriode).
+function statRenderProductenPerCategorie(productenPerCategorie) {
+  if (!productenPerCategorie.length) {
+    return '<p class="stat-leeg-bericht">Geen verhuringen in deze periode.</p>';
+  }
+  return productenPerCategorie.map((cat) => `
+    <div class="stat-categorie-blok">
+      <h4 class="stat-categorie-titel">${statEscapeHtml(cat.categorie)}</h4>
+      <div class="stat-balkgrafiek">${statRenderBalkgrafiek(cat.producten, 'product_naam')}</div>
+    </div>
+  `).join('');
+}
+
+// Ververst enkel het "Producten per categorie"-paneel, o.b.v. de vrij gekozen
+// vanaf/tot-periode — losgekoppeld van de jaar-selector die de rest van de
+// pagina stuurt, want Jonas moet dit binnen élke gekozen periode kunnen zien.
+async function laadProductenPeriode() {
+  const vanaf = document.getElementById('stat-product-vanaf').value;
+  const tot = document.getElementById('stat-product-tot').value;
+  const params = new URLSearchParams();
+  if (vanaf) params.set('vanaf', vanaf);
+  if (tot) params.set('tot', tot);
+  const data = await api(`/api/statistieken/producten${params.toString() ? '?' + params.toString() : ''}`);
+  document.getElementById('stat-product-vanaf').value = data.vanaf;
+  document.getElementById('stat-product-tot').value = data.tot;
+  document.getElementById('stat-product-vanaf').dataset.aangepast = '1';
+  document.getElementById('stat-producten-per-categorie').innerHTML = statRenderProductenPerCategorie(data.productenPerCategorie);
+}
+
+document.getElementById('btn-stat-product-periode').addEventListener('click', laadProductenPeriode);
+
 async function laadStatistieken() {
   const selJaar = document.getElementById('stat-jaar');
   const jaarParam = statHuidigJaar || selJaar.value || '';
@@ -2303,15 +2575,44 @@ async function laadStatistieken() {
   document.getElementById('stat-tegel-waarde').textContent = fmtEuro(data.totaleWaarde);
   document.getElementById('stat-tegel-bevestigd').textContent = data.totaalBevestigd;
 
-  document.getElementById('stat-grafiek-maand').innerHTML = statRenderKolomgrafiek(data.perMaand);
+  const toonVergelijking = document.getElementById('stat-vergelijk-vorig-jaar').checked;
+  const huidigJaarLabel = String(data.jaar);
+  const vorigJaarLabel = String(data.jaar - 1);
+  document.getElementById('stat-grafiek-maand').innerHTML = statRenderKolomgrafiek(
+    data.perMaand, data.perMaandVorigJaar, toonVergelijking, huidigJaarLabel, vorigJaarLabel
+  );
+  // Legende enkel tonen bij twee reeksen — bij één reeks zegt de titel al genoeg.
+  const legende = document.getElementById('stat-legende');
+  legende.hidden = !toonVergelijking;
+  if (toonVergelijking) {
+    legende.innerHTML = `
+      <span class="stat-legende-item"><span class="stat-legende-swatch stat-legende-huidig"></span>${huidigJaarLabel}</span>
+      <span class="stat-legende-item"><span class="stat-legende-swatch stat-legende-vorig"></span>${vorigJaarLabel}</span>`;
+  }
+
   document.getElementById('stat-grafiek-gemeentes').innerHTML = statRenderBalkgrafiek(data.topGemeentes, 'gemeente');
-  document.getElementById('stat-grafiek-producten').innerHTML = statRenderBalkgrafiek(data.topProducten, 'product_naam');
+
+  // Producten per categorie: standaard het volledige geselecteerde jaar, tenzij
+  // Jonas via "Toepassen" al een eigen periode had gekozen (dan die behouden
+  // i.p.v. te overschrijven bij elke jaarwissel).
+  const productVanafVeld = document.getElementById('stat-product-vanaf');
+  const productTotVeld = document.getElementById('stat-product-tot');
+  if (!productVanafVeld.dataset.aangepast) {
+    productVanafVeld.value = data.productVanaf;
+    productTotVeld.value = data.productTot;
+    document.getElementById('stat-producten-per-categorie').innerHTML = statRenderProductenPerCategorie(data.productenPerCategorie);
+  }
 }
 
 document.getElementById('stat-jaar').addEventListener('change', (e) => {
   statHuidigJaar = e.target.value;
+  // Bij een jaarwissel de producten-periode terug op "heel dat jaar" zetten —
+  // een eerder handmatig gekozen periode (mogelijk van een ander jaar) zou
+  // hier anders blijven hangen.
+  delete document.getElementById('stat-product-vanaf').dataset.aangepast;
   laadStatistieken();
 });
+document.getElementById('stat-vergelijk-vorig-jaar').addEventListener('change', laadStatistieken);
 
 async function laadWebinzendingen() {
   const container = document.getElementById('lijst-webinzendingen');

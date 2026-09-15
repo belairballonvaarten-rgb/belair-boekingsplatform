@@ -78,6 +78,15 @@ async function checkBeschikbaarheid(productId, datumStart, datumEinde, gevraagdA
     params
   );
 
+  // De concrete boekingen die de botsing veroorzaken — bv. om vanuit het
+  // Beschikbaarheidsoverzicht rechtstreeks naar het dossier van "reeds bezet"
+  // door te kunnen klikken (zie public/js/app.js, ververBeschikbaarheidsoverzicht()).
+  const overlappendeBoekingIds = overlappendeBoekingen.map((b) => ({
+    id: b.id,
+    gewenste_datum_start: b.gewenste_datum_start,
+    gewenste_datum_einde: b.gewenste_datum_einde,
+  }));
+
   // Per dag in de aangevraagde periode (zonder buffer) tellen hoeveel er al bezet is,
   // rekening houdend met de buffer rond elke bestaande boeking.
   const bezetPerDag = {};
@@ -97,11 +106,12 @@ async function checkBeschikbaarheid(productId, datumStart, datumEinde, gevraagdA
         beschikbaar: false,
         reden: `Niet genoeg voorraad op ${dagStr}: ${bezet} bezet + ${gevraagdAantal} gevraagd > max ${product.max_boekingen_per_dag}`,
         bezetPerDag,
+        overlappendeBoekingen: overlappendeBoekingIds,
       };
     }
   }
 
-  return { beschikbaar: true, bezetPerDag };
+  return { beschikbaar: true, bezetPerDag, overlappendeBoekingen: overlappendeBoekingIds };
 }
 
 module.exports = { checkBeschikbaarheid, BLOKKERENDE_STATUSSEN };

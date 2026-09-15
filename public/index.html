@@ -93,24 +93,35 @@
             <option value="geweigerd">Geweigerd</option>
           </select>
         </label>
+        <label>Product
+          <select id="filter-product"><option value="">Alle</option></select>
+        </label>
         <label>Vanaf (aangepast) <input type="date" id="filter-vanaf" /></label>
         <label>Tot (aangepast) <input type="date" id="filter-tot" /></label>
-        <label class="checkbox filter-open-saldo-label">
-          <input type="checkbox" id="filter-open-saldo" /> Enkel nog te betalen (verleden + toekomst)
+        <label class="filter-zoek-label">Zoek op naam of adres
+          <input type="text" id="filter-zoek" placeholder="bv. Peeters of Kerkplein" />
         </label>
         <button id="btn-filter-toepassen">Filteren</button>
       </div>
       <div class="overzicht-acties">
+        <button type="button" id="btn-laatste-nieuwe" class="secundair">🆕 Laatste nieuwe reservaties</button>
+        <button type="button" id="btn-drop-sheet" class="secundair">🚚 Print drop sheet</button>
         <button type="button" id="btn-boekingen-exporteren" class="secundair">⭳ Exporteren (Excel/CSV)</button>
         <button type="button" id="btn-boekingen-afdrukken" class="secundair">🖶 Afdrukken</button>
+        <button type="button" id="btn-bulk-email" class="secundair">✉️ Bulk e-mail versturen</button>
         <span class="uitleg">Op basis van de hierboven geselecteerde periode/filter.</span>
       </div>
       <table class="tabel">
         <thead>
-          <tr><th>Datum</th><th>Product</th><th>Straat + nr</th><th>Postcode</th><th>Gemeente</th><th>Klant</th><th>Saldo</th><th>Status</th><th title="Type ondergrond">Ondergrond</th><th></th></tr>
+          <tr><th><input type="checkbox" id="check-alles" title="Alles selecteren" /></th><th>Datum</th><th>Product</th><th>Straat + nr</th><th>Postcode</th><th>Gemeente</th><th>Klant</th><th>Saldo</th><th>Status</th><th title="Type ondergrond">Ondergrond</th><th></th></tr>
         </thead>
         <tbody id="tabel-boekingen"></tbody>
       </table>
+
+      <!-- Drop sheet: enkel zichtbaar tijdens het afdrukken via "🚚 Print drop sheet"
+           (zie btn-drop-sheet in app.js) — een aparte, leveringsgerichte lay-out
+           i.p.v. de gewone tabel, met ruimte voor de chauffeur om af te vinken. -->
+      <div id="drop-sheet-print" class="drop-sheet-print" hidden></div>
     </section>
 
     <!-- BOEKING DETAIL (volledige pagina) -->
@@ -338,19 +349,29 @@
       </div>
 
       <div class="paneel stat-paneel">
-        <h3>Reservaties per maand <span class="uitleg">(op datum van bevestiging)</span></h3>
+        <div class="stat-paneel-titelrij">
+          <h3>Reservaties per maand <span class="uitleg">(op datum van bevestiging)</span></h3>
+          <label class="stat-vergelijk-toggle"><input type="checkbox" id="stat-vergelijk-vorig-jaar" /> Vergelijk met vorig jaar</label>
+        </div>
+        <div id="stat-legende" class="stat-legende" hidden></div>
         <div id="stat-grafiek-maand" class="stat-kolomgrafiek"></div>
       </div>
 
-      <div class="stat-paneel-rij">
-        <div class="paneel stat-paneel">
-          <h3>Populairste gemeentes</h3>
-          <div id="stat-grafiek-gemeentes" class="stat-balkgrafiek"></div>
+      <div class="paneel stat-paneel">
+        <h3>Populairste gemeentes</h3>
+        <div id="stat-grafiek-gemeentes" class="stat-balkgrafiek"></div>
+      </div>
+
+      <div class="paneel stat-paneel">
+        <div class="stat-paneel-titelrij">
+          <h3>Producten per categorie <span class="uitleg">(aantal verhuringen)</span></h3>
+          <div class="stat-periode-picker">
+            <label>Vanaf <input type="date" id="stat-product-vanaf" /></label>
+            <label>Tot <input type="date" id="stat-product-tot" /></label>
+            <button type="button" id="btn-stat-product-periode" class="secundair">Toepassen</button>
+          </div>
         </div>
-        <div class="paneel stat-paneel">
-          <h3>Meest geboekte producten (aantal)</h3>
-          <div id="stat-grafiek-producten" class="stat-balkgrafiek"></div>
-        </div>
+        <div id="stat-producten-per-categorie"></div>
       </div>
     </section>
 
@@ -366,6 +387,14 @@
       <div class="modal-inhoud">
         <button id="btn-modal-product-sluiten" class="modal-sluiten">&times;</button>
         <div id="modal-product-inhoud"></div>
+      </div>
+    </div>
+
+    <!-- BULK E-MAIL (modal) -->
+    <div id="modal-bulk-email" class="modal" hidden>
+      <div class="modal-inhoud">
+        <button id="btn-modal-bulk-email-sluiten" class="modal-sluiten">&times;</button>
+        <div id="modal-bulk-email-inhoud"></div>
       </div>
     </div>
   </main>

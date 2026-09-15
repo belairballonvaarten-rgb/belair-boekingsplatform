@@ -82,6 +82,14 @@ git push -u origin main
    De eerste opstart zal wél nog steeds even loggen dat de migratie bezig is;
    dat is normaal.
 
+## Bulk e-mail versturen (Microsoft 365)
+
+"Bulk e-mail versturen" in Boekingenoverzicht verstuurt mail vanuit je eigen
+Microsoft 365-mailadres, via de Microsoft Graph API (`src/utils/mailer.js`).
+Zie **[SETUP-MICROSOFT365.md](./SETUP-MICROSOFT365.md)** voor de volledige
+stap-voor-stap opzet in Azure — dit moet je éénmalig doen. Zonder deze opzet
+toont het platform gewoon netjes dat de koppeling nog ontbreekt.
+
 ## API-overzicht
 
 Alle routes onder `/api/klanten`, `/api/producten` en `/api/boekingen` vereisen een

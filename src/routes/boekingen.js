@@ -5,6 +5,7 @@ const { checkBeschikbaarheid } = require('../utils/beschikbaarheid');
 const { berekenAfstandKm, berekenTransportkost } = require('../utils/afstand');
 const { berekenAantalDagen, berekenMeerdaagsePrijs } = require('../utils/prijzen');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { verstuurMail, isGeconfigureerd: mailIsGeconfigureerd } = require('../utils/mailer');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -46,28 +47,97 @@ router.post('/beschikbaarheid-check', asyncHandler(async (req, res) => {
   res.json(resultaat);
 }));
 
+// Staat de Microsoft 365-mailkoppeling al ingesteld (AZURE_*-omgevingsvariabelen)?
+// Zo kan de "Bulk e-mail"-knop in het overzicht netjes uitleggen wat nog moet
+// gebeuren i.p.v. gewoon te falen bij het versturen.
+router.get('/mail-status', (req, res) => {
+  res.json({ geconfigureerd: mailIsGeconfigureerd() });
+});
+
+// Bulk e-mail naar de klanten van een selectie boekingen — Jonas vinkt boekingen
+// aan in het overzicht en typt hier één bericht, dat (via zijn eigen Microsoft
+// 365, zie utils/mailer.js) naar elk van hun e-mailadressen gaat. {{naam}} in
+// onderwerp/inhoud wordt per mail vervangen door de klantnaam. Elke geslaagde
+// mail wordt ook als "communicatie"-regel bij de boeking gelogd, zodat het
+// dossier zelf ook toont dat en wat er verstuurd is.
+router.post('/bulk-email', asyncHandler(async (req, res) => {
+  const { boeking_ids, onderwerp, inhoud } = req.body;
+  if (!Array.isArray(boeking_ids) || !boeking_ids.length) {
+    return res.status(400).json({ fout: 'boeking_ids is verplicht en mag niet leeg zijn' });
+  }
+  if (!onderwerp || !inhoud) {
+    return res.status(400).json({ fout: 'onderwerp en inhoud zijn verplicht' });
+  }
+  const { rows } = await db.query(
+    `SELECT b.id AS boeking_id, k.naam AS klant_naam, k.email AS klant_email
+     FROM boekingen b JOIN klanten k ON k.id = b.klant_id
+     WHERE b.id = ANY($1)`,
+    [boeking_ids]
+  );
+  const resultaten = [];
+  for (const rij of rows) {
+    if (!rij.klant_email) {
+      resultaten.push({ boeking_id: rij.boeking_id, klant_naam: rij.klant_naam, status: 'overgeslagen', reden: 'Geen e-mailadres bekend bij deze klant' });
+      continue;
+    }
+    const persoonlijkOnderwerp = onderwerp.replace(/\{\{naam\}\}/g, rij.klant_naam);
+    const persoonlijkeInhoud = inhoud.replace(/\{\{naam\}\}/g, rij.klant_naam);
+    try {
+      await verstuurMail({
+        naar: rij.klant_email,
+        onderwerp: persoonlijkOnderwerp,
+        html: persoonlijkeInhoud.replace(/\n/g, '<br>'),
+      });
+      await db.query(
+        `INSERT INTO communicatie (boeking_id, type, richting, onderwerp, inhoud) VALUES ($1, 'email', 'uitgaand', $2, $3)`,
+        [rij.boeking_id, persoonlijkOnderwerp, persoonlijkeInhoud]
+      );
+      resultaten.push({ boeking_id: rij.boeking_id, klant_naam: rij.klant_naam, status: 'verstuurd' });
+    } catch (err) {
+      resultaten.push({ boeking_id: rij.boeking_id, klant_naam: rij.klant_naam, status: 'mislukt', reden: err.message });
+    }
+  }
+  res.json({ resultaten });
+}));
+
 // Gedeelde filter (status/periode/klant) en basisquery voor het boekingenoverzicht —
 // gebruikt door zowel de lijst (JSON) als de export (CSV), zodat die twee altijd
 // exact dezelfde selectie tonen.
 function bouwBoekingenFilter(query) {
-  const { status, vanaf, tot, klant_id, open_saldo } = query;
+  const { status, vanaf, tot, klant_id, open_saldo, zoek, product_id } = query;
   const condities = [];
   const params = [];
   if (status) {
     params.push(status);
     condities.push(`b.status = $${params.length}`);
   }
-  if (vanaf) {
+  if (product_id) {
+    params.push(product_id);
+    condities.push(`EXISTS (SELECT 1 FROM boeking_producten bp_filter WHERE bp_filter.boeking_id = b.id AND bp_filter.product_id = $${params.length})`);
+  }
+  // Een zoekterm overstijgt de gekozen periode — Jonas typt een naam/adres om
+  // ÉÉN specifieke boeking terug te vinden, ongeacht of die in het verleden ligt
+  // of buiten de actieve snelfilter valt (bv. "Alles" toont vanaf vandaag, maar
+  // een klant opzoeken moet ook een oudere boeking nog kunnen tonen).
+  const heeftZoekterm = zoek && zoek.trim();
+  if (vanaf && !heeftZoekterm) {
     params.push(vanaf);
     condities.push(`b.gewenste_datum_einde >= $${params.length}`);
   }
-  if (tot) {
+  if (tot && !heeftZoekterm) {
     params.push(tot);
     condities.push(`b.gewenste_datum_start <= $${params.length}`);
   }
   if (klant_id) {
     params.push(klant_id);
     condities.push(`b.klant_id = $${params.length}`);
+  }
+  // Zoeken op klantnaam of adres (leveringsadres, of bij ontstentenis het adres
+  // van de klant zelf) — één tekstveld, ongeacht hoofd-/kleine letters.
+  if (heeftZoekterm) {
+    params.push(`%${zoek.trim()}%`);
+    const i = params.length;
+    condities.push(`(k.naam ILIKE $${i} OR b.leveringsadres ILIKE $${i} OR k.adres ILIKE $${i} OR k.gemeente ILIKE $${i} OR k.postcode ILIKE $${i})`);
   }
   // "Nog te betalen": onafhankelijk van de status of gekozen periode — zowel
   // toekomstige als reeds verlopen boekingen met een openstaand saldo. Let op:
@@ -104,11 +174,17 @@ const BOEKINGEN_OVERZICHT_SELECT = `
   ) bp_namen ON bp_namen.boeking_id = b.id
 `;
 
-// Lijst met filters: status, datum-range, klant
+// Lijst met filters: status, datum-range, klant, zoekterm
+// sortering=laatst_toegevoegd toont de meest recent aangemaakte boekingen eerst
+// (i.p.v. de eerstkomende leverdatum) — handig om snel na te kijken wat er
+// juist is binnengekomen/ingevoerd (bv. na een import), los van de leverdatum.
 router.get('/', asyncHandler(async (req, res) => {
   const { where, params } = bouwBoekingenFilter(req.query);
+  const orderBy = req.query.sortering === 'laatst_toegevoegd'
+    ? 'b.aangemaakt_op DESC'
+    : 'b.gewenste_datum_start ASC';
   const { rows } = await db.query(
-    `${BOEKINGEN_OVERZICHT_SELECT} ${where} ORDER BY b.gewenste_datum_start ASC LIMIT 200`,
+    `${BOEKINGEN_OVERZICHT_SELECT} ${where} ORDER BY ${orderBy} LIMIT 200`,
     params
   );
   res.json(rows);
