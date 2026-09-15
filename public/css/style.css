@@ -120,7 +120,7 @@ button[type="submit"]:hover, .login-box button:hover, .primaire-actie:hover { ba
   padding: 1.1rem 0.9rem;
 }
 .sidebar-merk { padding: 0.4rem 0.5rem 0.8rem; }
-.sidebar .logo { display: block; height: 34px; width: auto; }
+.sidebar .logo { display: block; height: 46px; width: auto; }
 .sidebar-nav { display: flex; flex-direction: column; gap: 1rem; flex: 1; overflow-y: auto; }
 .sidebar-groep { display: flex; flex-direction: column; gap: 0.15rem; }
 .sidebar-groep-titel {
@@ -702,7 +702,7 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
     padding: 0.5rem 0.8rem; overflow-x: auto;
   }
   .sidebar-merk { padding: 0; flex-shrink: 0; }
-  .sidebar .logo { height: 26px; }
+  .sidebar .logo { height: 34px; }
   .sidebar-nav { flex-direction: row; flex: none; gap: 0.3rem; overflow: visible; }
   .sidebar-groep { flex-direction: row; align-items: center; gap: 0.2rem; }
   .sidebar-groep-titel { display: none; }
@@ -756,17 +756,30 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .dashboard-map { width: 100%; height: 320px; border-radius: 8px; border: 1px solid var(--rand); margin-bottom: 1.5rem; background: var(--grijs-licht); }
 .dashboard-kolommen { display: grid; grid-template-columns: 1fr 1fr; gap: 1.2rem; }
 .dashboard-kolom h3 { display: flex; align-items: center; gap: 0.4rem; }
-.dashboard-kaarten { display: flex; flex-direction: column; gap: 0.8rem; }
-.dashboard-kaart { background: white; border: 1px solid var(--rand); border-radius: 8px; padding: 0.9rem 1rem; }
-.dashboard-kaart-top { display: flex; justify-content: space-between; align-items: center; gap: 0.5rem; margin-bottom: 0.3rem; }
-.dashboard-kaart-klant { font-size: 1rem; }
-.dashboard-kaart-adres { color: var(--grijs); font-size: 0.9rem; }
-.dashboard-kaart-producten { margin-top: 0.3rem; font-size: 0.9rem; }
-.dashboard-kaart-onder { display: flex; align-items: center; gap: 0.8rem; flex-wrap: wrap; margin-top: 0.6rem; padding-top: 0.6rem; border-top: 1px solid var(--grijs-licht); }
-.dashboard-tijd-invoer { display: flex; align-items: center; gap: 0.3rem; font-size: 0.9rem; }
-.dashboard-tijd-input { padding: 0.2rem 0.3rem; }
-.dashboard-kaart-routelink { white-space: nowrap; }
+/* Compacte kaarten: op een drukke dag zijn dit er 20+, dus elke kaart moet
+   klein blijven (2 dunne regels i.p.v. 5), en de kolom scrollt zelf intern
+   zodat de pagina niet torenhoog wordt. */
+.dashboard-kaarten { display: flex; flex-direction: column; gap: 0.35rem; max-height: 65vh; overflow-y: auto; padding-right: 0.3rem; }
+.dashboard-kaart { background: white; border: 1px solid var(--rand); border-left: 3px solid transparent; border-radius: 6px; padding: 0.4rem 0.6rem; }
+/* Groen zodra Jonas het als geleverd/opgehaald aangevinkt heeft. */
+.dashboard-kaart-voltooid { background: #f0f9f2; border-left-color: var(--groen); }
+.dashboard-kaart-rij1 { display: flex; align-items: center; gap: 0.5rem; }
+.dashboard-kaart-voltooid-toggle { flex-shrink: 0; padding: 0; }
+.dashboard-kaart-titel {
+  font-size: 0.9rem; flex: 1; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dashboard-kaart-acties { display: flex; align-items: center; gap: 0.4rem; margin-left: auto; flex-shrink: 0; }
+.dashboard-icoonbtn { text-decoration: none; font-size: 0.95rem; line-height: 1; background: none; border: none; cursor: pointer; }
+.dashboard-kaart-dossier { font-size: 0.78rem; white-space: nowrap; padding: 0; }
+.dashboard-kaart-rij2 {
+  margin-top: 0.15rem; font-size: 0.78rem; color: var(--grijs);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dashboard-tijd-input { padding: 0.05rem 0.2rem; font-size: 0.78rem; width: 6.4rem; flex-shrink: 0; }
+.dashboard-titel-eerstvolgende { color: var(--oranje); }
 
 @media (max-width: 900px) {
   .dashboard-kolommen { grid-template-columns: 1fr; }
+  .dashboard-kaart-rij1 { flex-wrap: wrap; }
 }

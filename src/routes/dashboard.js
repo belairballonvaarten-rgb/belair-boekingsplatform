@@ -23,13 +23,17 @@ const DASHBOARD_SELECT = `
          k.id AS klant_id, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
          l.leveringstijd, l.afhaaltijd, l.checklist_status, l.lat, l.lng, l.geocode_adres,
-         bp_namen.producten_namen
+         COALESCE(l.levering_voltooid, false) AS levering_voltooid,
+         COALESCE(l.afhaling_voltooid, false) AS afhaling_voltooid,
+         bp_namen.producten_namen, bp_namen.eerste_product_naam, bp_namen.aantal_producten
   FROM boekingen b
   JOIN klanten k ON k.id = b.klant_id
   LEFT JOIN leveringen l ON l.boeking_id = b.id
   LEFT JOIN (
     SELECT bp.boeking_id,
-           string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen
+           string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen,
+           (array_agg(p.naam ORDER BY p.naam))[1] AS eerste_product_naam,
+           COUNT(*) AS aantal_producten
     FROM boeking_producten bp
     JOIN producten p ON p.id = bp.product_id
     GROUP BY bp.boeking_id
@@ -91,23 +95,52 @@ async function haalMagazijnLocatieOp() {
   }
 }
 
+// datumKolom is altijd één van deze 2 letterlijke, hardgecodeerde waarden
+// (nooit user-input), dus veilig om rechtstreeks in de query te plakken.
+const DATUMKOLOM = { levering: 'gewenste_datum_start', afhaling: 'gewenste_datum_einde' };
+
+// Als er op de gekozen dag niets gepland staat, toont het Dashboard i.p.v. een
+// lege kolom de eerstvolgende dag waarop er wél iets is — zo blijft de kolom
+// altijd nuttig, ook in een rustige periode. `type` maakt in het antwoord
+// duidelijk of het om "vandaag" gaat of om zo'n eerstvolgende dag, zodat de
+// pagina dat nooit door elkaar toont.
+async function haalKolom(soort, datum) {
+  const kolom = DATUMKOLOM[soort];
+  const { rows } = await db.query(`${DASHBOARD_SELECT} AND b.${kolom} = $2 ORDER BY k.naam`, [GEPLANDE_STATUSSEN, datum]);
+  if (rows.length) return { type: 'vandaag', datum, items: rows };
+
+  const { rows: volgendeRows } = await db.query(
+    `SELECT MIN(b.${kolom}) AS datum FROM boekingen b WHERE b.status = ANY($1) AND b.${kolom} > $2`,
+    [GEPLANDE_STATUSSEN, datum]
+  );
+  const volgendeDatum = volgendeRows[0]?.datum ? new Date(volgendeRows[0].datum).toISOString().slice(0, 10) : null;
+  if (!volgendeDatum) return { type: 'vandaag', datum, items: [] };
+
+  const { rows: volgendeItems } = await db.query(`${DASHBOARD_SELECT} AND b.${kolom} = $2 ORDER BY k.naam`, [GEPLANDE_STATUSSEN, volgendeDatum]);
+  return { type: 'eerstvolgende', datum: volgendeDatum, items: volgendeItems };
+}
+
 router.get('/', asyncHandler(async (req, res) => {
   const datum = /^\d{4}-\d{2}-\d{2}$/.test(req.query.datum || '')
     ? req.query.datum
     : new Date().toISOString().slice(0, 10);
 
-  const [{ rows: leveringen }, { rows: ophalingen }, magazijn] = await Promise.all([
-    db.query(`${DASHBOARD_SELECT} AND b.gewenste_datum_start = $2 ORDER BY k.naam`, [GEPLANDE_STATUSSEN, datum]),
-    db.query(`${DASHBOARD_SELECT} AND b.gewenste_datum_einde = $2 ORDER BY k.naam`, [GEPLANDE_STATUSSEN, datum]),
+  const [levering, afhaling, magazijn] = await Promise.all([
+    haalKolom('levering', datum),
+    haalKolom('afhaling', datum),
     haalMagazijnLocatieOp(),
   ]);
 
-  await Promise.all([zorgVoorGeocodering(leveringen), zorgVoorGeocodering(ophalingen)]);
+  await Promise.all([zorgVoorGeocodering(levering.items), zorgVoorGeocodering(afhaling.items)]);
 
   res.json({
     datum,
-    leveringen,
-    ophalingen,
+    leveringen: levering.items,
+    leveringenType: levering.type,
+    leveringenDatum: levering.datum,
+    ophalingen: afhaling.items,
+    ophalingenType: afhaling.type,
+    ophalingenDatum: afhaling.datum,
     magazijn: magazijn ? { adres: ONS_MAGAZIJN_ADRES, ...magazijn } : null,
     googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || null,
   });
@@ -140,6 +173,29 @@ router.put('/:boekingId/tijdstip', asyncHandler(async (req, res) => {
   const { rows: nieuw } = await db.query(
     `INSERT INTO leveringen (boeking_id, ${kolom}) VALUES ($1, $2) RETURNING *`,
     [req.params.boekingId, tijdstip]
+  );
+  res.status(201).json(nieuw[0]);
+}));
+
+// Eenvoudig "geleverd"/"opgehaald"-vinkje vanop het Dashboard — kleurt de kaart
+// groen zodra het effectief gebeurd is. Los van de boeking-status (die kan
+// intussen al "betaald" zijn zonder dat er al iets geleverd is).
+router.put('/:boekingId/voltooid', asyncHandler(async (req, res) => {
+  const { type, voltooid } = req.body;
+  if (!['levering', 'afhaling'].includes(type) || typeof voltooid !== 'boolean') {
+    return res.status(400).json({ fout: 'type ("levering"/"afhaling") en voltooid (true/false) zijn verplicht' });
+  }
+  const kolom = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
+
+  const { rows } = await db.query(
+    `UPDATE leveringen SET ${kolom} = $1 WHERE boeking_id = $2 RETURNING *`,
+    [voltooid, req.params.boekingId]
+  );
+  if (rows[0]) return res.json(rows[0]);
+
+  const { rows: nieuw } = await db.query(
+    `INSERT INTO leveringen (boeking_id, ${kolom}) VALUES ($1, $2) RETURNING *`,
+    [req.params.boekingId, voltooid]
   );
   res.status(201).json(nieuw[0]);
 }));

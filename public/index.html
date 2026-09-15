@@ -27,7 +27,7 @@
   <div class="app-layout">
     <aside class="sidebar">
       <div class="sidebar-merk">
-        <img src="/img/logo-belair-fun.svg" alt="Belair-Fun" class="logo" />
+        <img src="/img/logo-belair-fun-wit.svg" alt="Belair-Fun" class="logo" />
       </div>
       <nav class="sidebar-nav">
         <div class="sidebar-groep">
@@ -62,7 +62,7 @@
 
   <main>
     <!-- DASHBOARD -->
-    <section id="view-dashboard" class="pagina" hidden>
+    <section id="view-dashboard" class="pagina">
       <div class="dashboard-titelrij">
         <h2>Dashboard</h2>
         <div class="dashboard-datumkiezer">
@@ -78,18 +78,18 @@
       <div id="dashboard-map" class="dashboard-map" hidden></div>
       <div class="dashboard-kolommen">
         <div class="dashboard-kolom">
-          <h3>📦 Te leveren <span id="dash-aantal-leveringen" class="stat-categorie-totaal"></span></h3>
+          <h3><span id="dash-titel-leveringen">📦 Te leveren</span> <span id="dash-aantal-leveringen" class="stat-categorie-totaal"></span></h3>
           <div id="dashboard-leveringen-lijst" class="dashboard-kaarten"></div>
         </div>
         <div class="dashboard-kolom">
-          <h3>🔙 Af te halen <span id="dash-aantal-ophalingen" class="stat-categorie-totaal"></span></h3>
+          <h3><span id="dash-titel-ophalingen">🔙 Af te halen</span> <span id="dash-aantal-ophalingen" class="stat-categorie-totaal"></span></h3>
           <div id="dashboard-ophalingen-lijst" class="dashboard-kaarten"></div>
         </div>
       </div>
     </section>
 
     <!-- AANVRAGEN-INBOX -->
-    <section id="view-aanvragen" class="pagina">
+    <section id="view-aanvragen" class="pagina" hidden>
       <h2>Aanvragen-inbox</h2>
       <p class="uitleg">Nieuwe aanvragen en aanvragen in behandeling — accepteer of weiger hier.</p>
       <div id="lijst-aanvragen" class="kaarten-lijst"></div>

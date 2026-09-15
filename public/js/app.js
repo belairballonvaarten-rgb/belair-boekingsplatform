@@ -240,7 +240,7 @@ function toonApp() {
   elShell.hidden = false;
   laadProductenCache().then(() => {
     vulBoekingenProductFilter();
-    wisselView('aanvragen');
+    wisselView('dashboard');
   });
 }
 
@@ -331,12 +331,23 @@ async function laadDashboard() {
 
   const data = await api(`/api/dashboard?datum=${datum}`);
 
+  dashboardZetKolomTitel('dash-titel-leveringen', '📦 Te leveren', '📦 Eerstvolgende levering', data.leveringenType, data.leveringenDatum);
+  dashboardZetKolomTitel('dash-titel-ophalingen', '🔙 Af te halen', '🔙 Eerstvolgende afhaling', data.ophalingenType, data.ophalingenDatum);
   document.getElementById('dash-aantal-leveringen').textContent = `(${data.leveringen.length})`;
   document.getElementById('dash-aantal-ophalingen').textContent = `(${data.ophalingen.length})`;
 
-  renderDashboardKolom(leveringenEl, data.leveringen, 'levering', datum);
-  renderDashboardKolom(ophalingenEl, data.ophalingen, 'afhaling', datum);
+  // Bij "eerstvolgende" (niets gepland op de gekozen dag) hoort een aangepast
+  // tijdstip-veld bij de datum van díe eerstvolgende dag, niet bij de gekozen
+  // (lege) dag — anders zou een tijdstip-wijziging op de verkeerde dag belanden.
+  renderDashboardKolom(leveringenEl, data.leveringen, 'levering', data.leveringenDatum || datum);
+  renderDashboardKolom(ophalingenEl, data.ophalingen, 'afhaling', data.ophalingenDatum || datum);
   dashboardRenderKaart(data);
+}
+
+function dashboardZetKolomTitel(elId, titelVandaag, titelEerstvolgende, type, kolomDatum) {
+  const el = document.getElementById(elId);
+  el.textContent = type === 'eerstvolgende' ? `${titelEerstvolgende} — ${fmtDatum(kolomDatum)}` : titelVandaag;
+  el.classList.toggle('dashboard-titel-eerstvolgende', type === 'eerstvolgende');
 }
 
 function dashboardAdresTekst(b) {
@@ -351,31 +362,49 @@ function renderDashboardKolom(container, items, type, datum) {
     container.innerHTML = '<p class="leeg-bericht">Niets gepland voor deze dag.</p>';
     return;
   }
+  // Compacte 2-regelige kaart (i.p.v. de eerdere 5 gestapelde regels) — op een
+  // drukke dag zijn dit er soms 20+, dus elke kaart moet klein blijven. Regel 1:
+  // tijdstip, klant, status en de acties (bellen/route/dossier) als iconen op
+  // één lijn; regel 2: adres + producten, kleiner en gedimd. De voorkeur van de
+  // klant blijft wel bewaard, maar als tooltip i.p.v. een eigen regel.
   const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
   const voorkeurVeld = type === 'levering' ? 'voorkeur_tijdstip_levering' : 'voorkeur_tijdstip_afhaling';
+  const voltooidVeld = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
+  const voltooidWoord = type === 'levering' ? 'geleverd' : 'opgehaald';
   container.innerHTML = items.map((b) => {
     const adres = dashboardAdresTekst(b);
     const tijdWaarde = b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(11, 16) : '';
     const kaartLink = b.leveringswijze !== 'afhaling'
-      ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(adres)}" target="_blank" rel="noopener" class="dashboard-kaart-routelink">📍 Route</a>`
+      ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(adres)}" target="_blank" rel="noopener" class="dashboard-icoonbtn dashboard-kaart-routelink" title="Route naar ${adres}">📍</a>`
       : '';
+    const telLink = b.klant_telefoon
+      ? `<a href="tel:${b.klant_telefoon}" class="dashboard-icoonbtn" title="Bel ${b.klant_telefoon}">📞</a>`
+      : '';
+    // Hoofditem is het (eerste) product i.p.v. de klantnaam — bij meerdere
+    // producten in deze boeking duidt "…" aan dat het er meer dan 1 zijn (de
+    // volledige lijst staat als tooltip en in de kaart-detail).
+    const eersteProduct = b.eerste_product_naam || (b.producten_namen || '').split(',')[0].trim() || '—';
+    const meerdereProducten = Number(b.aantal_producten) > 1;
+    const productHeadline = meerdereProducten ? `${eersteProduct}…` : eersteProduct;
+    const isVoltooid = !!b[voltooidVeld];
     return `
-      <div class="dashboard-kaart" data-boeking-id="${b.id}">
-        <div class="dashboard-kaart-top">
-          <strong class="dashboard-kaart-klant">${b.klant_naam}</strong>
+      <div class="dashboard-kaart${isVoltooid ? ' dashboard-kaart-voltooid' : ''}" data-boeking-id="${b.id}">
+        <div class="dashboard-kaart-rij1">
+          <button type="button" class="dashboard-icoonbtn dashboard-kaart-voltooid-toggle"
+                  data-boeking-id="${b.id}" data-type="${type}" data-voltooid="${isVoltooid}"
+                  title="${isVoltooid ? `Gemarkeerd als ${voltooidWoord} — klik om terug te zetten` : `Markeer als ${voltooidWoord}`}">${isVoltooid ? '✅' : '⬜'}</button>
+          <input type="time" class="dashboard-tijd-input" value="${tijdWaarde}"
+                 data-boeking-id="${b.id}" data-type="${type}" data-datum="${datum}" title="Tijdstip" />
+          <strong class="dashboard-kaart-titel" title="${b.producten_namen || ''}">${productHeadline}</strong>
           ${statusPillHtml(b.status)}
+          <span class="dashboard-kaart-acties">
+            ${telLink}
+            ${kaartLink}
+            <button type="button" class="linkbtn dashboard-kaart-dossier" title="Open dossier">Dossier →</button>
+          </span>
         </div>
-        <div class="dashboard-kaart-adres">${adres}</div>
-        <div class="dashboard-kaart-producten">${b.producten_namen || '—'}</div>
-        ${b[voorkeurVeld] ? `<div class="uitleg">Voorkeur klant: ${b[voorkeurVeld]}</div>` : ''}
-        <div class="dashboard-kaart-onder">
-          <label class="dashboard-tijd-invoer">🕐
-            <input type="time" class="dashboard-tijd-input" value="${tijdWaarde}"
-                   data-boeking-id="${b.id}" data-type="${type}" data-datum="${datum}" />
-          </label>
-          ${b.klant_telefoon ? `<a href="tel:${b.klant_telefoon}" class="linkbtn">📞 ${b.klant_telefoon}</a>` : ''}
-          ${kaartLink}
-          <button type="button" class="linkbtn dashboard-kaart-dossier">Dossier →</button>
+        <div class="dashboard-kaart-rij2" title="${b[voorkeurVeld] ? `Voorkeur klant: ${b[voorkeurVeld]}` : ''}">
+          <span class="dashboard-kaart-klantnaam">${b.klant_naam}</span> · <span class="dashboard-kaart-adres">${adres}</span>
         </div>
       </div>
     `;
@@ -393,6 +422,26 @@ function renderDashboardKolom(container, items, type, datum) {
           body: JSON.stringify({ type: input.dataset.type, datum: input.dataset.datum, tijd: input.value }),
         });
         toonToast('Tijdstip opgeslagen');
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  container.querySelectorAll('.dashboard-kaart-voltooid-toggle').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const kaart = btn.closest('.dashboard-kaart');
+      const nieuweWaarde = btn.dataset.voltooid !== 'true';
+      const woord = btn.dataset.type === 'levering' ? 'geleverd' : 'opgehaald';
+      try {
+        await api(`/api/dashboard/${btn.dataset.boekingId}/voltooid`, {
+          method: 'PUT',
+          body: JSON.stringify({ type: btn.dataset.type, voltooid: nieuweWaarde }),
+        });
+        btn.dataset.voltooid = String(nieuweWaarde);
+        btn.textContent = nieuweWaarde ? '✅' : '⬜';
+        btn.title = nieuweWaarde ? `Gemarkeerd als ${woord} — klik om terug te zetten` : `Markeer als ${woord}`;
+        kaart.classList.toggle('dashboard-kaart-voltooid', nieuweWaarde);
+        toonToast(nieuweWaarde ? 'Gemarkeerd als voltooid' : 'Markering ongedaan gemaakt');
       } catch (err) {
         alert(err.message);
       }
