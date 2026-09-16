@@ -169,7 +169,7 @@ function fmtDatum(iso) {
 }
 
 function fmtEuro(bedrag) {
-  return `€ ${Number(bedrag || 0).toFixed(2)}`;
+  return `€ ${Math.round(Number(bedrag) || 0)}`;
 }
 
 // Tijdstip-dropdown voor levering/afhaling (zoals in het oude bookingonline.co.uk-
@@ -1298,8 +1298,9 @@ function dagoverzichtFacturatieHtml(lijst) {
     <li>
       <label class="dagoverzicht-vink">
         <input type="checkbox" class="dagoverzicht-facturatie-afvinken" data-boeking-id="${b.id}" />
+        <span class="dagoverzicht-datum">${fmtDatum(b.gewenste_datum_start)}</span>
         <button type="button" class="linkbtn dagoverzicht-naar-dossier" data-boeking-id="${b.id}">${b.klant_naam}</button>
-        <span class="dagoverzicht-detail">— openstaand: ${fmtEuro(b.saldo)}${b.klant_telefoon ? ` · ${b.klant_telefoon}` : ''} · ${fmtDatum(b.gewenste_datum_start)}</span>
+        <span class="dagoverzicht-detail">${fmtEuro(b.saldo)}</span>
       </label>
     </li>
   `).join('')}</ul>`;
@@ -2264,7 +2265,7 @@ async function openDetail(boekingId) {
   // effectief controleert/aanpast, los van de Producten-lijst hiernaast die
   // enkel gaat over wélke producten (en hoeveel) er op deze boeking staan.
   const prijstabelProductenHtml = b.producten.length
-    ? b.producten.map((pr) => `<div class="prijstabel-rij prijstabel-productregel"><span>${pr.product_naam}${pr.aantal > 1 ? ' × ' + pr.aantal : ''}</span><span class="prijstabel-prijs-invoer-wrap">€<input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${pr.id}" value="${Number(pr.prijs).toFixed(2)}" title="Automatisch voorgestelde prijs o.b.v. dagprijs/weekendprijs — hier manueel bij te sturen" /></span></div>`).join('')
+    ? b.producten.map((pr) => `<div class="prijstabel-rij prijstabel-productregel"><span>${pr.product_naam}${pr.aantal > 1 ? ' × ' + pr.aantal : ''}</span><span class="prijstabel-prijs-invoer-wrap">€<input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${pr.id}" value="${Number(pr.prijs)}" title="Automatisch voorgestelde prijs o.b.v. dagprijs/weekendprijs — hier manueel bij te sturen" /></span></div>`).join('')
     : '<div class="prijstabel-rij prijstabel-sub"><span>Geen producten</span><span></span></div>';
 
   const historiekHtml = b.historiek

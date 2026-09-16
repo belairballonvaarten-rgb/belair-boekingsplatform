@@ -19,11 +19,12 @@ router.get('/', asyncHandler(async (req, res) => {
     ? req.query.datum
     : new Date().toISOString().slice(0, 10);
 
-  // 1. Nog te factureren: EEN DOORLOPENDE lijst, los van de gekozen dag — een
-  // openstaand saldo verdwijnt niet vanzelf omdat de leverdatum voorbij is, en
-  // Jonas wil net ook oudere, nog niet afgehandelde saldi blijven zien. Ze
-  // verdwijnen pas zodra hij ze expliciet afvinkt (leveringen.facturatie_afgehandeld),
-  // los van de officiële boekingsstatus.
+  // 1. Nog te factureren: een DOORLOPENDE lijst (los van de gekozen dag) van
+  // boekingen waarvan de leverdatum al voorbij is (anders staat de lijst vol
+  // met toekomstige boekingen die nog niet eens geleverd zijn) én die nog niet
+  // volledig voldaan zijn. Ze verdwijnen pas zodra Jonas ze expliciet afvinkt
+  // (leveringen.facturatie_afgehandeld), los van de officiële boekingsstatus.
+  const VOLLEDIG_VOLDAAN_STATUSSEN = ['betaald_volledig', 'voldaan_manueel'];
   const { rows: teFacturerenRuw } = await db.query(
     `SELECT b.id, b.gewenste_datum_start, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
             COALESCE(bp_totaal.waarde, 0) AS waarde,
@@ -36,9 +37,11 @@ router.get('/', asyncHandler(async (req, res) => {
        FROM boeking_producten GROUP BY boeking_id
      ) bp_totaal ON bp_totaal.boeking_id = b.id
      LEFT JOIN betalingen bet ON bet.boeking_id = b.id
-     WHERE b.status = ANY($1) AND COALESCE(l.facturatie_afgehandeld, false) = false
+     WHERE b.status = ANY($1) AND NOT (b.status = ANY($2))
+       AND b.gewenste_datum_start <= CURRENT_DATE
+       AND COALESCE(l.facturatie_afgehandeld, false) = false
      ORDER BY b.gewenste_datum_start`,
-    [GEPLANDE_STATUSSEN]
+    [GEPLANDE_STATUSSEN, VOLLEDIG_VOLDAAN_STATUSSEN]
   );
   const teFactureren = teFacturerenRuw
     .filter((b) => Number(b.waarde) - Number(b.betaling_ontvangen) > 0.01)

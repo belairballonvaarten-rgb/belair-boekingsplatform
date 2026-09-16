@@ -883,15 +883,20 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 
 /* DAGOVERZICHT */
 .dagoverzicht-secties { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+.dagoverzicht-paneel { min-width: 0; }
 .dagoverzicht-paneel h4 { margin-top: 0; }
-.dagoverzicht-lijst { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
-.dagoverzicht-lijst li { border-bottom: 1px solid var(--rand); padding-bottom: 0.6rem; }
+.dagoverzicht-lijst { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; min-width: 0; }
+.dagoverzicht-lijst li { border-bottom: 1px solid var(--rand); padding-bottom: 0.6rem; min-width: 0; }
 .dagoverzicht-lijst li:last-child { border-bottom: none; padding-bottom: 0; }
 .dagoverzicht-detail { color: var(--grijs); font-size: 0.85rem; }
 .dagoverzicht-notitie { font-size: 0.85rem; color: var(--grijs); margin-top: 0.2rem; font-style: italic; }
 .dagoverzicht-paneel .uitleg-klein { font-size: 0.78rem; color: var(--grijs); margin: -0.4rem 0 0.7rem; }
-.dagoverzicht-vink { display: flex; align-items: baseline; gap: 0.5rem; cursor: pointer; }
+.dagoverzicht-vink { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.5rem; cursor: pointer; min-width: 0; }
 .dagoverzicht-vink input[type="checkbox"] { margin-top: 0.2rem; flex-shrink: 0; }
+.dagoverzicht-vink .dagoverzicht-datum { color: var(--grijs); font-size: 0.85rem; font-variant-numeric: tabular-nums; flex-shrink: 0; }
+.dagoverzicht-vink .dagoverzicht-naar-dossier { white-space: normal; text-align: left; word-break: break-word; flex: 1 1 auto; }
+.dagoverzicht-vink .dagoverzicht-detail { font-weight: 600; flex-shrink: 0; margin-left: auto; }
+.dagoverzicht-vuil li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.3rem 0.6rem; }
 
 /* PRODUCT — logistieke velden & certificaat */
 .form-certificaat { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem; }

@@ -233,7 +233,7 @@ router.get('/export.csv', asyncHandler(async (req, res) => {
     const adres = ontleedAdres(b);
     const waarde = Number(b.waarde) || 0;
     const betaald = Number(b.betaling_ontvangen) || 0;
-    const naarBedrag = (n) => n.toFixed(2).replace('.', ',');
+    const naarBedrag = (n) => String(Math.round(n));
     regels.push([
       b.gewenste_datum_start, b.gewenste_datum_einde, b.producten_namen || '',
       adres.straat, adres.postcode, adres.gemeente,

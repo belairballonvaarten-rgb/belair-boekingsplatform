@@ -22,7 +22,7 @@ const DASHBOARD_SELECT = `
          b.notities,
          k.id AS klant_id, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
-         l.leveringstijd, l.afhaaltijd, l.checklist_status, l.lat, l.lng, l.geocode_adres,
+         l.leveringstijd, l.afhaaltijd, l.lat, l.lng, l.geocode_adres,
          l.voertuig_levering, l.voertuig_afhaling,
          COALESCE(l.levering_voltooid, false) AS levering_voltooid,
          COALESCE(l.afhaling_voltooid, false) AS afhaling_voltooid,
