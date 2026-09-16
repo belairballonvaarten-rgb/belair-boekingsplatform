@@ -79,6 +79,20 @@ function speciaalSterHtml(b) {
   return `<span class="ster-speciaal" title="${titel.replace(/"/g, '&quot;')}">⭑</span>`;
 }
 
+// Productenkolom in het Reservatieoverzicht: bij veel producten in 1 boeking
+// werd deze kolom veel te breed (de volledige lijst stond er zo in). Toont nu
+// max. 2 namen, en bij meer een "…" die je met een klik openklapt.
+function producttenKolomHtml(namenString) {
+  const namen = (namenString || '').split(',').map((s) => s.trim()).filter(Boolean);
+  if (!namen.length) return '—';
+  if (namen.length <= 2) return namen.join(', ');
+  const zichtbaar = namen.slice(0, 2).join(', ');
+  return `<details class="producten-kolom-meer">
+    <summary>${zichtbaar}, … <span class="producten-kolom-aantal">(+${namen.length - 2})</span></summary>
+    <div class="producten-kolom-volledig">${namen.join('<br>')}</div>
+  </details>`;
+}
+
 // Vier grote fases voor de statusbalk bovenaan het dossier — een vereenvoudigde,
 // visuele samenvatting van de fijnmazigere TOEGELATEN_OVERGANGEN-statemachine
 // hieronder. "Geweigerd" valt hier los van buiten.
@@ -250,7 +264,20 @@ function toonApp() {
     vulBoekingenProductFilter();
     wisselView('dashboard');
   });
+  // Ster/badge bij Aanvragen-inbox en Dagoverzicht moeten al zichtbaar zijn
+  // zonder dat je die pagina's eerst geopend hebt (Dashboard blijft de
+  // standaard-pagina bij het openen van de app) — dus apart en meteen ophalen,
+  // en daarna periodiek verversen zolang de app openstaat.
+  verversAanvragenBadge();
+  verversDagoverzichtSter();
+  if (!navIndicatorenTimer) {
+    navIndicatorenTimer = setInterval(() => {
+      verversAanvragenBadge();
+      verversDagoverzichtSter();
+    }, 5 * 60 * 1000);
+  }
 }
+let navIndicatorenTimer = null;
 
 document.getElementById('form-login').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -1392,6 +1419,47 @@ async function laadDagoverzicht() {
   const bijzonderhedenEl = document.getElementById('dagoverzicht-bijzonderheden');
   bijzonderhedenEl.innerHTML = dagoverzichtBijzonderhedenHtml(data.bijzonderheden);
   dagoverzichtKoppelDossierLinks(bijzonderhedenEl);
+
+  // Terwijl we toch bezig zijn: als dit toevallig vandaag is, meteen ook de
+  // ster in de menubalk mee bijwerken (anders loopt hij pas achteraf gelijk
+  // via de periodieke verversing).
+  if (datum === dagoverzichtVandaagIso()) {
+    document.getElementById('ster-dagoverzicht').hidden = !(data.bijzonderheden && data.bijzonderheden.length);
+  }
+}
+
+// Ster naast "Dagoverzicht" in de menubalk: licht op zodra er bijzonderheden
+// zijn bij een boeking van VANDAAG (los van welke datum je eventueel net aan
+// het bekijken bent op de pagina zelf), zodat het zeker opvalt.
+async function verversDagoverzichtSter() {
+  try {
+    const data = await api(`/api/dagoverzicht?datum=${dagoverzichtVandaagIso()}`);
+    document.getElementById('ster-dagoverzicht').hidden = !(data.bijzonderheden && data.bijzonderheden.length);
+  } catch (e) { /* stil falen — ster blijft gewoon zoals hij was */ }
+}
+
+// Badge + ster naast "Aanvragen-inbox": aantal openstaande aanvragen, ook al
+// staat de app op Dashboard (de standaard-pagina bij openen).
+function zetAanvragenBadge(aantal) {
+  const badge = document.getElementById('badge-aanvragen');
+  const ster = document.getElementById('ster-aanvragen');
+  if (aantal > 0) {
+    badge.hidden = false;
+    badge.textContent = aantal;
+    ster.hidden = false;
+  } else {
+    badge.hidden = true;
+    ster.hidden = true;
+  }
+}
+async function verversAanvragenBadge() {
+  try {
+    const [nieuw, inBehandeling] = await Promise.all([
+      api('/api/boekingen?status=nieuw'),
+      api('/api/boekingen?status=in_behandeling'),
+    ]);
+    zetAanvragenBadge(nieuw.length + inBehandeling.length);
+  } catch (e) { /* stil falen */ }
 }
 
 // ============================================================
@@ -1406,13 +1474,7 @@ async function laadAanvragen() {
   ]);
   const aanvragen = [...nieuw, ...inBehandeling];
 
-  const badge = document.getElementById('badge-aanvragen');
-  if (aanvragen.length > 0) {
-    badge.hidden = false;
-    badge.textContent = aanvragen.length;
-  } else {
-    badge.hidden = true;
-  }
+  zetAanvragenBadge(aanvragen.length);
 
   if (!aanvragen.length) {
     container.innerHTML = '<p class="leeg-bericht">Geen openstaande aanvragen.</p>';
@@ -1666,7 +1728,7 @@ async function laadBoekingenOverzicht() {
     tr.innerHTML = `
       <td><input type="checkbox" class="check-boeking-rij" data-boeking-id="${b.id}" /></td>
       <td>${fmtDatum(b.gewenste_datum_start)}</td>
-      <td>${b.producten_namen || '—'}</td>
+      <td>${producttenKolomHtml(b.producten_namen)}</td>
       <td>${adres.straat}</td>
       <td>${adres.postcode}</td>
       <td>${adres.gemeente}</td>
@@ -1677,6 +1739,8 @@ async function laadBoekingenOverzicht() {
       <td>Bekijk →</td>
     `;
     tr.querySelector('.check-boeking-rij').addEventListener('click', (e) => e.stopPropagation());
+    const productenDetails = tr.querySelector('.producten-kolom-meer');
+    if (productenDetails) productenDetails.addEventListener('click', (e) => e.stopPropagation());
     tr.addEventListener('click', () => openDetail(b.id));
     tbody.appendChild(tr);
   }
