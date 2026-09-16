@@ -843,6 +843,12 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .planning-stop-tijd { font-size: 0.78rem; color: var(--grijs); width: 3rem; flex-shrink: 0; }
 .planning-stop-info { font-size: 0.84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .planning-stop-voertuig { font-size: 0.78rem; width: 8.5rem; flex-shrink: 0; }
+/* Volledige productlijst uitklappen bij meerdere producten in één boeking —
+   zie planningKoppelProductToggle in app.js. */
+.planning-stop-product-toggle { font-size: 0.68rem; padding: 0 0.15rem; vertical-align: middle; }
+.planning-stop-uitgeklapt { align-items: flex-start; flex-wrap: wrap; }
+.planning-stop-uitgeklapt .planning-stop-info { white-space: normal; overflow: visible; text-overflow: unset; }
+.planning-stop-producten-volledig { display: block; font-size: 0.78rem; color: var(--grijs); margin-top: 0.15rem; }
 
 @media (max-width: 900px) {
   .planning-stop-info { white-space: normal; }

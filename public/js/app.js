@@ -798,12 +798,22 @@ function planningGroepeerPerVoertuig(items, type) {
   return groepen;
 }
 
-function planningStopHtml(b, type, groepNaam) {
-  const adres = dashboardAdresTekst(b);
-  const tijdWaarde = planningEffectieveTijdWaarde(b, type);
+// Bij meerdere producten in één boeking toont de kop enkel het eerste product
+// + "…" (anders past een stop niet compact op één lijn) — de knop hieronder
+// klapt de volledige productlijst (met aantallen) open/dicht, i.p.v. dat die
+// enkel als (makkelijk te missen) tooltip beschikbaar is.
+function planningProductenHtml(b) {
   const eersteProduct = b.eerste_product_naam || (b.producten_namen || '').split(',')[0].trim() || '—';
   const meerdereProducten = Number(b.aantal_producten) > 1;
   const productHeadline = meerdereProducten ? `${eersteProduct}…` : eersteProduct;
+  if (!meerdereProducten) return `<strong>${productHeadline}</strong>`;
+  return `<strong>${productHeadline}</strong> <button type="button" class="linkbtn planning-stop-product-toggle" title="Volledige productlijst tonen">▾</button>
+    <div class="planning-stop-producten-volledig" hidden>${b.producten_namen || ''}</div>`;
+}
+
+function planningStopHtml(b, type, groepNaam) {
+  const adres = dashboardAdresTekst(b);
+  const tijdWaarde = planningEffectieveTijdWaarde(b, type);
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   const voltooidVeld = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
   return `
@@ -811,11 +821,29 @@ function planningStopHtml(b, type, groepNaam) {
       <span class="planning-stop-greep" title="Sleep om de volgorde te wijzigen">⠿</span>
       <span class="planning-stop-tijd">${tijdWaarde}</span>
       <span class="planning-stop-info" title="${b.klant_naam}">
-        <strong>${productHeadline}</strong> · ${adres}
+        ${planningProductenHtml(b)} · ${adres}
       </span>
       <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
     </div>
   `;
+}
+
+// Klap-knop voor de volledige productlijst — herbruikt in zowel de gewone
+// dagweergave als het periode-overzicht (zie planningKoppelDragDrop hieronder
+// voor de sleeplogica, die enkel in dagmodus gekoppeld wordt).
+function planningKoppelProductToggle(container) {
+  container.querySelectorAll('.planning-stop-product-toggle').forEach((btn) => {
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const stop = btn.closest('.planning-stop');
+      const volledigEl = stop.querySelector('.planning-stop-producten-volledig');
+      const uitgeklapt = stop.classList.toggle('planning-stop-uitgeklapt');
+      if (volledigEl) volledigEl.hidden = !uitgeklapt;
+      btn.textContent = uitgeklapt ? '▴' : '▾';
+      btn.title = uitgeklapt ? 'Inklappen' : 'Volledige productlijst tonen';
+    });
+  });
 }
 
 // Bijgehouden tussen dragstart en drop: het gesleepte element zelf en zijn
@@ -899,25 +927,25 @@ function planningRenderKolom(container, items, type) {
     });
   });
 
+  planningKoppelProductToggle(container);
   planningKoppelDragDrop(container, type);
 }
 
-// Bereik-weergave (Deze week/Volgende week/Aangepast, ...): enkel-lezen
-// overzicht, per dag gegroepeerd en daarbinnen per voertuig — geen slepen
-// (de volgorde is altijd per dag) en geen voertuig-select (dat doe je op de
-// dag zelf, via "Vandaag"/de datumkiezer).
+// Bereik-weergave (Deze week/Volgende week/Aangepast, ...): per dag gegroepeerd
+// en daarbinnen per voertuig. Voertuig toewijzen kan hier ook al (zelfde
+// select als in dagmodus) — enkel slepen (de volgorde is altijd per dag) en
+// de laadlijst/leveringslijst/afhaallijst kan enkel op de dag zelf.
 function planningBereikStopHtml(b, type) {
   const adres = dashboardAdresTekst(b);
   const tijdWaarde = planningEffectieveTijdWaarde(b, type);
-  const eersteProduct = b.eerste_product_naam || (b.producten_namen || '').split(',')[0].trim() || '—';
-  const meerdereProducten = Number(b.aantal_producten) > 1;
-  const productHeadline = meerdereProducten ? `${eersteProduct}…` : eersteProduct;
+  const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   return `
-    <div class="planning-stop" data-klant="${b.klant_naam}">
+    <div class="planning-stop" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
       <span class="planning-stop-tijd">${tijdWaarde}</span>
       <span class="planning-stop-info" title="${b.klant_naam}">
-        <strong>${productHeadline}</strong> · ${adres}
+        ${planningProductenHtml(b)} · ${adres}
       </span>
+      <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
     </div>
   `;
 }
@@ -946,6 +974,23 @@ function planningRenderBereikKolom(container, items, type) {
     });
   });
   container.innerHTML = html;
+
+  container.querySelectorAll('.planning-stop-voertuig').forEach((select) => {
+    select.addEventListener('change', async () => {
+      try {
+        await api(`/api/dashboard/${select.dataset.boekingId}/voertuig`, {
+          method: 'PUT',
+          body: JSON.stringify({ voertuig: select.value, type: select.dataset.type }),
+        });
+        toonToast(select.value ? `${select.value} toegewezen` : 'Voertuig verwijderd');
+        laadPlanning();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  planningKoppelProductToggle(container);
 }
 
 // Toont/verbergt de dagkiezer, voertuigbeheer en PDF-knoppen t.o.v. de
