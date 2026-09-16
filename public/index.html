@@ -34,6 +34,7 @@
           <p class="sidebar-groep-titel">Overzicht</p>
           <button class="navbtn" data-view="dashboard"><span class="navbtn-icoon">🗺️</span> Dashboard</button>
           <button class="navbtn" data-view="planning"><span class="navbtn-icoon">🚚</span> Planning</button>
+          <button class="navbtn" data-view="dagoverzicht"><span class="navbtn-icoon">✅</span> Dagoverzicht</button>
           <button class="navbtn" data-view="aanvragen"><span class="navbtn-icoon">📥</span> Aanvragen-inbox <span id="badge-aanvragen" class="badge" hidden>0</span></button>
           <button class="navbtn" data-view="boekingen"><span class="navbtn-icoon">📋</span> Reservatieoverzicht</button>
           <button class="navbtn" data-view="beschikbaarheid"><span class="navbtn-icoon">📆</span> Beschikbaarheid</button>
@@ -165,6 +166,35 @@
          een laadlijst/leveringslijst/afhaallijst vanop de Planning-pagina
          (zie planning-print in app.js, zelfde principe als drop-sheet-print). -->
     <div id="planning-print" class="planning-print" hidden></div>
+
+    <!-- DAGOVERZICHT -->
+    <section id="view-dagoverzicht" class="pagina" hidden>
+      <div class="dashboard-titelrij">
+        <h2>Dagoverzicht</h2>
+        <div class="dashboard-datumkiezer" id="dagoverzicht-datumkiezer">
+          <button type="button" id="btn-dagoverzicht-vorige" class="linkbtn" title="Vorige dag">‹</button>
+          <input type="date" id="dagoverzicht-datum" />
+          <button type="button" id="btn-dagoverzicht-vandaag" class="linkbtn">Vandaag</button>
+          <button type="button" id="btn-dagoverzicht-volgende" class="linkbtn" title="Volgende dag">›</button>
+        </div>
+      </div>
+      <p class="uitleg">Check op het einde van de dag: wie moet nog een factuur, welke producten zijn vuil/nat, en bijzonderheden bij de boekingen van vandaag.</p>
+
+      <div class="dagoverzicht-secties">
+        <div class="paneel dagoverzicht-paneel">
+          <h4>💶 Nog te factureren</h4>
+          <div id="dagoverzicht-facturatie"></div>
+        </div>
+        <div class="paneel dagoverzicht-paneel">
+          <h4>🧽 Vuile/natte producten</h4>
+          <div id="dagoverzicht-vuil"></div>
+        </div>
+        <div class="paneel dagoverzicht-paneel">
+          <h4>⚠️ Bijzonderheden</h4>
+          <div id="dagoverzicht-bijzonderheden"></div>
+        </div>
+      </div>
+    </section>
 
     <!-- AANVRAGEN-INBOX -->
     <section id="view-aanvragen" class="pagina" hidden>

@@ -275,7 +275,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['dashboard', 'planning', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'boeking-detail', 'klant-detail'];
+const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'boeking-detail', 'klant-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -295,6 +295,7 @@ function wisselView(naam) {
   });
   if (naam === 'dashboard') laadDashboard();
   if (naam === 'planning') laadPlanning();
+  if (naam === 'dagoverzicht') laadDagoverzicht();
   if (naam === 'aanvragen') laadAanvragen();
   if (naam === 'boekingen') laadBoekingenOverzicht();
   if (naam === 'klanten') laadKlantenOverzicht();
@@ -811,15 +812,25 @@ function planningProductenHtml(b) {
     <div class="planning-stop-producten-volledig" hidden>${b.producten_namen || ''}</div>`;
 }
 
+// Tijdstip-select — zelfde kwartier-dropdown als op het Dashboard, en zelfde
+// endpoint (PUT /api/dashboard/:boekingId/tijdstip). data-datum komt uit de
+// boeking zelf (niet uit de huidige paginadatum) zodat dit ook in het
+// periode-overzicht (meerdere dagen tegelijk) altijd de juiste dag raakt.
+function planningTijdSelectHtml(b, type) {
+  const datumVeld = type === 'levering' ? 'gewenste_datum_start' : 'gewenste_datum_einde';
+  const datum = (b[datumVeld] || '').slice(0, 10);
+  const tijdWaarde = planningEffectieveTijdWaarde(b, type);
+  return `<select class="planning-stop-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${datum}" title="Tijdstip">${genereerKwartierOpties(tijdWaarde)}</select>`;
+}
+
 function planningStopHtml(b, type, groepNaam) {
   const adres = dashboardAdresTekst(b);
-  const tijdWaarde = planningEffectieveTijdWaarde(b, type);
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   const voltooidVeld = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
   return `
     <div class="planning-stop planning-stop-sleepbaar${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}" draggable="true" data-boeking-id="${b.id}" data-klant="${b.klant_naam}" data-groep="${groepNaam}">
       <span class="planning-stop-greep" title="Sleep om de volgorde te wijzigen">⠿</span>
-      <span class="planning-stop-tijd">${tijdWaarde}</span>
+      ${planningTijdSelectHtml(b, type)}
       <span class="planning-stop-info" title="${b.klant_naam}">
         ${planningProductenHtml(b)} · ${adres}
       </span>
@@ -842,6 +853,27 @@ function planningKoppelProductToggle(container) {
       if (volledigEl) volledigEl.hidden = !uitgeklapt;
       btn.textContent = uitgeklapt ? '▴' : '▾';
       btn.title = uitgeklapt ? 'Inklappen' : 'Volledige productlijst tonen';
+    });
+  });
+}
+
+// Tijdstip wijzigen — net als bij voertuig toewijzen herladen we daarna de
+// lijst: zolang een stop nog geen handmatige volgorde heeft, hangt zijn
+// positie af van het (nu net gewijzigde) tijdstip.
+function planningKoppelTijdInput(container) {
+  container.querySelectorAll('.planning-stop-tijd-input').forEach((input) => {
+    input.addEventListener('change', async () => {
+      if (!input.value) return;
+      try {
+        await api(`/api/dashboard/${input.dataset.boekingId}/tijdstip`, {
+          method: 'PUT',
+          body: JSON.stringify({ type: input.dataset.type, datum: input.dataset.datum, tijd: input.value }),
+        });
+        toonToast('Tijdstip opgeslagen');
+        laadPlanning();
+      } catch (err) {
+        alert(err.message);
+      }
     });
   });
 }
@@ -928,6 +960,7 @@ function planningRenderKolom(container, items, type) {
   });
 
   planningKoppelProductToggle(container);
+  planningKoppelTijdInput(container);
   planningKoppelDragDrop(container, type);
 }
 
@@ -937,11 +970,10 @@ function planningRenderKolom(container, items, type) {
 // de laadlijst/leveringslijst/afhaallijst kan enkel op de dag zelf.
 function planningBereikStopHtml(b, type) {
   const adres = dashboardAdresTekst(b);
-  const tijdWaarde = planningEffectieveTijdWaarde(b, type);
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   return `
     <div class="planning-stop" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
-      <span class="planning-stop-tijd">${tijdWaarde}</span>
+      ${planningTijdSelectHtml(b, type)}
       <span class="planning-stop-info" title="${b.klant_naam}">
         ${planningProductenHtml(b)} · ${adres}
       </span>
@@ -991,6 +1023,7 @@ function planningRenderBereikKolom(container, items, type) {
   });
 
   planningKoppelProductToggle(container);
+  planningKoppelTijdInput(container);
 }
 
 // Toont/verbergt de dagkiezer, voertuigbeheer en PDF-knoppen t.o.v. de
@@ -1230,6 +1263,86 @@ document.getElementById('btn-planning-leveringslijst').addEventListener('click',
 document.getElementById('btn-planning-afhaallijst').addEventListener('click', () => {
   planningAfdrukken(planningBouwEenvoudigeLijstHtml(planningLaatsteData ? planningLaatsteData.ophalingen : [], 'afhaling', 'Afhaallijst'));
 });
+
+// ============================================================
+// DAGOVERZICHT — dagafsluiting: nog te factureren, vuile/natte producten,
+// bijzonderheden bij de boekingen van een gekozen dag.
+// ============================================================
+function dagoverzichtVandaagIso() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function dagoverzichtGaNaarDag(iso) {
+  document.getElementById('dagoverzicht-datum').value = iso;
+  laadDagoverzicht();
+}
+
+document.getElementById('dagoverzicht-datum').addEventListener('change', (e) => dagoverzichtGaNaarDag(e.target.value));
+document.getElementById('btn-dagoverzicht-vandaag').addEventListener('click', () => dagoverzichtGaNaarDag(dagoverzichtVandaagIso()));
+document.getElementById('btn-dagoverzicht-vorige').addEventListener('click', () => {
+  const veld = document.getElementById('dagoverzicht-datum');
+  const d = new Date(veld.value || dagoverzichtVandaagIso());
+  d.setDate(d.getDate() - 1);
+  dagoverzichtGaNaarDag(d.toISOString().slice(0, 10));
+});
+document.getElementById('btn-dagoverzicht-volgende').addEventListener('click', () => {
+  const veld = document.getElementById('dagoverzicht-datum');
+  const d = new Date(veld.value || dagoverzichtVandaagIso());
+  d.setDate(d.getDate() + 1);
+  dagoverzichtGaNaarDag(d.toISOString().slice(0, 10));
+});
+
+function dagoverzichtFacturatieHtml(lijst) {
+  if (!lijst.length) return '<p class="leeg-bericht">Niets meer te factureren vandaag. 👍</p>';
+  return `<ul class="dagoverzicht-lijst">${lijst.map((b) => `
+    <li>
+      <button type="button" class="linkbtn dagoverzicht-naar-dossier" data-boeking-id="${b.id}">${b.klant_naam}</button>
+      <span class="dagoverzicht-detail">— openstaand: ${fmtEuro(b.saldo)}${b.klant_telefoon ? ` · ${b.klant_telefoon}` : ''}</span>
+    </li>
+  `).join('')}</ul>`;
+}
+
+function dagoverzichtVuilHtml(lijst) {
+  if (!lijst.length) return '<p class="leeg-bericht">Geen vuile/natte producten bij de boekingen van vandaag.</p>';
+  return `<ul class="dagoverzicht-lijst">${lijst.map((p) => `
+    <li><strong>${p.product_naam}</strong> <span class="dagoverzicht-detail">— ${p.klant_naam}</span></li>
+  `).join('')}</ul>`;
+}
+
+function dagoverzichtBijzonderhedenHtml(lijst) {
+  if (!lijst.length) return '<p class="leeg-bericht">Geen bijzonderheden bij de boekingen van vandaag.</p>';
+  return `<ul class="dagoverzicht-lijst">${lijst.map((b) => `
+    <li>
+      <button type="button" class="linkbtn dagoverzicht-naar-dossier" data-boeking-id="${b.id}">${b.klant_naam}</button>
+      ${b.speciaal_verzoek ? `<span class="dagoverzicht-detail">— ⭐ ${b.speciaal_verzoek_notitie || 'speciaal verzoek'}</span>` : ''}
+      ${b.notities ? `<div class="dagoverzicht-notitie">${b.notities}</div>` : ''}
+    </li>
+  `).join('')}</ul>`;
+}
+
+function dagoverzichtKoppelDossierLinks(container) {
+  container.querySelectorAll('.dagoverzicht-naar-dossier').forEach((btn) => {
+    btn.addEventListener('click', () => openDetail(btn.dataset.boekingId));
+  });
+}
+
+async function laadDagoverzicht() {
+  const datumVeld = document.getElementById('dagoverzicht-datum');
+  if (!datumVeld.value) datumVeld.value = dagoverzichtVandaagIso();
+  const datum = datumVeld.value;
+
+  const data = await api(`/api/dagoverzicht?datum=${datum}`);
+
+  const facturatieEl = document.getElementById('dagoverzicht-facturatie');
+  facturatieEl.innerHTML = dagoverzichtFacturatieHtml(data.teFactureren);
+  dagoverzichtKoppelDossierLinks(facturatieEl);
+
+  document.getElementById('dagoverzicht-vuil').innerHTML = dagoverzichtVuilHtml(data.vuileProducten);
+
+  const bijzonderhedenEl = document.getElementById('dagoverzicht-bijzonderheden');
+  bijzonderhedenEl.innerHTML = dagoverzichtBijzonderhedenHtml(data.bijzonderheden);
+  dagoverzichtKoppelDossierLinks(bijzonderhedenEl);
+}
 
 // ============================================================
 // AANVRAGEN-INBOX
@@ -2846,7 +2959,15 @@ function bouwCategorieOpties(geselecteerdeCategorie) {
 function bouwModelOpties(categorie, geselecteerdWaarde, onbeschikbareSetOverride) {
   const onbeschikbareSet = onbeschikbareSetOverride || onbeschikbareProductIds;
   const producten = productenPerCategorie().get(categorie) || [];
-  return producten
+  // Zonder expliciet gekozen waarde geen enkel product vooraf laten kiezen door
+  // de browser (die selecteert anders gewoon het eerste product in de lijst)
+  // — een lege, niet-aanklikbare placeholder-optie dwingt Jonas om zelf actief
+  // een product te kiezen, zodat er nooit per ongeluk het verkeerde product
+  // wordt toegevoegd.
+  const placeholder = geselecteerdWaarde
+    ? ''
+    : '<option value="" selected disabled hidden>Selecteren...</option>';
+  return placeholder + producten
     .map((p) => {
       const onbeschikbaar = onbeschikbareSet.has(p.id);
       const selected = p.id === geselecteerdWaarde ? 'selected' : '';
@@ -3318,6 +3439,11 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
     }));
     if (!producten.length) throw new Error('Voeg minstens één product toe.');
     if (!document.getElementById('datum-start').value) throw new Error('Kies een datum (of periode) in de kalender.');
+    // Zonder gekozen model staat een rij nu op de "Selecteren..."-placeholder
+    // (lege waarde) i.p.v. automatisch een willekeurig eerste product — dus
+    // hier expliciet controleren i.p.v. straks een onduidelijke serverfout te
+    // krijgen op een lege product_id.
+    if (producten.some((p) => !p.product_id)) throw new Error('Kies voor elke productrij een model.');
 
     const adresIdemKlant = document.getElementById('adres-idem-klant').checked;
     const nbStraat = document.getElementById('leveringsadres-straat').value.trim();

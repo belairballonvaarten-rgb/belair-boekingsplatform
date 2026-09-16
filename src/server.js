@@ -20,6 +20,7 @@ const syncRoutes = require('./routes/sync');
 const syncWebhookRoutes = require('./routes/sync-webhook');
 const voertuigenRoutes = require('./routes/voertuigen');
 const planningRoutes = require('./routes/planning');
+const dagoverzichtRoutes = require('./routes/dagoverzicht');
 
 const app = express();
 
@@ -68,6 +69,7 @@ app.use('/api/sync', syncWebhookRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/voertuigen', voertuigenRoutes);
 app.use('/api/planning', planningRoutes);
+app.use('/api/dagoverzicht', dagoverzichtRoutes);
 
 // Beheerscherm (statische front-end) — public/index.html is het startpunt
 app.use(express.static(path.join(__dirname, '..', 'public')));

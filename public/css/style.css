@@ -840,7 +840,9 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .planning-stop-sleepbaar { cursor: grab; }
 .planning-stop-sleep-over { border-top: 2px solid var(--blauw, #2563eb); }
 .planning-stop-wordt-gesleept { opacity: 0.4; }
-.planning-stop-tijd { font-size: 0.78rem; color: var(--grijs); width: 3rem; flex-shrink: 0; }
+/* Zelfde tijdstip-dropdown als op het Dashboard (genereerKwartierOpties) — nu
+   ook rechtstreeks aanpasbaar vanop Planning i.p.v. enkel ter info. */
+.planning-stop-tijd-input { padding: 0.05rem 0.2rem; font-size: 0.78rem; width: 4.4rem; flex-shrink: 0; }
 .planning-stop-info { font-size: 0.84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
 .planning-stop-voertuig { font-size: 0.78rem; width: 8.5rem; flex-shrink: 0; }
 /* Volledige productlijst uitklappen bij meerdere producten in één boeking —
@@ -878,6 +880,15 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
   body:not(.print-modus-planning) .planning-print { display: none !important; }
   body.print-modus-planning .planning-print { display: block !important; }
 }
+
+/* DAGOVERZICHT */
+.dagoverzicht-secties { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; }
+.dagoverzicht-paneel h4 { margin-top: 0; }
+.dagoverzicht-lijst { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.dagoverzicht-lijst li { border-bottom: 1px solid var(--rand); padding-bottom: 0.6rem; }
+.dagoverzicht-lijst li:last-child { border-bottom: none; padding-bottom: 0; }
+.dagoverzicht-detail { color: var(--grijs); font-size: 0.85rem; }
+.dagoverzicht-notitie { font-size: 0.85rem; color: var(--grijs); margin-top: 0.2rem; font-style: italic; }
 
 /* PRODUCT — logistieke velden & certificaat */
 .form-certificaat { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem; }
