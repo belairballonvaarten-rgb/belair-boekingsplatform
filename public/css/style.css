@@ -889,6 +889,9 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .dagoverzicht-lijst li:last-child { border-bottom: none; padding-bottom: 0; }
 .dagoverzicht-detail { color: var(--grijs); font-size: 0.85rem; }
 .dagoverzicht-notitie { font-size: 0.85rem; color: var(--grijs); margin-top: 0.2rem; font-style: italic; }
+.dagoverzicht-paneel .uitleg-klein { font-size: 0.78rem; color: var(--grijs); margin: -0.4rem 0 0.7rem; }
+.dagoverzicht-vink { display: flex; align-items: baseline; gap: 0.5rem; cursor: pointer; }
+.dagoverzicht-vink input[type="checkbox"] { margin-top: 0.2rem; flex-shrink: 0; }
 
 /* PRODUCT — logistieke velden & certificaat */
 .form-certificaat { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem; }

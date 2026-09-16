@@ -1293,19 +1293,25 @@ document.getElementById('btn-dagoverzicht-volgende').addEventListener('click', (
 });
 
 function dagoverzichtFacturatieHtml(lijst) {
-  if (!lijst.length) return '<p class="leeg-bericht">Niets meer te factureren vandaag. 👍</p>';
+  if (!lijst.length) return '<p class="leeg-bericht">Niets meer te factureren. 👍</p>';
   return `<ul class="dagoverzicht-lijst">${lijst.map((b) => `
     <li>
-      <button type="button" class="linkbtn dagoverzicht-naar-dossier" data-boeking-id="${b.id}">${b.klant_naam}</button>
-      <span class="dagoverzicht-detail">— openstaand: ${fmtEuro(b.saldo)}${b.klant_telefoon ? ` · ${b.klant_telefoon}` : ''}</span>
+      <label class="dagoverzicht-vink">
+        <input type="checkbox" class="dagoverzicht-facturatie-afvinken" data-boeking-id="${b.id}" />
+        <button type="button" class="linkbtn dagoverzicht-naar-dossier" data-boeking-id="${b.id}">${b.klant_naam}</button>
+        <span class="dagoverzicht-detail">— openstaand: ${fmtEuro(b.saldo)}${b.klant_telefoon ? ` · ${b.klant_telefoon}` : ''} · ${fmtDatum(b.gewenste_datum_start)}</span>
+      </label>
     </li>
   `).join('')}</ul>`;
 }
 
 function dagoverzichtVuilHtml(lijst) {
-  if (!lijst.length) return '<p class="leeg-bericht">Geen vuile/natte producten bij de boekingen van vandaag.</p>';
+  if (!lijst.length) return '<p class="leeg-bericht">Geen vuile/natte producten op dit moment.</p>';
   return `<ul class="dagoverzicht-lijst">${lijst.map((p) => `
-    <li><strong>${p.product_naam}</strong> <span class="dagoverzicht-detail">— ${p.klant_naam}</span></li>
+    <li>
+      <strong>${p.naam}</strong>
+      <button type="button" class="linkbtn dagoverzicht-product-gereinigd" data-product-id="${p.id}">Markeer als gereinigd</button>
+    </li>
   `).join('')}</ul>`;
 }
 
@@ -1322,7 +1328,47 @@ function dagoverzichtBijzonderhedenHtml(lijst) {
 
 function dagoverzichtKoppelDossierLinks(container) {
   container.querySelectorAll('.dagoverzicht-naar-dossier').forEach((btn) => {
-    btn.addEventListener('click', () => openDetail(btn.dataset.boekingId));
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      openDetail(btn.dataset.boekingId);
+    });
+  });
+}
+
+function dagoverzichtKoppelFacturatieVinken(container) {
+  container.querySelectorAll('.dagoverzicht-facturatie-afvinken').forEach((chk) => {
+    chk.addEventListener('change', async () => {
+      const li = chk.closest('li');
+      li.style.opacity = '0.5';
+      try {
+        await api(`/api/dagoverzicht/facturatie/${chk.dataset.boekingId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ afgehandeld: true }),
+        });
+        laadDagoverzicht();
+      } catch (err) {
+        li.style.opacity = '';
+        chk.checked = false;
+        alert(err.message);
+      }
+    });
+  });
+}
+
+function dagoverzichtKoppelProductGereinigd(container) {
+  container.querySelectorAll('.dagoverzicht-product-gereinigd').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      try {
+        await api(`/api/producten/${btn.dataset.productId}`, {
+          method: 'PUT',
+          body: JSON.stringify({ staat: 'proper' }),
+        });
+        laadDagoverzicht();
+        laadProductenCache();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
   });
 }
 
@@ -1336,8 +1382,11 @@ async function laadDagoverzicht() {
   const facturatieEl = document.getElementById('dagoverzicht-facturatie');
   facturatieEl.innerHTML = dagoverzichtFacturatieHtml(data.teFactureren);
   dagoverzichtKoppelDossierLinks(facturatieEl);
+  dagoverzichtKoppelFacturatieVinken(facturatieEl);
 
-  document.getElementById('dagoverzicht-vuil').innerHTML = dagoverzichtVuilHtml(data.vuileProducten);
+  const vuilEl = document.getElementById('dagoverzicht-vuil');
+  vuilEl.innerHTML = dagoverzichtVuilHtml(data.vuileProducten);
+  dagoverzichtKoppelProductGereinigd(vuilEl);
 
   const bijzonderhedenEl = document.getElementById('dagoverzicht-bijzonderheden');
   bijzonderhedenEl.innerHTML = dagoverzichtBijzonderhedenHtml(data.bijzonderheden);
