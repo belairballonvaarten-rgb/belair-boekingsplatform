@@ -52,22 +52,30 @@ async function haalToegangstoken() {
   return TOKEN_CACHE.token;
 }
 
-// Verstuurt één mail via Graph, namens AZURE_SENDER_EMAIL.
-async function verstuurMail({ naar, onderwerp, html }) {
+// Verstuurt één mail via Graph, namens AZURE_SENDER_EMAIL. `bijlagen` is
+// optioneel: een lijst van { naam, mimetype, dataBase64 } (bv. een
+// productcertificaat), rechtstreeks doorgegeven aan Graph als fileAttachment.
+async function verstuurMail({ naar, onderwerp, html, bijlagen }) {
   controleerConfiguratie();
   const token = await haalToegangstoken();
   const afzender = process.env.AZURE_SENDER_EMAIL;
+  const message = {
+    subject: onderwerp,
+    body: { contentType: 'HTML', content: html },
+    toRecipients: [{ emailAddress: { address: naar } }],
+  };
+  if (Array.isArray(bijlagen) && bijlagen.length) {
+    message.attachments = bijlagen.map((b) => ({
+      '@odata.type': '#microsoft.graph.fileAttachment',
+      name: b.naam,
+      contentType: b.mimetype || 'application/octet-stream',
+      contentBytes: b.dataBase64,
+    }));
+  }
   const resp = await fetch(`https://graph.microsoft.com/v1.0/users/${encodeURIComponent(afzender)}/sendMail`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      message: {
-        subject: onderwerp,
-        body: { contentType: 'HTML', content: html },
-        toRecipients: [{ emailAddress: { address: naar } }],
-      },
-      saveToSentItems: true,
-    }),
+    body: JSON.stringify({ message, saveToSentItems: true }),
   });
   if (!resp.ok) {
     const tekst = await resp.text().catch(() => '');

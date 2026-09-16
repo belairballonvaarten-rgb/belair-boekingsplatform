@@ -22,7 +22,8 @@ const DASHBOARD_SELECT = `
          b.notities,
          k.id AS klant_id, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
-         l.leveringstijd, l.afhaaltijd, l.checklist_status, l.lat, l.lng, l.geocode_adres, l.voertuig,
+         l.leveringstijd, l.afhaaltijd, l.checklist_status, l.lat, l.lng, l.geocode_adres,
+         l.voertuig_levering, l.voertuig_afhaling,
          COALESCE(l.levering_voltooid, false) AS levering_voltooid,
          COALESCE(l.afhaling_voltooid, false) AS afhaling_voltooid,
          bp_namen.producten_namen, bp_namen.eerste_product_naam, bp_namen.aantal_producten
@@ -236,22 +237,27 @@ router.put('/:boekingId/voltooid', asyncHandler(async (req, res) => {
   res.status(201).json(nieuw[0]);
 }));
 
-// Voertuig toewijzen aan een levering/afhaling vanop het Dashboard — dezelfde
-// leveringen-tabel/kolom die later ook door de leveringen-app gebruikt wordt,
-// dus dit komt daar straks gewoon in mee. Los van type (levering/afhaling):
-// Jonas werkt met voertuigen (niet individuele chauffeurs) die voor beide
-// richtingen van dezelfde boeking hetzelfde voertuig gebruiken.
+// Voertuig toewijzen aan een levering of afhaling vanop het Dashboard — dezelfde
+// leveringen-tabel/kolommen die later ook door de leveringen-app gebruikt
+// worden, dus dit komt daar straks gewoon in mee. Levering en afhaling van
+// dezelfde boeking krijgen elk hun EIGEN voertuig (bv. geleverd met de
+// camionette, later opgehaald met de bus) — dus altijd op basis van "type"
+// de juiste kolom bijwerken, nooit beide tegelijk.
 router.put('/:boekingId/voertuig', asyncHandler(async (req, res) => {
+  if (!['levering', 'afhaling'].includes(req.body.type)) {
+    return res.status(400).json({ fout: 'type (levering/afhaling) is verplicht' });
+  }
+  const kolom = req.body.type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   const waarde = (req.body.voertuig || '').trim() || null;
 
   const { rows } = await db.query(
-    'UPDATE leveringen SET voertuig = $1 WHERE boeking_id = $2 RETURNING *',
+    `UPDATE leveringen SET ${kolom} = $1 WHERE boeking_id = $2 RETURNING *`,
     [waarde, req.params.boekingId]
   );
   if (rows[0]) return res.json(rows[0]);
 
   const { rows: nieuw } = await db.query(
-    'INSERT INTO leveringen (boeking_id, voertuig) VALUES ($1, $2) RETURNING *',
+    `INSERT INTO leveringen (boeking_id, ${kolom}) VALUES ($1, $2) RETURNING *`,
     [req.params.boekingId, waarde]
   );
   res.status(201).json(nieuw[0]);

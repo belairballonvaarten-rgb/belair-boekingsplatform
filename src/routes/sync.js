@@ -60,7 +60,8 @@ router.post('/leveringen-app', asyncHandler(async (req, res) => {
             b.gewenste_datum_start, b.gewenste_datum_einde,
             k.naam AS klant_naam, k.telefoon AS klant_telefoon, k.email AS klant_email,
             k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
-            l.leveringstijd, l.afhaaltijd, l.voertuig,
+            l.leveringstijd, l.afhaaltijd, l.voertuig_levering, l.voertuig_afhaling,
+            l.volgorde_levering, l.volgorde_afhaling,
             bp_namen.producten_namen,
             COALESCE(bp_totalen.totaal, 0) AS totaal
      FROM boekingen b
@@ -95,9 +96,17 @@ router.post('/leveringen-app', asyncHandler(async (req, res) => {
     afhaaltijd: naarTijd(b.afhaaltijd),
     artikelen: b.producten_namen || '',
     bedrag: Number(b.totaal || 0),
-    voertuig: b.voertuig || null,
+    voertuig: b.voertuig_levering || null,
+    voertuigAfhaling: b.voertuig_afhaling || null,
+    volgordeLevering: b.volgorde_levering != null ? b.volgorde_levering : null,
+    volgordeAfhaling: b.volgorde_afhaling != null ? b.volgorde_afhaling : null,
   }));
+  // Voor de terugkoppeling nadien: welke boekingsnummer hoort bij welke
+  // boeking_id, zodat de status-lijst van de app rechtstreeks in "leveringen"
+  // bijgewerkt kan worden.
+  const boekingIdPerNummer = new Map(rows.map((b) => [String(b.id), b.id]));
 
+  let pushResultaat;
   try {
     const respons = await fetch(url.replace(/\/$/, '') + '/api/sync/boekingsplatform', {
       method: 'POST',
@@ -108,10 +117,47 @@ router.post('/leveringen-app', asyncHandler(async (req, res) => {
     if (!respons.ok || !data) {
       return res.status(502).json({ fout: `De leveringen-app antwoordde met een fout (${respons.status})`, details: data });
     }
-    res.json({ verstuurd: boekingen.length, ...data });
+    pushResultaat = data;
   } catch (err) {
-    res.status(502).json({ fout: 'Kon de leveringen-app niet bereiken: ' + err.message });
+    return res.status(502).json({ fout: 'Kon de leveringen-app niet bereiken: ' + err.message });
   }
+
+  // Meteen na het versturen ook de huidige status ophalen — zo komt een
+  // "geplaatst"/"afgerond"-markering die de crew in de app zet (levering
+  // effectief gebeurd / ook al opgehaald) terug zichtbaar op het eigen
+  // Dashboard, zonder dat dit een aparte, tweede knop moet zijn. Faalt dit
+  // (bv. oudere app-versie zonder dit endpoint), dan blijft de rest van de
+  // synchronisatie gewoon geslaagd — enkel de terugkoppeling wordt overgeslagen.
+  let statusTeruggekoppeld = 0;
+  try {
+    const statusResp = await fetch(url.replace(/\/$/, '') + '/api/sync/boekingsplatform/status', {
+      headers: { 'X-Belair-Sync-Key': sleutel },
+    });
+    if (statusResp.ok) {
+      const statusData = await statusResp.json();
+      for (const rij of statusData.leveringen || []) {
+        const boekingId = boekingIdPerNummer.get(String(rij.boekingsnummer));
+        if (!boekingId) continue;
+        const leveringVoltooid = rij.status === 'geplaatst' || rij.status === 'afgerond';
+        const afhalingVoltooid = rij.status === 'afgerond';
+        const { rows: bijgewerkt } = await db.query(
+          `UPDATE leveringen SET levering_voltooid = $1, afhaling_voltooid = $2 WHERE boeking_id = $3 RETURNING id`,
+          [leveringVoltooid, afhalingVoltooid, boekingId]
+        );
+        if (!bijgewerkt.length) {
+          await db.query(
+            `INSERT INTO leveringen (boeking_id, levering_voltooid, afhaling_voltooid) VALUES ($1, $2, $3)`,
+            [boekingId, leveringVoltooid, afhalingVoltooid]
+          );
+        }
+        statusTeruggekoppeld++;
+      }
+    }
+  } catch (err) {
+    console.warn('[sync] kon status niet terugkoppelen vanuit de leveringen-app:', err.message);
+  }
+
+  res.json({ verstuurd: boekingen.length, statusTeruggekoppeld, ...pushResultaat });
 }));
 
 module.exports = router;

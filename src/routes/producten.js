@@ -2,9 +2,25 @@ const express = require('express');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { verstuurMail, isGeconfigureerd: mailIsGeconfigureerd } = require('../utils/mailer');
 
 const router = express.Router();
 router.use(vereistIngelogd);
+
+// Alle kolommen BEHALVE certificaat_bestand (bytea) — dat bestand zelf is vaak
+// enkele MB's groot en hoort niet mee te reizen in elke productenlijst-aanroep;
+// "heeft_certificaat" volstaat om te weten of er één is, het bestand zelf
+// wordt apart opgehaald via GET /:id/certificaat.
+const PRODUCT_KOLOMMEN_ZONDER_BESTAND = `
+  id, naam, categorieen, sku, prijs, weekendprijs, afhaalprijs, weekdagprijs, meerdaagse_prijstabel,
+  max_boekingen_per_dag, availability_buffer_dagen, overnachting_mogelijk,
+  overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid,
+  afbeeldingen, afmetingen, leeftijdscategorie, kostprijs, staat, staat_bijgewerkt_op,
+  motor_type, gewicht_kg, aantal_valmatten, aantal_piketten, aantal_zandzakken,
+  certificaat_bestandsnaam, certificaat_mimetype, certificaat_upload_op,
+  (certificaat_bestandsnaam IS NOT NULL) AS heeft_certificaat,
+  aangemaakt_op, bijgewerkt_op
+`;
 
 router.get('/', asyncHandler(async (req, res) => {
   const { zichtbaarheid, categorie } = req.query;
@@ -19,7 +35,7 @@ router.get('/', asyncHandler(async (req, res) => {
     condities.push(`$${params.length} = ANY(categorieen)`);
   }
   const where = condities.length ? `WHERE ${condities.join(' AND ')}` : '';
-  const { rows } = await db.query(`SELECT * FROM producten ${where} ORDER BY naam`, params);
+  const { rows } = await db.query(`SELECT ${PRODUCT_KOLOMMEN_ZONDER_BESTAND} FROM producten ${where} ORDER BY naam`, params);
   res.json(rows);
 }));
 
@@ -37,7 +53,7 @@ router.get('/waarschuwingen/vervalt-binnenkort', asyncHandler(async (req, res) =
 }));
 
 router.get('/:id', asyncHandler(async (req, res) => {
-  const { rows } = await db.query('SELECT * FROM producten WHERE id = $1', [req.params.id]);
+  const { rows } = await db.query(`SELECT ${PRODUCT_KOLOMMEN_ZONDER_BESTAND} FROM producten WHERE id = $1`, [req.params.id]);
   if (!rows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
 
   const { rows: keuringen } = await db.query(
@@ -53,6 +69,7 @@ router.post('/', asyncHandler(async (req, res) => {
     max_boekingen_per_dag, availability_buffer_dagen, overnachting_mogelijk,
     overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid,
     afbeeldingen, afmetingen, leeftijdscategorie, kostprijs,
+    motor_type, gewicht_kg, aantal_valmatten, aantal_piketten, aantal_zandzakken,
   } = req.body;
 
   if (!naam) return res.status(400).json({ fout: 'Naam is verplicht' });
@@ -62,15 +79,17 @@ router.post('/', asyncHandler(async (req, res) => {
        naam, categorieen, sku, prijs, weekendprijs, afhaalprijs, weekdagprijs, meerdaagse_prijstabel,
        max_boekingen_per_dag, availability_buffer_dagen, overnachting_mogelijk,
        overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid,
-       afbeeldingen, afmetingen, leeftijdscategorie, kostprijs
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-     RETURNING *`,
+       afbeeldingen, afmetingen, leeftijdscategorie, kostprijs,
+       motor_type, gewicht_kg, aantal_valmatten, aantal_piketten, aantal_zandzakken
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+     RETURNING ${PRODUCT_KOLOMMEN_ZONDER_BESTAND}`,
     [
       naam, categorieen || [], sku || null, prijs || 0, weekendprijs || null, afhaalprijs || null,
       weekdagprijs, meerdaagse_prijstabel || {},
       max_boekingen_per_dag || 1, availability_buffer_dagen || 0, overnachting_mogelijk || false,
       overnachting_toeslag, parent_id || null, korting_toegelaten !== false, zichtbaarheid || 'bookbaar',
       afbeeldingen || [], afmetingen, leeftijdscategorie, kostprijs,
+      motor_type || null, gewicht_kg || null, aantal_valmatten || null, aantal_piketten || null, aantal_zandzakken || null,
     ]
   );
   res.status(201).json(rows[0]);
@@ -195,6 +214,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
     'max_boekingen_per_dag', 'availability_buffer_dagen', 'overnachting_mogelijk',
     'overnachting_toeslag', 'parent_id', 'korting_toegelaten', 'zichtbaarheid',
     'afbeeldingen', 'afmetingen', 'leeftijdscategorie', 'kostprijs', 'staat',
+    'motor_type', 'gewicht_kg', 'aantal_valmatten', 'aantal_piketten', 'aantal_zandzakken',
   ];
   const updates = [];
   const params = [];
@@ -209,7 +229,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
 
   params.push(req.params.id);
   const { rows } = await db.query(
-    `UPDATE producten SET ${updates.join(', ')}, bijgewerkt_op = now() WHERE id = $${params.length} RETURNING *`,
+    `UPDATE producten SET ${updates.join(', ')}, bijgewerkt_op = now() WHERE id = $${params.length} RETURNING ${PRODUCT_KOLOMMEN_ZONDER_BESTAND}`,
     params
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
@@ -248,6 +268,97 @@ router.post('/:id/keuringen', asyncHandler(async (req, res) => {
     [req.params.id, type_keuring, vervaldatum]
   );
   res.status(201).json(rows[0]);
+}));
+
+// ============================================================
+// CERTIFICAAT (keuringsdocument als bestand bij het product)
+// ============================================================
+// Rechtstreeks als bytea in de databank bewaard i.p.v. via een apart
+// bestand-uploadpakket (multer) — de frontend leest het bestand zelf in als
+// base64 (FileReader) en stuurt dat als gewone JSON mee, dus geen extra
+// afhankelijkheid nodig. Max. 8MB: ruim voldoende voor een gescand
+// keuringsdocument (PDF/foto), maar voorkomt dat een veel te groot bestand de
+// databank en elke pagina die het product opvraagt onnodig zwaar maakt.
+const CERTIFICAAT_MAX_BYTES = 8 * 1024 * 1024;
+const CERTIFICAAT_TOEGESTANE_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+
+router.put('/:id/certificaat', asyncHandler(async (req, res) => {
+  const { bestandsnaam, mimetype, dataBase64 } = req.body;
+  if (!bestandsnaam || !mimetype || !dataBase64) {
+    return res.status(400).json({ fout: 'bestandsnaam, mimetype en dataBase64 zijn verplicht' });
+  }
+  if (!CERTIFICAAT_TOEGESTANE_TYPES.includes(mimetype)) {
+    return res.status(400).json({ fout: 'Enkel PDF, JPG of PNG toegelaten voor een certificaat' });
+  }
+  const buffer = Buffer.from(dataBase64, 'base64');
+  if (buffer.length > CERTIFICAAT_MAX_BYTES) {
+    return res.status(413).json({ fout: `Bestand is te groot (max. ${CERTIFICAAT_MAX_BYTES / 1024 / 1024}MB)` });
+  }
+
+  const { rows } = await db.query(
+    `UPDATE producten SET certificaat_bestand = $1, certificaat_bestandsnaam = $2, certificaat_mimetype = $3,
+       certificaat_upload_op = now(), bijgewerkt_op = now()
+     WHERE id = $4 RETURNING ${PRODUCT_KOLOMMEN_ZONDER_BESTAND}`,
+    [buffer, bestandsnaam, mimetype, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
+  res.json(rows[0]);
+}));
+
+router.get('/:id/certificaat', asyncHandler(async (req, res) => {
+  const { rows } = await db.query(
+    'SELECT certificaat_bestand, certificaat_bestandsnaam, certificaat_mimetype FROM producten WHERE id = $1',
+    [req.params.id]
+  );
+  if (!rows[0] || !rows[0].certificaat_bestand) return res.status(404).json({ fout: 'Geen certificaat gevonden voor dit product' });
+  res.set('Content-Type', rows[0].certificaat_mimetype || 'application/octet-stream');
+  res.set('Content-Disposition', `inline; filename="${(rows[0].certificaat_bestandsnaam || 'certificaat').replace(/"/g, '')}"`);
+  res.send(rows[0].certificaat_bestand);
+}));
+
+router.delete('/:id/certificaat', asyncHandler(async (req, res) => {
+  const { rows } = await db.query(
+    `UPDATE producten SET certificaat_bestand = NULL, certificaat_bestandsnaam = NULL, certificaat_mimetype = NULL,
+       certificaat_upload_op = NULL, bijgewerkt_op = now()
+     WHERE id = $1 RETURNING ${PRODUCT_KOLOMMEN_ZONDER_BESTAND}`,
+    [req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
+  res.json(rows[0]);
+}));
+
+// Stuurt het certificaat als bijlage door naar een klant "op aanvraag" — vanaf
+// de productpagina zelf (vrij e-mailadres) of vanaf een boeking-dossier (het
+// e-mailadres van die klant wordt daar door de frontend meegegeven).
+router.post('/:id/certificaat/verstuur', asyncHandler(async (req, res) => {
+  const email = (req.body.email || '').trim();
+  if (!email) return res.status(400).json({ fout: 'E-mailadres is verplicht' });
+  if (!mailIsGeconfigureerd()) {
+    return res.status(501).json({
+      fout: 'De koppeling met Microsoft 365 is nog niet ingesteld (zie SETUP-MICROSOFT365.md) — versturen van e-mail is daardoor nog niet mogelijk.',
+    });
+  }
+
+  const { rows } = await db.query(
+    'SELECT naam, certificaat_bestand, certificaat_bestandsnaam, certificaat_mimetype FROM producten WHERE id = $1',
+    [req.params.id]
+  );
+  const product = rows[0];
+  if (!product || !product.certificaat_bestand) {
+    return res.status(404).json({ fout: 'Geen certificaat gevonden voor dit product' });
+  }
+
+  await verstuurMail({
+    naar: email,
+    onderwerp: `Keuringscertificaat — ${product.naam}`,
+    html: `Beste,<br><br>In bijlage het keuringscertificaat van "${product.naam}".<br><br>Met vriendelijke groeten,<br>Belair-Fun`,
+    bijlagen: [{
+      naam: product.certificaat_bestandsnaam,
+      mimetype: product.certificaat_mimetype,
+      dataBase64: product.certificaat_bestand.toString('base64'),
+    }],
+  });
+  res.json({ verstuurd: true, naar: email });
 }));
 
 module.exports = router;

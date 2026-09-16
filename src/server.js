@@ -17,6 +17,8 @@ const statistiekenRoutes = require('./routes/statistieken');
 const gebruikersRoutes = require('./routes/gebruikers');
 const dashboardRoutes = require('./routes/dashboard');
 const syncRoutes = require('./routes/sync');
+const voertuigenRoutes = require('./routes/voertuigen');
+const planningRoutes = require('./routes/planning');
 
 const app = express();
 
@@ -26,7 +28,9 @@ const app = express();
 app.set('trust proxy', 1);
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || true, credentials: true }));
-app.use(express.json());
+// Standaard-limiet (100kb) is te klein voor een productcertificaat (PDF/foto)
+// dat als base64 meekomt in de JSON-body — vandaar de ruimere limiet.
+app.use(express.json({ limit: '15mb' }));
 // Gravity Forms' "Webhooks"-uitbreiding kan een inzending ook als gewone
 // formuliervelden (in plaats van JSON) versturen — deze parser vangt dat op.
 app.use(express.urlencoded({ extended: true }));
@@ -58,6 +62,8 @@ app.use('/api/statistieken', statistiekenRoutes);
 app.use('/api/gebruikers', gebruikersRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/sync', syncRoutes);
+app.use('/api/voertuigen', voertuigenRoutes);
+app.use('/api/planning', planningRoutes);
 
 // Beheerscherm (statische front-end) — public/index.html is het startpunt
 app.use(express.static(path.join(__dirname, '..', 'public')));

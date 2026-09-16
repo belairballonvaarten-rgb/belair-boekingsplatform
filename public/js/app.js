@@ -246,7 +246,7 @@ function toonLogin() {
 function toonApp() {
   elLogin.hidden = true;
   elShell.hidden = false;
-  laadProductenCache().then(() => {
+  Promise.all([laadProductenCache(), laadVoertuigen()]).then(() => {
     vulBoekingenProductFilter();
     wisselView('dashboard');
   });
@@ -275,7 +275,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['dashboard', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'boeking-detail', 'klant-detail'];
+const views = ['dashboard', 'planning', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'boeking-detail', 'klant-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -294,6 +294,7 @@ function wisselView(naam) {
     btn.classList.toggle('actief', btn.dataset.view === naam);
   });
   if (naam === 'dashboard') laadDashboard();
+  if (naam === 'planning') laadPlanning();
   if (naam === 'aanvragen') laadAanvragen();
   if (naam === 'boekingen') laadBoekingenOverzicht();
   if (naam === 'klanten') laadKlantenOverzicht();
@@ -373,15 +374,26 @@ function dashboardAdresTekst(b) {
     || 'Geen adres gekend';
 }
 
-// Vaste lijst voor de voertuig-select op elke kaart — Jonas werkt met 2 eigen
-// voertuigen (geen individuele chauffeurs, de bemanning per voertuig wisselt
-// per shift). "naam" is de volledige waarde die opgeslagen wordt (en die later
-// ook matcht met de teamnaam in de leveringen-app bij de sync), "label" is de
-// korte tekst in de compacte dropdown.
-const DASHBOARD_VOERTUIGEN = [
-  { naam: 'Belair Camionette', label: 'Camionette' },
-  { naam: 'Linirent bus', label: 'Linirent' },
-];
+// Beheerbare lijst voertuigen (zie Planning-pagina) — geladen bij het opstarten
+// en na elke wijziging daar. "naam" is meteen ook de volledige waarde die
+// opgeslagen wordt en die later matcht met de teamnaam in de leveringen-app
+// bij de sync. Start leeg zodat de eerste render niet op een verouderde/
+// hardgecodeerde lijst draait; laadVoertuigen() vult dit aan bij het opstarten.
+let VOERTUIGEN = [];
+
+async function laadVoertuigen() {
+  try {
+    VOERTUIGEN = await api('/api/voertuigen');
+  } catch (err) {
+    VOERTUIGEN = [];
+  }
+}
+
+function voertuigSelectOpties(huidigVoertuig) {
+  return ['<option value="">🚐 —</option>']
+    .concat(VOERTUIGEN.map((v) => `<option value="${v.naam}"${huidigVoertuig === v.naam ? ' selected' : ''}>🚐 ${v.naam}</option>`))
+    .join('');
+}
 
 function renderDashboardKolom(container, items, type, opties = {}) {
   const { bereikModus = false } = opties;
@@ -423,9 +435,12 @@ function renderDashboardKolom(container, items, type, opties = {}) {
     const isVoltooid = !!b[voltooidVeld];
     // Korte labels (V1/V2 i.p.v. de volledige naam) om de kaart compact te
     // houden — de volledige naam staat als title-tooltip op de select zelf.
-    const voertuigOpties = ['<option value="">🚐 —</option>']
-      .concat(DASHBOARD_VOERTUIGEN.map((v) => `<option value="${v.naam}"${b.voertuig === v.naam ? ' selected' : ''}>🚐 ${v.label}</option>`))
-      .join('');
+    // Levering en afhaling van dezelfde boeking krijgen elk hun EIGEN voertuig
+    // (bv. geleverd met de camionette, later opgehaald met de bus) — dus
+    // altijd het veld voor dit specifieke "type" lezen/tonen, nooit gedeeld.
+    const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
+    const huidigVoertuig = b[voertuigVeld];
+    const voertuigOpties = voertuigSelectOpties(huidigVoertuig);
     // Standaard 08:00 bij levering, 20:00 bij afhaling zodat het veld nooit
     // leeg oogt — pas effectief opgeslagen zodra iemand het veld ook echt wijzigt.
     const standaardTijd = type === 'levering' ? '08:00' : '20:00';
@@ -440,7 +455,7 @@ function renderDashboardKolom(container, items, type, opties = {}) {
                   data-boeking-id="${b.id}" data-type="${type}" data-voltooid="${isVoltooid}"
                   title="${isVoltooid ? `Gemarkeerd als ${voltooidWoord} — klik om terug te zetten` : `Markeer als ${voltooidWoord}`}">${isVoltooid ? '✅' : '⬜'}</button>
           <select class="dashboard-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${kaartDatum}" title="Tijdstip">${genereerKwartierOpties(tijdWaarde || standaardTijd)}</select>
-          <select class="dashboard-voertuig-select" data-boeking-id="${b.id}" title="${b.voertuig ? `Voertuig: ${b.voertuig}` : 'Geen voertuig toegewezen'}">${voertuigOpties}</select>
+          <select class="dashboard-voertuig-select" data-boeking-id="${b.id}" data-type="${type}" title="${huidigVoertuig ? `Voertuig: ${huidigVoertuig}` : 'Geen voertuig toegewezen'}">${voertuigOpties}</select>
           ${statusPillHtml(b.status)}
           <span class="dashboard-kaart-acties">
             ${telLink}
@@ -514,7 +529,7 @@ function renderDashboardKolom(container, items, type, opties = {}) {
       try {
         await api(`/api/dashboard/${select.dataset.boekingId}/voertuig`, {
           method: 'PUT',
-          body: JSON.stringify({ voertuig: select.value }),
+          body: JSON.stringify({ voertuig: select.value, type: select.dataset.type }),
         });
         toonToast(select.value ? `${select.value} toegewezen` : 'Voertuig verwijderd');
       } catch (err) {
@@ -674,6 +689,211 @@ document.getElementById('btn-dashboard-bereik-toepassen').addEventListener('clic
   if (!vanaf || !tot) return alert('Kies zowel een "van"- als een "tot"-datum.');
   if (vanaf > tot) return alert('De "van"-datum moet vóór de "tot"-datum liggen.');
   dashboardGaNaarBereik(vanaf, tot, 'aangepast');
+});
+
+// ============================================================
+// PLANNING (routes opstellen: voertuig + volgorde per dag)
+// ============================================================
+// Enkel handmatige volgorde (op/neer per stop) — geen automatische
+// routeberekening/optimalisatie (geen kaartafstanden, verkeer, ...). Jonas
+// bouwt de route zelf op basis van zijn eigen kennis van het traject; dit is
+// dus bewust een eenvoudig hulpmiddel, geen navigatiesysteem.
+let planningHuidigeDatum = null;
+
+function planningVandaagIso() {
+  const nu = new Date();
+  nu.setMinutes(nu.getMinutes() - nu.getTimezoneOffset());
+  return nu.toISOString().slice(0, 10);
+}
+
+async function laadVoertuigenBeheer() {
+  const container = document.getElementById('planning-voertuigen-lijst');
+  container.innerHTML = VOERTUIGEN.map((v) => `
+    <span class="voertuig-chip">🚐 ${v.naam} <button type="button" class="voertuig-chip-verwijder" data-id="${v.id}" data-naam="${v.naam}" title="Voertuig verwijderen">✕</button></span>
+  `).join('') || '<span class="leeg-bericht">Nog geen voertuigen.</span>';
+
+  container.querySelectorAll('.voertuig-chip-verwijder').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`"${btn.dataset.naam}" verwijderen uit de lijst? Al toegewezen leveringen/afhalingen blijven gewoon staan, enkel als keuze voor nieuwe toewijzingen verdwijnt hij.`)) return;
+      await api(`/api/voertuigen/${btn.dataset.id}`, { method: 'DELETE' });
+      await laadVoertuigen();
+      laadVoertuigenBeheer();
+      laadPlanning();
+    });
+  });
+}
+
+document.getElementById('form-planning-voertuig-toevoegen').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const veld = document.getElementById('planning-nieuw-voertuig');
+  const naam = veld.value.trim();
+  if (!naam) return;
+  try {
+    await api('/api/voertuigen', { method: 'POST', body: JSON.stringify({ naam }) });
+    veld.value = '';
+    await laadVoertuigen();
+    laadVoertuigenBeheer();
+    laadPlanning();
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+// Groepeert de items van één richting per voertuig (en een "Niet toegewezen"
+// groep voor de rest), gesorteerd op de handmatige volgorde — ontbreekt die
+// (nog nooit gesleept), dan valt de sortering terug op het tijdstip.
+function planningGroepeerPerVoertuig(items, type) {
+  const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
+  const volgordeVeld = type === 'levering' ? 'volgorde_levering' : 'volgorde_afhaling';
+  const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
+
+  const groepen = new Map();
+  VOERTUIGEN.forEach((v) => groepen.set(v.naam, []));
+  groepen.set('', []); // "Niet toegewezen" — altijd laatst getoond
+
+  items.forEach((b) => {
+    const voertuig = b[voertuigVeld] || '';
+    if (!groepen.has(voertuig)) groepen.set(voertuig, []); // ondertussen verwijderd voertuig, maar nog toegewezen: toch tonen
+    groepen.get(voertuig).push(b);
+  });
+
+  groepen.forEach((lijst) => {
+    lijst.sort((a, b) => {
+      const va = a[volgordeVeld];
+      const vb = b[volgordeVeld];
+      if (va != null && vb != null) return va - vb;
+      if (va != null) return -1;
+      if (vb != null) return 1;
+      const ta = a[tijdVeld] ? new Date(a[tijdVeld]).getTime() : Infinity;
+      const tb = b[tijdVeld] ? new Date(b[tijdVeld]).getTime() : Infinity;
+      return ta - tb;
+    });
+  });
+
+  return groepen;
+}
+
+function planningStopHtml(b, type, positieInfo) {
+  const adres = dashboardAdresTekst(b);
+  const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
+  const tijdWaarde = b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(11, 16) : '--:--';
+  const eersteProduct = b.eerste_product_naam || (b.producten_namen || '').split(',')[0].trim() || '—';
+  const meerdereProducten = Number(b.aantal_producten) > 1;
+  const productHeadline = meerdereProducten ? `${eersteProduct}…` : eersteProduct;
+  const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
+  const voltooidVeld = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
+  return `
+    <div class="planning-stop${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
+      <span class="planning-stop-volgorde-knoppen">
+        <button type="button" class="linkbtn planning-stop-omhoog" ${positieInfo.eerste ? 'disabled' : ''} title="Naar boven">▲</button>
+        <button type="button" class="linkbtn planning-stop-omlaag" ${positieInfo.laatste ? 'disabled' : ''} title="Naar beneden">▼</button>
+      </span>
+      <span class="planning-stop-tijd">${tijdWaarde}</span>
+      <span class="planning-stop-info" title="${b.klant_naam}">
+        <strong>${productHeadline}</strong> · ${adres}
+      </span>
+      <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
+    </div>
+  `;
+}
+
+function planningRenderKolom(container, items, type) {
+  if (!items.length) {
+    container.innerHTML = '<p class="leeg-bericht">Niets gepland voor deze dag.</p>';
+    return;
+  }
+  const groepen = planningGroepeerPerVoertuig(items, type);
+  let html = '';
+  groepen.forEach((lijst, voertuigNaam) => {
+    if (!lijst.length) return;
+    html += `<div class="planning-voertuiggroep-kop">${voertuigNaam ? `🚐 ${voertuigNaam}` : '⬜ Niet toegewezen'} (${lijst.length})</div>`;
+    html += lijst.map((b, i) => planningStopHtml(b, type, { eerste: i === 0, laatste: i === lijst.length - 1 })).join('');
+  });
+  container.innerHTML = html;
+
+  container.querySelectorAll('.planning-stop-voertuig').forEach((select) => {
+    select.addEventListener('change', async () => {
+      try {
+        await api(`/api/dashboard/${select.dataset.boekingId}/voertuig`, {
+          method: 'PUT',
+          body: JSON.stringify({ voertuig: select.value, type: select.dataset.type }),
+        });
+        toonToast(select.value ? `${select.value} toegewezen` : 'Voertuig verwijderd');
+        laadPlanning();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+
+  container.querySelectorAll('.planning-stop-omhoog, .planning-stop-omlaag').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const stop = btn.closest('.planning-stop');
+      // Enkel binnen de groep vanaf de dichtstbijzijnde "kop" tot de volgende
+      // kop (of het einde) verschuiven — de kolom zelf bevat alle groepen na
+      // elkaar in dezelfde container, dus zoek de eigen groep op.
+      const eigenGroep = [];
+      let el = stop.previousElementSibling;
+      while (el && !el.classList.contains('planning-voertuiggroep-kop')) { eigenGroep.unshift(el); el = el.previousElementSibling; }
+      eigenGroep.push(stop);
+      el = stop.nextElementSibling;
+      while (el && !el.classList.contains('planning-voertuiggroep-kop')) { eigenGroep.push(el); el = el.nextElementSibling; }
+
+      const idx = eigenGroep.indexOf(stop);
+      const naarIdx = btn.classList.contains('planning-stop-omhoog') ? idx - 1 : idx + 1;
+      if (naarIdx < 0 || naarIdx >= eigenGroep.length) return;
+      [eigenGroep[idx], eigenGroep[naarIdx]] = [eigenGroep[naarIdx], eigenGroep[idx]];
+
+      const type = container.id === 'planning-leveringen-lijst' ? 'levering' : 'afhaling';
+      const volgorde = eigenGroep.map((elStop, i) => ({ boekingId: elStop.dataset.boekingId, positie: i + 1 }));
+      try {
+        await api('/api/planning/volgorde', { method: 'PUT', body: JSON.stringify({ type, volgorde }) });
+        laadPlanning();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+async function laadPlanning() {
+  await laadVoertuigen();
+  laadVoertuigenBeheer();
+
+  const datumVeld = document.getElementById('planning-datum');
+  if (!datumVeld.value) datumVeld.value = planningVandaagIso();
+  planningHuidigeDatum = datumVeld.value;
+
+  const leveringenEl = document.getElementById('planning-leveringen-lijst');
+  const ophalingenEl = document.getElementById('planning-ophalingen-lijst');
+  leveringenEl.innerHTML = '<p class="leeg-bericht">Laden...</p>';
+  ophalingenEl.innerHTML = '<p class="leeg-bericht">Laden...</p>';
+
+  const data = await api(`/api/planning?datum=${planningHuidigeDatum}`);
+  document.getElementById('planning-aantal-leveringen').textContent = `(${data.leveringen.length})`;
+  document.getElementById('planning-aantal-ophalingen').textContent = `(${data.ophalingen.length})`;
+  planningRenderKolom(leveringenEl, data.leveringen, 'levering');
+  planningRenderKolom(ophalingenEl, data.ophalingen, 'afhaling');
+}
+
+document.getElementById('planning-datum').addEventListener('change', laadPlanning);
+document.getElementById('btn-planning-vorige').addEventListener('click', () => {
+  const veld = document.getElementById('planning-datum');
+  const d = new Date(veld.value || planningVandaagIso());
+  d.setDate(d.getDate() - 1);
+  veld.value = d.toISOString().slice(0, 10);
+  laadPlanning();
+});
+document.getElementById('btn-planning-volgende').addEventListener('click', () => {
+  const veld = document.getElementById('planning-datum');
+  const d = new Date(veld.value || planningVandaagIso());
+  d.setDate(d.getDate() + 1);
+  veld.value = d.toISOString().slice(0, 10);
+  laadPlanning();
+});
+document.getElementById('btn-planning-vandaag').addEventListener('click', () => {
+  document.getElementById('planning-datum').value = planningVandaagIso();
+  laadPlanning();
 });
 
 // ============================================================
@@ -1533,7 +1753,10 @@ async function openDetail(boekingId) {
       const aantalHtml = magAantalAanpassen
         ? ` × <input type="number" min="1" class="product-aantal-invoer" data-id="${p.id}" value="${p.aantal}" title="Aantal" />`
         : (p.aantal > 1 ? ` × ${p.aantal}` : '');
-      return `<div class="detail-rij product-regel"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}</span><span>${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
+      const certificaatKnop = p.product_heeft_certificaat
+        ? `<button type="button" class="linkbtn btn-stuur-certificaat" data-product-id="${p.product_id}" title="Stuur het certificaat van ${p.product_naam} naar ${b.klant_email || 'de klant'}">📄 Certificaat</button>`
+        : '';
+      return `<div class="detail-rij product-regel"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}</span><span>${certificaatKnop}${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
     })
     .join('');
 
@@ -2026,6 +2249,21 @@ async function openDetail(boekingId) {
         // klopt dan nog steeds, maar zonder duidelijke melding lijkt dat een
         // bug ("ik heb het gewist maar het bedrag past niet aan").
         document.getElementById('product-toevoegen-fout').textContent = `Kon product niet verwijderen: ${err.message}`;
+      }
+    });
+  });
+  inhoud.querySelectorAll('.btn-stuur-certificaat').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!b.klant_email) return alert('Deze klant heeft geen e-mailadres gekend — voeg dat eerst toe bij de klant.');
+      if (!confirm(`Certificaat versturen naar ${b.klant_email}?`)) return;
+      try {
+        await api(`/api/producten/${btn.dataset.productId}/certificaat/verstuur`, {
+          method: 'POST',
+          body: JSON.stringify({ email: b.klant_email }),
+        });
+        toonToast('Certificaat verstuurd naar ' + b.klant_email);
+      } catch (err) {
+        alert(err.message);
       }
     });
   });
@@ -2936,6 +3174,11 @@ document.getElementById('form-nieuw-product').addEventListener('submit', async (
         max_boekingen_per_dag: parseInt(document.getElementById('np-max-per-dag').value, 10) || 1,
         availability_buffer_dagen: parseInt(document.getElementById('np-buffer-dagen').value, 10) || 0,
         zichtbaarheid: document.getElementById('np-zichtbaarheid').value,
+        motor_type: document.getElementById('np-motor-type').value || null,
+        gewicht_kg: document.getElementById('np-gewicht-kg').value !== '' ? parseFloat(document.getElementById('np-gewicht-kg').value) : null,
+        aantal_valmatten: document.getElementById('np-aantal-valmatten').value !== '' ? parseInt(document.getElementById('np-aantal-valmatten').value, 10) : null,
+        aantal_piketten: document.getElementById('np-aantal-piketten').value !== '' ? parseInt(document.getElementById('np-aantal-piketten').value, 10) : null,
+        aantal_zandzakken: document.getElementById('np-aantal-zandzakken').value !== '' ? parseInt(document.getElementById('np-aantal-zandzakken').value, 10) : null,
       }),
     });
     document.getElementById('form-nieuw-product').reset();
@@ -2983,6 +3226,95 @@ const modalProduct = document.getElementById('modal-product');
 document.getElementById('btn-modal-product-sluiten').addEventListener('click', () => { modalProduct.hidden = true; });
 modalProduct.addEventListener('click', (e) => { if (e.target === modalProduct) modalProduct.hidden = true; });
 
+// Leest een bestand (via een <input type="file">) in als base64-tekst, zonder
+// de "data:...;base64," voorloop — dat is wat de certificaat-routes verwachten.
+function leesBestandAlsBase64(bestand) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+    reader.onerror = () => reject(new Error('Kon het bestand niet inlezen'));
+    reader.readAsDataURL(bestand);
+  });
+}
+
+// Certificaat-blok in het product-bewerkscherm: toont het huidige document
+// (met bekijk-/verwijderknop en een mini-formulier om het meteen naar een
+// e-mailadres door te sturen) of, als er nog geen is, een upload-veld.
+function certificaatBlokHtml(p) {
+  if (!p.heeft_certificaat) {
+    return `
+      <form id="form-certificaat-upload" class="form-certificaat">
+        <input type="file" id="cert-bestand" accept="application/pdf,image/jpeg,image/png" required />
+        <button type="submit">Upload certificaat</button>
+      </form>
+      <p class="uitleg">PDF, JPG of PNG, max. 8MB.</p>
+    `;
+  }
+  return `
+    <div class="certificaat-huidig">
+      <span>📄 ${p.certificaat_bestandsnaam}</span>
+      <a href="/api/producten/${p.id}/certificaat" target="_blank" rel="noopener" class="linkbtn">Bekijken/downloaden</a>
+      <button type="button" id="btn-certificaat-verwijderen" class="linkbtn gevaar">Verwijderen</button>
+    </div>
+    <form id="form-certificaat-verstuur" class="form-certificaat">
+      <label>Doorsturen naar e-mailadres<input type="email" id="cert-email" placeholder="klant@voorbeeld.be" required /></label>
+      <button type="submit">Verstuur</button>
+    </form>
+    <p id="certificaat-fout" class="foutmelding"></p>
+  `;
+}
+
+function koppelCertificaatBlok(productId) {
+  const uploadForm = document.getElementById('form-certificaat-upload');
+  if (uploadForm) {
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const bestand = document.getElementById('cert-bestand').files[0];
+      if (!bestand) return;
+      try {
+        const dataBase64 = await leesBestandAlsBase64(bestand);
+        await api(`/api/producten/${productId}/certificaat`, {
+          method: 'PUT',
+          body: JSON.stringify({ bestandsnaam: bestand.name, mimetype: bestand.type, dataBase64 }),
+        });
+        toonToast('Certificaat geüpload');
+        openProductDetail(productId);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+
+  const verwijderBtn = document.getElementById('btn-certificaat-verwijderen');
+  if (verwijderBtn) {
+    verwijderBtn.addEventListener('click', async () => {
+      if (!confirm('Certificaat verwijderen?')) return;
+      await api(`/api/producten/${productId}/certificaat`, { method: 'DELETE' });
+      toonToast('Certificaat verwijderd');
+      openProductDetail(productId);
+    });
+  }
+
+  const verstuurForm = document.getElementById('form-certificaat-verstuur');
+  if (verstuurForm) {
+    verstuurForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const elFout = document.getElementById('certificaat-fout');
+      elFout.textContent = '';
+      try {
+        await api(`/api/producten/${productId}/certificaat/verstuur`, {
+          method: 'POST',
+          body: JSON.stringify({ email: document.getElementById('cert-email').value.trim() }),
+        });
+        toonToast('Certificaat verstuurd');
+        document.getElementById('cert-email').value = '';
+      } catch (err) {
+        elFout.textContent = err.message;
+      }
+    });
+  }
+}
+
 async function openProductDetail(productId) {
   const p = await api(`/api/producten/${productId}`);
   const inhoud = document.getElementById('modal-product-inhoud');
@@ -3015,6 +3347,20 @@ async function openProductDetail(productId) {
           </select>
         </label>
       </div>
+      <p class="uitleg" style="margin-top:0.6rem">Voor de laadlijst per voertuig:</p>
+      <div class="grid-2">
+        <label>Type motor
+          <select id="pb-motor-type">
+            <option value="" ${!p.motor_type ? 'selected' : ''}>— Onbekend —</option>
+            <option value="Standaard motor" ${p.motor_type === 'Standaard motor' ? 'selected' : ''}>Standaard motor</option>
+            <option value="Zware motor" ${p.motor_type === 'Zware motor' ? 'selected' : ''}>Zware motor</option>
+          </select>
+        </label>
+        <label>Gewicht unit (kg)<input type="number" id="pb-gewicht-kg" min="0" step="0.1" value="${p.gewicht_kg != null ? p.gewicht_kg : ''}" /></label>
+        <label>Valmatten (harde ondergrond)<input type="number" id="pb-aantal-valmatten" min="0" step="1" value="${p.aantal_valmatten != null ? p.aantal_valmatten : ''}" /></label>
+        <label>Piketten (zachte ondergrond)<input type="number" id="pb-aantal-piketten" min="0" step="1" value="${p.aantal_piketten != null ? p.aantal_piketten : ''}" /></label>
+        <label>Zandzakken (harde ondergrond)<input type="number" id="pb-aantal-zandzakken" min="0" step="1" value="${p.aantal_zandzakken != null ? p.aantal_zandzakken : ''}" /></label>
+      </div>
       <div class="form-acties">
         <button type="submit">Wijzigingen opslaan</button>
         <button type="button" id="btn-product-verwijderen" class="linkbtn gevaar">✕ Product verwijderen</button>
@@ -3029,7 +3375,9 @@ async function openProductDetail(productId) {
       <label>Vervaldatum<input type="date" id="kt-vervaldatum" /></label>
       <button type="submit">+ Toevoegen</button>
     </form>
-    <p class="uitleg" style="margin-top:0.3rem">Certificaat als document (bv. PDF) bijvoegen komt in een latere fase.</p>
+
+    <h4>Certificaat-document</h4>
+    <div id="certificaat-blok">${certificaatBlokHtml(p)}</div>
   `;
 
   koppelNieuweCategorieVeld('pb-categorie', 'pb-nieuwe-categorie-veld');
@@ -3054,6 +3402,11 @@ async function openProductDetail(productId) {
           max_boekingen_per_dag: parseInt(document.getElementById('pb-max-per-dag').value, 10) || 1,
           availability_buffer_dagen: parseInt(document.getElementById('pb-buffer-dagen').value, 10) || 0,
           zichtbaarheid: document.getElementById('pb-zichtbaarheid').value,
+          motor_type: document.getElementById('pb-motor-type').value || null,
+          gewicht_kg: document.getElementById('pb-gewicht-kg').value !== '' ? parseFloat(document.getElementById('pb-gewicht-kg').value) : null,
+          aantal_valmatten: document.getElementById('pb-aantal-valmatten').value !== '' ? parseInt(document.getElementById('pb-aantal-valmatten').value, 10) : null,
+          aantal_piketten: document.getElementById('pb-aantal-piketten').value !== '' ? parseInt(document.getElementById('pb-aantal-piketten').value, 10) : null,
+          aantal_zandzakken: document.getElementById('pb-aantal-zandzakken').value !== '' ? parseInt(document.getElementById('pb-aantal-zandzakken').value, 10) : null,
         }),
       });
       modalProduct.hidden = true;
@@ -3089,6 +3442,8 @@ async function openProductDetail(productId) {
     });
     openProductDetail(productId); // herladen zodat de nieuwe keuring meteen zichtbaar is
   });
+
+  koppelCertificaatBlok(productId);
 
   modalProduct.hidden = false;
 }
@@ -3148,7 +3503,8 @@ document.getElementById('btn-sync-leveringen-app').addEventListener('click', asy
       : '';
     const fouten = (data.fouten || []).length ? ` (${data.fouten.length} fout(en), zie console)` : '';
     if ((data.fouten || []).length) console.error('Sync-fouten:', data.fouten);
-    resultaat.textContent = `${data.verstuurd} boeking(en) verstuurd — ${data.aangemaakt} nieuw, ${data.bijgewerkt} bijgewerkt.${onherkend}${fouten}`;
+    const teruggekoppeld = data.statusTeruggekoppeld ? ` "Voltooid"-status van ${data.statusTeruggekoppeld} boeking(en) teruggehaald.` : '';
+    resultaat.textContent = `${data.verstuurd} boeking(en) verstuurd — ${data.aangemaakt} nieuw, ${data.bijgewerkt} bijgewerkt.${teruggekoppeld}${onherkend}${fouten}`;
     resultaat.className = 'melding ok';
     resultaat.hidden = false;
   } catch (err) {

@@ -352,7 +352,9 @@ router.get('/:id', asyncHandler(async (req, res) => {
   const boeking = await zorgVoorAutomatischeAfstand(rows[0]);
 
   const { rows: producten } = await db.query(
-    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen, p.categorieen AS product_categorieen FROM boeking_producten bp
+    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen, p.categorieen AS product_categorieen,
+            (p.certificaat_bestandsnaam IS NOT NULL) AS product_heeft_certificaat
+     FROM boeking_producten bp
      JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
     [req.params.id]
   );

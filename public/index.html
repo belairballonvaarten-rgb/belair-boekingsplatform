@@ -33,6 +33,7 @@
         <div class="sidebar-groep">
           <p class="sidebar-groep-titel">Overzicht</p>
           <button class="navbtn" data-view="dashboard"><span class="navbtn-icoon">🗺️</span> Dashboard</button>
+          <button class="navbtn" data-view="planning"><span class="navbtn-icoon">🚚</span> Planning</button>
           <button class="navbtn" data-view="aanvragen"><span class="navbtn-icoon">📥</span> Aanvragen-inbox <span id="badge-aanvragen" class="badge" hidden>0</span></button>
           <button class="navbtn" data-view="boekingen"><span class="navbtn-icoon">📋</span> Reservatieoverzicht</button>
           <button class="navbtn" data-view="beschikbaarheid"><span class="navbtn-icoon">📆</span> Beschikbaarheid</button>
@@ -99,6 +100,40 @@
         <div class="dashboard-kolom">
           <h3><span id="dash-titel-ophalingen">🔙 Af te halen</span> <span id="dash-aantal-ophalingen" class="stat-categorie-totaal"></span></h3>
           <div id="dashboard-ophalingen-lijst" class="dashboard-kaarten"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- PLANNING (routes: voertuig + volgorde per dag opstellen) -->
+    <section id="view-planning" class="pagina" hidden>
+      <div class="dashboard-titelrij">
+        <h2>Planning</h2>
+        <div class="dashboard-datumkiezer">
+          <button type="button" id="btn-planning-vorige" class="linkbtn" title="Vorige dag">‹</button>
+          <input type="date" id="planning-datum" />
+          <button type="button" id="btn-planning-vandaag" class="linkbtn">Vandaag</button>
+          <button type="button" id="btn-planning-volgende" class="linkbtn" title="Volgende dag">›</button>
+        </div>
+      </div>
+      <p class="uitleg">Wijs een voertuig toe en bepaal met ▲/▼ de volgorde van de route — dit komt mee bij "Nu synchroniseren" (Instellingen) naar de leveringen-app.</p>
+
+      <div class="planning-voertuigbeheer">
+        <span class="planning-voertuigbeheer-label">Voertuigen:</span>
+        <span id="planning-voertuigen-lijst"></span>
+        <form id="form-planning-voertuig-toevoegen" class="planning-voertuig-toevoegen">
+          <input type="text" id="planning-nieuw-voertuig" placeholder="Nieuw voertuig..." />
+          <button type="submit">+ Toevoegen</button>
+        </form>
+      </div>
+
+      <div class="dashboard-kolommen">
+        <div class="dashboard-kolom">
+          <h3>📦 Te leveren <span id="planning-aantal-leveringen" class="stat-categorie-totaal"></span></h3>
+          <div id="planning-leveringen-lijst" class="planning-kolom"></div>
+        </div>
+        <div class="dashboard-kolom">
+          <h3>🔙 Af te halen <span id="planning-aantal-ophalingen" class="stat-categorie-totaal"></span></h3>
+          <div id="planning-ophalingen-lijst" class="planning-kolom"></div>
         </div>
       </div>
     </section>
@@ -248,7 +283,7 @@
 
       <div class="instellingen-blok">
         <h3>Koppeling met de leveringen-app</h3>
-        <p class="uitleg">Stuurt geplande boekingen (leverdatum, afhaaldatum, artikelen, voertuig) door naar de leveringen-app, zodat de crew ze daar niet manueel moet overtypen. Gebeurt enkel wanneer je hier op de knop drukt — niets automatisch, niets op de achtergrond.</p>
+        <p class="uitleg">Stuurt geplande boekingen (leverdatum, afhaaldatum, artikelen, voertuig + routevolgorde uit Planning) door naar de leveringen-app, en haalt meteen ook terug op welke leveringen/afhalingen de crew daar al als "geplaatst"/"afgerond" aangevinkt heeft (zichtbaar als "voltooid" op het Dashboard). Gebeurt enkel wanneer je hier op de knop drukt — niets automatisch, niets op de achtergrond.</p>
         <p id="instellingen-sync-niet-geconfigureerd" class="uitleg" hidden>Nog niet gekoppeld — zet <code>LEVERINGEN_APP_URL</code> en <code>LEVERINGEN_APP_SYNC_SECRET</code> bij de omgevingsvariabelen op Render (zie .env.example).</p>
         <button type="button" id="btn-sync-leveringen-app" class="linkbtn">🔄 Nu synchroniseren</button>
         <p id="instellingen-sync-resultaat" class="melding" hidden></p>
@@ -405,6 +440,20 @@
                 <option value="hidden">Verborgen</option>
               </select>
             </label>
+          </div>
+          <p class="uitleg" style="margin-top:0.6rem">Voor de laadlijst per voertuig:</p>
+          <div class="grid-2">
+            <label>Type motor
+              <select id="np-motor-type">
+                <option value="">— Onbekend —</option>
+                <option value="Standaard motor">Standaard motor</option>
+                <option value="Zware motor">Zware motor</option>
+              </select>
+            </label>
+            <label>Gewicht unit (kg)<input type="number" id="np-gewicht-kg" min="0" step="0.1" /></label>
+            <label>Valmatten (harde ondergrond)<input type="number" id="np-aantal-valmatten" min="0" step="1" /></label>
+            <label>Piketten (zachte ondergrond)<input type="number" id="np-aantal-piketten" min="0" step="1" /></label>
+            <label>Zandzakken (harde ondergrond)<input type="number" id="np-aantal-zandzakken" min="0" step="1" /></label>
           </div>
           <button type="submit">Product toevoegen</button>
           <p id="nieuw-product-fout" class="foutmelding"></p>
