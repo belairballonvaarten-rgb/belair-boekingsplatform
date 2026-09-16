@@ -5,6 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Belair-Fun — Boekingsplatform</title>
 <link rel="stylesheet" href="/css/style.css" />
+<!-- Leaflet: gratis, sleutelloze kaart (OpenStreetMap-tegels) voor de Routeplanning-pagina -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
 </head>
 <body>
 
@@ -52,6 +54,7 @@
           <p class="sidebar-groep-titel">Logistiek</p>
           <button class="navbtn" data-view="crew"><span class="navbtn-icoon">🧑‍🔧</span> Crew</button>
           <button class="navbtn" data-view="voertuigen"><span class="navbtn-icoon">🚐</span> Voertuigen</button>
+          <button class="navbtn" data-view="routeplanning"><span class="navbtn-icoon">🗺️</span> Routeplanning</button>
         </div>
         <div class="sidebar-groep">
           <p class="sidebar-groep-titel">Inzichten</p>
@@ -426,6 +429,31 @@
       </table>
     </section>
 
+    <!-- ROUTEPLANNING (punt 6, uitgebreid): kaart met de route van één voertuig
+         op één dag/richting, met de mogelijkheid om de volgorde nog te slepen
+         — dezelfde volgorde/tijdsinschatting als bij Planning, maar dan met
+         een kaart erbij i.p.v. enkel een tekstlijst. -->
+    <section id="view-routeplanning" class="pagina" hidden>
+      <h2>Routeplanning</h2>
+      <p class="uitleg">Kies een dag, voertuig en richting. Sleep een stop in de lijst om de volgorde te wijzigen — de kaart en tijdsinschatting worden meteen herberekend. Dezelfde volgorde geldt ook op de Planning-pagina.</p>
+      <div class="routeplanning-kiezers">
+        <label>Datum<input type="date" id="rp-datum" /></label>
+        <label>Voertuig<select id="rp-voertuig"></select></label>
+        <label>Richting
+          <select id="rp-type">
+            <option value="levering">Levering</option>
+            <option value="afhaling">Afhaling</option>
+          </select>
+        </label>
+        <button type="button" id="btn-rp-laden" class="secundair">Route tonen</button>
+      </div>
+      <p id="rp-samenvatting" class="uitleg"></p>
+      <div class="routeplanning-inhoud">
+        <div id="rp-kaart" class="routeplanning-kaart"></div>
+        <div id="rp-lijst" class="routeplanning-lijst"></div>
+      </div>
+    </section>
+
     <!-- BESCHIKBAARHEID (snel overzicht: wat is nog vrij op een datum/periode) -->
     <section id="view-beschikbaarheid" class="pagina" hidden>
       <h2>Beschikbaarheid</h2>
@@ -753,6 +781,7 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>

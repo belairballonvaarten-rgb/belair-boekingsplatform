@@ -894,6 +894,27 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .ef-blok { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; margin-top: 0.8rem; padding-top: 0.8rem; border-top: 1px solid var(--rand); }
 .ef-blok .melding { flex-basis: 100%; }
 
+/* Routeplanning: kaart (Leaflet) + sleepbare stoplijst ernaast — zie de
+   rp*-functies in app.js. */
+.routeplanning-kiezers { display: flex; align-items: flex-end; gap: 1rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
+.routeplanning-kiezers label { display: flex; flex-direction: column; font-size: 0.85rem; color: var(--grijs); gap: 0.2rem; }
+.routeplanning-inhoud { display: flex; gap: 1rem; align-items: flex-start; flex-wrap: wrap; }
+.routeplanning-kaart { flex: 2 1 480px; height: 65vh; min-height: 360px; border-radius: 8px; border: 1px solid var(--rand); }
+.routeplanning-lijst { flex: 1 1 280px; max-height: 65vh; overflow-y: auto; display: flex; flex-direction: column; gap: 0.4rem; }
+.rp-stop { display: flex; align-items: flex-start; gap: 0.5rem; background: white; border: 1px solid var(--rand); border-radius: 8px; padding: 0.5rem 0.6rem; cursor: grab; }
+.rp-stop-greep { color: var(--grijs); user-select: none; }
+.rp-stop-nr { font-weight: 700; color: var(--oranje, #e8631e); flex-shrink: 0; }
+.rp-stop-info { font-size: 0.84rem; line-height: 1.4; }
+.rp-stop-sleep-over { border-top: 2px solid var(--blauw, #2563eb); }
+.rp-stop-wordt-gesleept { opacity: 0.4; }
+.rp-magazijn-rij { cursor: default; background: var(--grijs-licht); border-style: dashed; }
+.rp-magazijn-icoon { font-size: 1.3rem; line-height: 26px; text-align: center; }
+
+@media (max-width: 900px) {
+  .routeplanning-kaart { flex-basis: 100%; height: 50vh; }
+  .routeplanning-lijst { flex-basis: 100%; max-height: none; }
+}
+
 @media (max-width: 900px) {
   .planning-stop-info { white-space: normal; }
 }

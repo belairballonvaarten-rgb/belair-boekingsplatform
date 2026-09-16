@@ -2,13 +2,24 @@ const express = require('express');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
-const { geocodeAdres } = require('../utils/afstand');
-const { berekenRijtijdenMinuten } = require('../utils/osrm');
+const { geocodeAdres, ONS_MAGAZIJN_ADRES } = require('../utils/afstand');
+const { berekenRoute } = require('../utils/osrm');
 
 // Vaste tijd per stop (parkeren, aanbellen, kort gesprek, terug naar het
 // voertuig) — komt bovenop de eventuele opsteltijd van de producten zelf.
 // "Gewoon een inschatting", zoals Jonas het zelf noemt — geen exacte wetenschap.
 const STOP_MINUTEN = 15;
+
+// Elk voertuig vertrekt vanuit en keert terug naar hetzelfde magazijn (zelfde
+// adres als bij de transportkost-berekening, zie utils/afstand.js) — dat
+// vertrek-/aankomstpunt hoort dus mee in de route-inschatting, niet enkel de
+// stops onderling. Eén keer per serverinstantie opgezocht (verandert nooit).
+let magazijnLocatieCache = null;
+async function haalMagazijnLocatieOp() {
+  if (magazijnLocatieCache) return magazijnLocatieCache;
+  magazijnLocatieCache = await geocodeAdres(ONS_MAGAZIJN_ADRES);
+  return magazijnLocatieCache;
+}
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -212,13 +223,38 @@ router.get('/route-inschatting', asyncHandler(async (req, res) => {
     }
   }
 
+  let magazijn = null;
+  try {
+    magazijn = await haalMagazijnLocatieOp();
+  } catch (err) {
+    waarschuwingen.push(`Startlocatie (magazijn, ${ONS_MAGAZIJN_ADRES}) kon niet gelokaliseerd worden (${err.message}) — de inschatting start/eindigt hierdoor bij de eerste/laatste stop zelf i.p.v. bij het magazijn.`);
+  }
+
   const bekendeStops = stops.filter((b) => b.lat != null && b.lng != null);
-  let rijtijdenMinuten = null;
-  if (bekendeStops.length >= 2) {
-    try {
-      rijtijdenMinuten = await berekenRijtijdenMinuten(bekendeStops.map((b) => ({ lat: Number(b.lat), lng: Number(b.lng) })));
-    } catch (err) {
-      waarschuwingen.push(`Rijtijden konden niet opgehaald worden (${err.message}) — enkel stop-/opsteltijden worden meegeteld.`);
+  let rijtijdenMinuten = null; // tussen de stops onderling
+  let rijtijdVanafMagazijn = null;
+  let rijtijdNaarMagazijn = null;
+  let geometrie = null;
+  if (bekendeStops.length >= 1) {
+    const puntenlijst = [
+      ...(magazijn ? [{ lat: magazijn.lat, lng: magazijn.lng }] : []),
+      ...bekendeStops.map((b) => ({ lat: Number(b.lat), lng: Number(b.lng) })),
+      ...(magazijn ? [{ lat: magazijn.lat, lng: magazijn.lng }] : []),
+    ];
+    if (puntenlijst.length >= 2) {
+      try {
+        const route = await berekenRoute(puntenlijst);
+        geometrie = route.geometrie;
+        if (magazijn) {
+          rijtijdVanafMagazijn = route.rijtijdenMinuten[0];
+          rijtijdNaarMagazijn = route.rijtijdenMinuten[route.rijtijdenMinuten.length - 1];
+          rijtijdenMinuten = route.rijtijdenMinuten.slice(1, route.rijtijdenMinuten.length - 1);
+        } else {
+          rijtijdenMinuten = route.rijtijdenMinuten;
+        }
+      } catch (err) {
+        waarschuwingen.push(`Rijtijden konden niet opgehaald worden (${err.message}) — enkel stop-/opsteltijden worden meegeteld.`);
+      }
     }
   }
 
@@ -230,9 +266,12 @@ router.get('/route-inschatting', asyncHandler(async (req, res) => {
     const heeftLocatie = b.lat != null && b.lng != null;
     if (heeftLocatie) {
       bekendeIndex++;
-      if (i > 0 && bekendeIndex > 0 && rijtijdenMinuten) rijtijd = rijtijdenMinuten[bekendeIndex - 1];
+      if (bekendeIndex === 0) {
+        rijtijd = magazijn ? rijtijdVanafMagazijn : 0;
+      } else if (rijtijdenMinuten) {
+        rijtijd = rijtijdenMinuten[bekendeIndex - 1];
+      }
     }
-    if (i === 0) rijtijd = 0;
     if (rijtijd != null) klokMinuten += rijtijd;
     const aankomstTijd = minutenNaarTijd(klokMinuten);
     const opstelMinuten = Array.isArray(b.producten_detail)
@@ -243,6 +282,8 @@ router.get('/route-inschatting', asyncHandler(async (req, res) => {
       boekingId: b.id,
       klantNaam: b.klant_naam,
       adres: b._adres,
+      lat: heeftLocatie ? Number(b.lat) : null,
+      lng: heeftLocatie ? Number(b.lng) : null,
       rijtijdMinuten: rijtijd,
       aankomstTijd,
       stopMinuten: STOP_MINUTEN,
@@ -252,15 +293,26 @@ router.get('/route-inschatting', asyncHandler(async (req, res) => {
     };
   });
 
+  if (magazijn && rijtijdNaarMagazijn != null) klokMinuten += rijtijdNaarMagazijn;
+
   res.json({
     voertuigNaam,
     datum,
     type,
     vertrekTijd: minutenNaarTijd(startMinuten),
     eindTijd: minutenNaarTijd(klokMinuten),
-    totaalRijtijdMinuten: resultaatStops.reduce((som, s) => som + (s.rijtijdMinuten || 0), 0),
+    totaalRijtijdMinuten: resultaatStops.reduce((som, s) => som + (s.rijtijdMinuten || 0), 0) + (rijtijdNaarMagazijn || 0),
     totaalMinuten: klokMinuten - startMinuten,
     stops: resultaatStops,
+    magazijn: magazijn ? {
+      adres: ONS_MAGAZIJN_ADRES,
+      lat: magazijn.lat,
+      lng: magazijn.lng,
+      vertrekTijd: minutenNaarTijd(startMinuten),
+      terugRijtijdMinuten: rijtijdNaarMagazijn,
+      terugTijd: minutenNaarTijd(klokMinuten),
+    } : null,
+    geometrie,
     waarschuwingen,
   });
 }));

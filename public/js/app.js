@@ -302,7 +302,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'boeking-detail', 'klant-detail'];
+const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -334,6 +334,7 @@ function wisselView(naam) {
   if (naam === 'instellingen') laadInstellingen();
   if (naam === 'crew') laadCrewOverzicht();
   if (naam === 'voertuigen') laadVoertuigenBeheerOverzicht();
+  if (naam === 'routeplanning') rpOpenen();
   if (naam === 'webinzendingen') laadWebinzendingen();
 }
 
@@ -1040,6 +1041,11 @@ async function planningBerekenRoute(container, voertuigNaam, type) {
   try {
     const data = await api(`/api/planning/route-inschatting?voertuigNaam=${encodeURIComponent(voertuigNaam)}&datum=${encodeURIComponent(datum)}&type=${encodeURIComponent(type)}`);
     resultEl.innerHTML = planningRouteResultaatHtml(data);
+    const kaartBtn = resultEl.querySelector('.btn-route-op-kaart');
+    if (kaartBtn) kaartBtn.addEventListener('click', () => {
+      wisselView('routeplanning');
+      rpOpenen({ voertuigNaam, datum, type });
+    });
   } catch (err) {
     resultEl.innerHTML = `<p class="foutmelding">${err.message}</p>`;
   }
@@ -1053,16 +1059,196 @@ function planningRouteResultaatHtml(data) {
       <span class="uitleg">${s.rijtijdMinuten != null ? `${s.rijtijdMinuten} min rijden · ` : ''}${s.opstelMinuten ? `${s.opstelMinuten} min opstellen · ` : ''}vertrek ${s.vertrekTijd}</span>
     </div>
   `).join('');
+  const kaartKnopHtml = '<button type="button" class="linkbtn btn-route-op-kaart">🗺️ Op kaart bekijken &amp; volgorde wisselen</button>';
   const uur = Math.floor(data.totaalMinuten / 60);
   const min = data.totaalMinuten % 60;
   const waarschuwingenHtml = (data.waarschuwingen || []).length
     ? `<p class="foutmelding">${data.waarschuwingen.join('<br>')}</p>` : '';
+  const vertrekLabel = data.magazijn ? 'Vertrek magazijn' : 'Vertrek';
+  const terugLabel = data.magazijn ? 'terug in het magazijn rond' : 'terug rond';
   return `
-    <div class="planning-route-samenvatting">Vertrek ${data.vertrekTijd} → terug rond ${data.eindTijd} (±${uur}u${String(min).padStart(2, '0')}, waarvan ${data.totaalRijtijdMinuten} min rijden) — <span class="uitleg">gewoon een inschatting</span></div>
+    <div class="planning-route-samenvatting">${vertrekLabel} ${data.vertrekTijd} → ${terugLabel} ${data.eindTijd} (±${uur}u${String(min).padStart(2, '0')}, waarvan ${data.totaalRijtijdMinuten} min rijden) — <span class="uitleg">gewoon een inschatting${data.magazijn ? '' : ' (startlocatie magazijn niet gekend)'}</span> ${kaartKnopHtml}</div>
     ${stopsHtml}
     ${waarschuwingenHtml}
   `;
 }
+
+// ============================================================
+// ROUTEPLANNING (eigen pagina): dezelfde route-inschatting als hierboven,
+// maar met een kaart (Leaflet + OpenStreetMap-tegels + OSRM-routegeometrie)
+// en de mogelijkheid om de volgorde nog te wijzigen door te slepen — de
+// volgorde die hier gezet wordt is dezelfde als op de Planning-pagina
+// (zelfde /api/planning/volgorde-endpoint), dus beide pagina's blijven altijd
+// gesynchroniseerd.
+// ============================================================
+let rpKaart = null;
+let rpMarkers = [];
+let rpPolyline = null;
+let rpGesleeptStop = null;
+
+function rpVulVoertuigSelect(voorkeurNaam) {
+  const select = document.getElementById('rp-voertuig');
+  const huidige = voorkeurNaam || select.value;
+  select.innerHTML = VOERTUIGEN.length
+    ? VOERTUIGEN.map((v) => `<option value="${v.naam}">${v.naam}</option>`).join('')
+    : '<option value="">Geen voertuigen ingesteld</option>';
+  if (huidige && VOERTUIGEN.some((v) => v.naam === huidige)) select.value = huidige;
+}
+
+// voorkeur: optioneel { voertuigNaam, datum, type } — gebruikt bij het
+// doorklikken vanuit de Planning-pagina ("🗺️ Op kaart bekijken").
+function rpOpenen(voorkeur) {
+  rpVulVoertuigSelect(voorkeur && voorkeur.voertuigNaam);
+  const datumEl = document.getElementById('rp-datum');
+  if (voorkeur && voorkeur.datum) datumEl.value = voorkeur.datum;
+  else if (!datumEl.value) datumEl.value = new Date().toISOString().slice(0, 10);
+  if (voorkeur && voorkeur.type) document.getElementById('rp-type').value = voorkeur.type;
+  if (voorkeur && voorkeur.voertuigNaam) document.getElementById('rp-voertuig').value = voorkeur.voertuigNaam;
+  if (document.getElementById('rp-voertuig').value) rpLaadRoute();
+}
+
+function rpInitKaart() {
+  if (rpKaart) return;
+  rpKaart = L.map('rp-kaart').setView([51.05, 3.85], 9); // ongeveer regio Overmere, tot er stops zijn
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-bijdragers',
+    maxZoom: 19,
+  }).addTo(rpKaart);
+}
+
+const rpMagazijnIcon = L.divIcon({
+  html: '🏠',
+  className: 'rp-magazijn-icoon',
+  iconSize: [26, 26],
+  iconAnchor: [13, 13],
+});
+
+function rpRenderKaart(data) {
+  rpInitKaart();
+  rpMarkers.forEach((m) => rpKaart.removeLayer(m));
+  rpMarkers = [];
+  if (rpPolyline) { rpKaart.removeLayer(rpPolyline); rpPolyline = null; }
+
+  if (data.magazijn) {
+    const magazijnMarker = L.marker([data.magazijn.lat, data.magazijn.lng], { icon: rpMagazijnIcon }).addTo(rpKaart)
+      .bindPopup(`<strong>🏠 Magazijn</strong><br>${data.magazijn.adres}<br>Vertrek ${data.magazijn.vertrekTijd} · terug ~${data.magazijn.terugTijd}`);
+    rpMarkers.push(magazijnMarker);
+  }
+
+  const gekend = data.stops.filter((s) => !s.geenLocatie && s.lat != null && s.lng != null);
+  gekend.forEach((s, i) => {
+    const marker = L.marker([s.lat, s.lng]).addTo(rpKaart)
+      .bindPopup(`<strong>${i + 1}. ${s.klantNaam}</strong><br>${s.adres || ''}<br>Aankomst ~${s.aankomstTijd}`);
+    rpMarkers.push(marker);
+  });
+
+  const bolvormBoundsPunten = data.magazijn ? [[data.magazijn.lat, data.magazijn.lng], ...gekend.map((s) => [s.lat, s.lng])] : gekend.map((s) => [s.lat, s.lng]);
+  if (data.geometrie && Array.isArray(data.geometrie.coordinates) && data.geometrie.coordinates.length) {
+    const latlngs = data.geometrie.coordinates.map(([lng, lat]) => [lat, lng]);
+    rpPolyline = L.polyline(latlngs, { color: '#e8631e', weight: 4 }).addTo(rpKaart);
+    rpKaart.fitBounds(rpPolyline.getBounds(), { padding: [30, 30] });
+  } else if (bolvormBoundsPunten.length) {
+    rpKaart.fitBounds(L.latLngBounds(bolvormBoundsPunten), { padding: [30, 30] });
+  }
+}
+
+function rpRenderLijst(data, voertuigNaam, datum, type) {
+  const container = document.getElementById('rp-lijst');
+  if (!data.stops.length) {
+    container.innerHTML = '<p class="leeg-bericht">Niets gepland voor deze combinatie.</p>';
+    return;
+  }
+  const magazijnVertrekHtml = data.magazijn ? `
+    <div class="rp-stop rp-magazijn-rij">
+      <span class="rp-stop-greep">🏠</span>
+      <span class="rp-stop-info"><strong>Magazijn (vertrek)</strong><br><span class="uitleg">${data.magazijn.adres} · ${data.magazijn.vertrekTijd}</span></span>
+    </div>
+  ` : '';
+  const magazijnTerugHtml = data.magazijn ? `
+    <div class="rp-stop rp-magazijn-rij">
+      <span class="rp-stop-greep">🏠</span>
+      <span class="rp-stop-info"><strong>Magazijn (terug)</strong><br><span class="uitleg">${data.magazijn.adres} · ~${data.magazijn.terugTijd}${data.magazijn.terugRijtijdMinuten != null ? ` (${data.magazijn.terugRijtijdMinuten} min rijden)` : ''}</span></span>
+    </div>
+  ` : '';
+
+  container.innerHTML = magazijnVertrekHtml + data.stops.map((s, i) => `
+    <div class="rp-stop" draggable="true" data-boeking-id="${s.boekingId}">
+      <span class="rp-stop-greep" title="Sleep om de volgorde te wijzigen">⠿</span>
+      <span class="rp-stop-nr">${i + 1}</span>
+      <span class="rp-stop-info">
+        <strong>${s.klantNaam}</strong>${s.geenLocatie ? ' <span class="uitleg">(adres niet gelokaliseerd)</span>' : ''}<br>
+        <span class="uitleg">${s.adres || ''}</span><br>
+        <span class="uitleg">Aankomst ~${s.aankomstTijd}${s.rijtijdMinuten != null ? ` (${s.rijtijdMinuten} min rijden)` : ''}${s.opstelMinuten ? ` · ${s.opstelMinuten} min opstellen` : ''}</span>
+      </span>
+    </div>
+  `).join('') + magazijnTerugHtml;
+
+  container.querySelectorAll('.rp-stop:not(.rp-magazijn-rij)').forEach((el) => {
+    el.addEventListener('dragstart', () => {
+      rpGesleeptStop = el;
+      el.classList.add('rp-stop-wordt-gesleept');
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('rp-stop-wordt-gesleept');
+      container.querySelectorAll('.rp-stop-sleep-over').forEach((n) => n.classList.remove('rp-stop-sleep-over'));
+      rpGesleeptStop = null;
+    });
+    el.addEventListener('dragover', (e) => {
+      if (!rpGesleeptStop || rpGesleeptStop === el) return;
+      e.preventDefault();
+      el.classList.add('rp-stop-sleep-over');
+    });
+    el.addEventListener('dragleave', () => el.classList.remove('rp-stop-sleep-over'));
+    el.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      el.classList.remove('rp-stop-sleep-over');
+      if (!rpGesleeptStop || rpGesleeptStop === el) return;
+      const rect = el.getBoundingClientRect();
+      const voorHelft = (e.clientY - rect.top) < rect.height / 2;
+      el.parentNode.insertBefore(rpGesleeptStop, voorHelft ? el : el.nextSibling);
+
+      const volgorde = [...container.querySelectorAll('.rp-stop:not(.rp-magazijn-rij)')].map((node, idx) => ({ boekingId: node.dataset.boekingId, positie: idx + 1 }));
+      try {
+        await api('/api/planning/volgorde', { method: 'PUT', body: JSON.stringify({ type, volgorde }) });
+        rpLaadRoute();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+async function rpLaadRoute() {
+  const datum = document.getElementById('rp-datum').value;
+  const voertuigNaam = document.getElementById('rp-voertuig').value;
+  const type = document.getElementById('rp-type').value;
+  const samenvatting = document.getElementById('rp-samenvatting');
+  if (!datum || !voertuigNaam) {
+    samenvatting.textContent = 'Kies een datum en een voertuig.';
+    return;
+  }
+  samenvatting.textContent = 'Route wordt berekend...';
+  try {
+    const data = await api(`/api/planning/route-inschatting?voertuigNaam=${encodeURIComponent(voertuigNaam)}&datum=${encodeURIComponent(datum)}&type=${encodeURIComponent(type)}`);
+    rpRenderKaart(data);
+    rpRenderLijst(data, voertuigNaam, datum, type);
+    if (!data.stops.length) {
+      samenvatting.textContent = 'Niets gepland voor deze combinatie.';
+    } else {
+      const uur = Math.floor(data.totaalMinuten / 60);
+      const min = data.totaalMinuten % 60;
+      samenvatting.textContent = `Vertrek ${data.vertrekTijd} → terug rond ${data.eindTijd} (±${uur}u${String(min).padStart(2, '0')}, waarvan ${data.totaalRijtijdMinuten} min rijden) — gewoon een inschatting.`
+        + ((data.waarschuwingen || []).length ? ` ${data.waarschuwingen.join(' ')}` : '');
+    }
+  } catch (err) {
+    samenvatting.textContent = err.message;
+  }
+}
+
+document.getElementById('btn-rp-laden').addEventListener('click', rpLaadRoute);
+document.getElementById('rp-voertuig').addEventListener('change', rpLaadRoute);
+document.getElementById('rp-type').addEventListener('change', rpLaadRoute);
+document.getElementById('rp-datum').addEventListener('change', rpLaadRoute);
 
 // Bereik-weergave (Deze week/Volgende week/Aangepast, ...): per dag gegroepeerd
 // en daarbinnen per voertuig. Voertuig toewijzen kan hier ook al (zelfde
