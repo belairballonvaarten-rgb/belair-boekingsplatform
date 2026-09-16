@@ -49,6 +49,11 @@
           <button class="navbtn" data-view="reservatie-import"><span class="navbtn-icoon">⬆️</span> Reservaties importeren</button>
         </div>
         <div class="sidebar-groep">
+          <p class="sidebar-groep-titel">Logistiek</p>
+          <button class="navbtn" data-view="crew"><span class="navbtn-icoon">🧑‍🔧</span> Crew</button>
+          <button class="navbtn" data-view="voertuigen"><span class="navbtn-icoon">🚐</span> Voertuigen</button>
+        </div>
+        <div class="sidebar-groep">
           <p class="sidebar-groep-titel">Inzichten</p>
           <button class="navbtn" data-view="statistieken"><span class="navbtn-icoon">📊</span> Statistieken</button>
         </div>
@@ -351,6 +356,74 @@
         <button type="button" id="btn-sync-leveringen-app" class="linkbtn">🔄 Nu synchroniseren</button>
         <p id="instellingen-sync-resultaat" class="melding" hidden></p>
       </div>
+
+      <div class="instellingen-blok">
+        <h3>E-mailtemplates</h3>
+        <p class="uitleg">Sjablonen die je vanuit een boekingdossier (bij "Communicatie") naar de klant kan sturen, via je eigen Microsoft 365-account. Plaatshouders die automatisch ingevuld worden met de gegevens van die ene boeking: <code>{{klant_naam}}</code>, <code>{{producten}}</code>, <code>{{periode}}</code>, <code>{{datum_start}}</code>, <code>{{datum_einde}}</code>, <code>{{prijs}}</code>, <code>{{transportkost}}</code>, <code>{{totaal}}</code>, <code>{{saldo}}</code>, <code>{{boeking_nummer}}</code>.</p>
+        <div id="lijst-mail-templates"></div>
+        <details id="nieuwe-template-details">
+          <summary>+ Nieuwe template toevoegen</summary>
+          <form id="form-nieuwe-template">
+            <label>Naam<input type="text" id="nt-naam" required /></label>
+            <label>Onderwerp<input type="text" id="nt-onderwerp" required /></label>
+            <label>Inhoud<textarea id="nt-inhoud" rows="6" required></textarea></label>
+            <button type="submit">Template toevoegen</button>
+            <p id="nieuwe-template-fout" class="foutmelding"></p>
+          </form>
+        </details>
+      </div>
+    </section>
+
+    <!-- CREW (logistiek: crewleden van de leveringen-app beheren + meldingen sturen) -->
+    <section id="view-crew" class="pagina" hidden>
+      <h2>Crew</h2>
+      <p class="uitleg">Crewleden die kunnen inloggen op de leveringen-app (het scherm dat de chauffeurs op hun telefoon gebruiken). Stuur hier ook een pushmelding naar iemands telefoon — dat werkt enkel als die persoon zelf al meldingen heeft aangezet in de crew-app.</p>
+
+      <details id="nieuwe-crew-details">
+        <summary>+ Nieuw crewlid toevoegen</summary>
+        <form id="form-nieuwe-crew">
+          <div class="grid-2">
+            <label>Naam*<input type="text" id="nc-naam" required /></label>
+            <label>Gebruikersnaam*<input type="text" id="nc-username" required /></label>
+            <label>Wachtwoord* (minstens 6 tekens)<input type="password" id="nc-wachtwoord" required minlength="6" /></label>
+            <label>Rol
+              <select id="nc-rol">
+                <option value="plaatser">Plaatser</option>
+                <option value="admin">Admin (crew-app)</option>
+              </select>
+            </label>
+            <label>Telefoon<input type="text" id="nc-telefoon" placeholder="Optioneel" /></label>
+            <label>Opmerking<input type="text" id="nc-opmerking" placeholder="Optioneel" /></label>
+          </div>
+          <button type="submit">Crewlid toevoegen</button>
+          <p id="nieuwe-crew-fout" class="foutmelding"></p>
+        </form>
+      </details>
+
+      <table class="tabel">
+        <thead><tr><th>Naam</th><th>Gebruikersnaam</th><th>Rol</th><th>Telefoon</th><th>Opmerking</th><th></th><th></th><th></th></tr></thead>
+        <tbody id="tabel-crew"></tbody>
+      </table>
+    </section>
+
+    <!-- VOERTUIGEN (logistiek: voertuigen beheren, toegangscode vast iPad-account, meldingen sturen) -->
+    <section id="view-voertuigen" class="pagina" hidden>
+      <h2>Voertuigen</h2>
+      <p class="uitleg">De voertuigen waaraan je leveringen/afhalingen toewijst in Planning. Zet hier ook een vaste toegangscode per voertuig — daarmee meldt de iPad in dat voertuig zich één keer aan in de crew-app (los van wie er die dag in rijdt) en blijft daarna gewoon ingelogd. Zodra ze aangemeld is kan je hier ook rechtstreeks een melding naar die iPad sturen.</p>
+
+      <details id="nieuw-voertuig-beheer-details">
+        <summary>+ Nieuw voertuig toevoegen</summary>
+        <form id="form-nieuw-voertuig-beheer">
+          <label>Naam*<input type="text" id="nv-naam" required /></label>
+          <button type="submit">Voertuig toevoegen</button>
+          <p id="nieuw-voertuig-beheer-fout" class="foutmelding"></p>
+        </form>
+      </details>
+
+      <table class="tabel">
+        <thead><tr><th>Naam</th><th>Toegangscode (iPad)</th><th></th><th></th><th></th></tr></thead>
+        <tbody id="tabel-voertuigen-beheer"></tbody>
+      </table>
     </section>
 
     <!-- BESCHIKBAARHEID (snel overzicht: wat is nog vrij op een datum/periode) -->
@@ -517,7 +590,13 @@
             <label>Valmatten (harde ondergrond)<input type="number" id="np-aantal-valmatten" min="0" step="1" /></label>
             <label>Piketten (zachte ondergrond)<input type="number" id="np-aantal-piketten" min="0" step="1" /></label>
             <label>Zandzakken (harde ondergrond)<input type="number" id="np-aantal-zandzakken" min="0" step="1" /></label>
+            <label>Aantal motors<input type="number" id="np-aantal-motors" min="0" step="1" /></label>
+            <label>Verlengkabel standaard<input type="number" id="np-verlengkabel-standaard" min="0" step="1" /></label>
+            <label>Verlengkabel dubbel<input type="number" id="np-verlengkabel-dubbel" min="0" step="1" /></label>
+            <label>Opsteltijd (minuten, voor routeplanner)<input type="number" id="np-opsteltijd" min="0" step="1" /></label>
           </div>
+          <label>Overige benodigdheden<input type="text" id="np-overige-benodigdheden" placeholder="bv. Ballen + 2 stokken" /></label>
+          <label>Opmerking materiaal<input type="text" id="np-materiaal-opmerking" placeholder="optioneel" /></label>
           <button type="submit">Product toevoegen</button>
           <p id="nieuw-product-fout" class="foutmelding"></p>
         </form>
@@ -640,6 +719,32 @@
       <div class="modal-inhoud">
         <button id="btn-modal-gebruiker-bewerken-sluiten" class="modal-sluiten">&times;</button>
         <div id="modal-gebruiker-bewerken-inhoud"></div>
+      </div>
+    </div>
+
+    <!-- CREW BEWERKEN (modal) -->
+    <div id="modal-crew-bewerken" class="modal" hidden>
+      <div class="modal-inhoud">
+        <button id="btn-modal-crew-bewerken-sluiten" class="modal-sluiten">&times;</button>
+        <div id="modal-crew-bewerken-inhoud"></div>
+      </div>
+    </div>
+
+    <!-- MELDING STUREN (modal, herbruikt voor zowel een crewlid als een voertuig) -->
+    <div id="modal-melding" class="modal" hidden>
+      <div class="modal-inhoud">
+        <button id="btn-modal-melding-sluiten" class="modal-sluiten">&times;</button>
+        <h3 id="modal-melding-titel">Melding sturen</h3>
+        <form id="form-melding">
+          <label>Titel*<input type="text" id="melding-titel" required /></label>
+          <label>Bericht*<textarea id="melding-bericht" required rows="3"></textarea></label>
+          <div class="form-acties">
+            <button type="submit">Versturen</button>
+            <button type="button" id="btn-melding-annuleren" class="linkbtn">Annuleren</button>
+          </div>
+          <p id="melding-fout" class="foutmelding"></p>
+          <p id="melding-resultaat" class="melding" hidden></p>
+        </form>
       </div>
     </div>
   </main>

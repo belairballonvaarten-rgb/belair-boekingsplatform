@@ -17,6 +17,8 @@ const PRODUCT_KOLOMMEN_ZONDER_BESTAND = `
   overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid,
   afbeeldingen, afmetingen, leeftijdscategorie, kostprijs, staat, staat_bijgewerkt_op,
   motor_type, gewicht_kg, aantal_valmatten, aantal_piketten, aantal_zandzakken,
+  aantal_motors, verlengkabel_standaard, verlengkabel_dubbel, overige_benodigdheden,
+  materiaal_opmerking, gemiddelde_opsteltijd_minuten,
   certificaat_bestandsnaam, certificaat_mimetype, certificaat_upload_op,
   (certificaat_bestandsnaam IS NOT NULL) AS heeft_certificaat,
   aangemaakt_op, bijgewerkt_op
@@ -70,6 +72,8 @@ router.post('/', asyncHandler(async (req, res) => {
     overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid,
     afbeeldingen, afmetingen, leeftijdscategorie, kostprijs,
     motor_type, gewicht_kg, aantal_valmatten, aantal_piketten, aantal_zandzakken,
+    aantal_motors, verlengkabel_standaard, verlengkabel_dubbel, overige_benodigdheden,
+    materiaal_opmerking, gemiddelde_opsteltijd_minuten,
   } = req.body;
 
   if (!naam) return res.status(400).json({ fout: 'Naam is verplicht' });
@@ -80,8 +84,10 @@ router.post('/', asyncHandler(async (req, res) => {
        max_boekingen_per_dag, availability_buffer_dagen, overnachting_mogelijk,
        overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid,
        afbeeldingen, afmetingen, leeftijdscategorie, kostprijs,
-       motor_type, gewicht_kg, aantal_valmatten, aantal_piketten, aantal_zandzakken
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+       motor_type, gewicht_kg, aantal_valmatten, aantal_piketten, aantal_zandzakken,
+       aantal_motors, verlengkabel_standaard, verlengkabel_dubbel, overige_benodigdheden,
+       materiaal_opmerking, gemiddelde_opsteltijd_minuten
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
      RETURNING ${PRODUCT_KOLOMMEN_ZONDER_BESTAND}`,
     [
       naam, categorieen || [], sku || null, prijs || 0, weekendprijs || null, afhaalprijs || null,
@@ -90,6 +96,8 @@ router.post('/', asyncHandler(async (req, res) => {
       overnachting_toeslag, parent_id || null, korting_toegelaten !== false, zichtbaarheid || 'bookbaar',
       afbeeldingen || [], afmetingen, leeftijdscategorie, kostprijs,
       motor_type || null, gewicht_kg || null, aantal_valmatten || null, aantal_piketten || null, aantal_zandzakken || null,
+      aantal_motors || null, verlengkabel_standaard || null, verlengkabel_dubbel || null, overige_benodigdheden || null,
+      materiaal_opmerking || null, gemiddelde_opsteltijd_minuten || null,
     ]
   );
   res.status(201).json(rows[0]);
@@ -215,6 +223,8 @@ router.put('/:id', asyncHandler(async (req, res) => {
     'overnachting_toeslag', 'parent_id', 'korting_toegelaten', 'zichtbaarheid',
     'afbeeldingen', 'afmetingen', 'leeftijdscategorie', 'kostprijs', 'staat',
     'motor_type', 'gewicht_kg', 'aantal_valmatten', 'aantal_piketten', 'aantal_zandzakken',
+    'aantal_motors', 'verlengkabel_standaard', 'verlengkabel_dubbel', 'overige_benodigdheden',
+    'materiaal_opmerking', 'gemiddelde_opsteltijd_minuten',
   ];
   const updates = [];
   const params = [];

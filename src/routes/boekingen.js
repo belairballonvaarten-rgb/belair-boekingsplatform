@@ -6,6 +6,13 @@ const { berekenAfstandKm, berekenTransportkost } = require('../utils/afstand');
 const { berekenAantalDagen, berekenMeerdaagsePrijs } = require('../utils/prijzen');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { verstuurMail, isGeconfigureerd: mailIsGeconfigureerd } = require('../utils/mailer');
+const { vulTemplateIn, bouwTemplateContext } = require('../utils/mailTemplates');
+const {
+  isGeconfigureerd: efIsGeconfigureerd,
+  zorgVoorKlant: efZorgVoorKlant,
+  maakFactuur: efMaakFactuur,
+  maakBetaalverzoek: efMaakBetaalverzoek,
+} = require('../utils/eenvoudigFactureren');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -98,6 +105,118 @@ router.post('/bulk-email', asyncHandler(async (req, res) => {
     }
   }
   res.json({ resultaten });
+}));
+
+// Verstuurt één van de (in Instellingen beheerde) e-mailtemplates naar de
+// klant van dit ene dossier, met de {{plaatshouders}} al ingevuld met de
+// gegevens van deze boeking — en logt dat net als bulk-email in Communicatie.
+router.post('/:id/verstuur-template', asyncHandler(async (req, res) => {
+  const { templateId } = req.body || {};
+  if (!templateId) return res.status(400).json({ fout: 'templateId is verplicht' });
+
+  const { rows: templateRows } = await db.query('SELECT * FROM mail_templates WHERE id = $1', [templateId]);
+  const template = templateRows[0];
+  if (!template) return res.status(404).json({ fout: 'Template niet gevonden' });
+
+  const { rows: boekingRows } = await db.query(
+    `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email
+     FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
+    [req.params.id]
+  );
+  const boeking = boekingRows[0];
+  if (!boeking) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+  if (!boeking.klant_email) return res.status(400).json({ fout: 'Deze klant heeft geen e-mailadres bekend' });
+
+  const { rows: producten } = await db.query(
+    `SELECT p.naam, bp.aantal FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1 ORDER BY p.naam`,
+    [req.params.id]
+  );
+  const prijstabel = await berekenPrijstabel(req.params.id);
+  const context = bouwTemplateContext(boeking, producten, prijstabel);
+
+  const onderwerp = vulTemplateIn(template.onderwerp, context);
+  const inhoud = vulTemplateIn(template.inhoud, context);
+
+  try {
+    await verstuurMail({ naar: boeking.klant_email, onderwerp, html: inhoud.replace(/\n/g, '<br>') });
+    await db.query(
+      `INSERT INTO communicatie (boeking_id, type, richting, onderwerp, inhoud) VALUES ($1, 'email', 'uitgaand', $2, $3)`,
+      [req.params.id, onderwerp, inhoud]
+    );
+    res.json({ verstuurd: true, onderwerp });
+  } catch (err) {
+    res.status(502).json({ fout: `Versturen mislukt: ${err.message}` });
+  }
+}));
+
+// Maakt een factuur of betaalverzoek aan in EenvoudigFactureren voor deze
+// boeking (klant wordt hergebruikt/aangemaakt daar, lijnen = producten +
+// transportkost + eventuele toeslag/korting). Zie utils/eenvoudigFactureren.js
+// voor de belangrijke kanttekeningen — dit is niet live getest tegen een
+// echte account, dus foutmeldingen van EenvoudigFactureren zelf komen zo veel
+// mogelijk letterlijk terug naar Jonas toe.
+router.post('/:id/eenvoudigfactureren', asyncHandler(async (req, res) => {
+  const soort = req.body && req.body.soort === 'betaalverzoek' ? 'betaalverzoek' : 'factuur';
+  if (!efIsGeconfigureerd()) {
+    return res.status(501).json({ fout: 'EenvoudigFactureren is nog niet gekoppeld — EENVOUDIGFACTUREREN_API_KEY ontbreekt bij Render.' });
+  }
+
+  const { rows: boekingRows } = await db.query(
+    `SELECT b.id, k.id AS klant_id, k.naam AS klant_naam, k.email AS klant_email, k.adres AS klant_adres,
+            k.postcode AS klant_postcode, k.gemeente AS klant_gemeente, k.eenvoudigfactureren_klant_id
+     FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
+    [req.params.id]
+  );
+  const boeking = boekingRows[0];
+  if (!boeking) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+
+  const { rows: producten } = await db.query(
+    `SELECT p.naam, bp.aantal, bp.prijs FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1 ORDER BY p.naam`,
+    [req.params.id]
+  );
+  if (!producten.length) return res.status(400).json({ fout: 'Deze boeking heeft geen producten om te factureren' });
+
+  const prijstabel = await berekenPrijstabel(req.params.id);
+  const regels = producten.map((p) => ({
+    omschrijving: p.naam,
+    aantal: Number(p.aantal) || 1,
+    bedrag_incl_btw: Number(p.prijs),
+  }));
+  if (prijstabel.transportkost) {
+    regels.push({ omschrijving: 'Transportkost', aantal: 1, bedrag_incl_btw: prijstabel.transportkost });
+  }
+  if (prijstabel.toeslag_korting) {
+    regels.push({ omschrijving: prijstabel.toeslag_korting > 0 ? 'Toeslag' : 'Korting', aantal: 1, bedrag_incl_btw: prijstabel.toeslag_korting });
+  }
+
+  try {
+    const klantId = await efZorgVoorKlant(db, {
+      id: boeking.klant_id,
+      naam: boeking.klant_naam,
+      email: boeking.klant_email,
+      adres: boeking.klant_adres,
+      postcode: boeking.klant_postcode,
+      gemeente: boeking.klant_gemeente,
+      eenvoudigfactureren_klant_id: boeking.eenvoudigfactureren_klant_id,
+    });
+
+    const notitie = `Belair-Fun boeking ${req.params.id.slice(0, 8)}`;
+    const resultaat = soort === 'betaalverzoek'
+      ? await efMaakBetaalverzoek(klantId, regels, notitie)
+      : await efMaakFactuur(klantId, regels, notitie);
+
+    if (resultaat.url) {
+      await db.query('UPDATE boekingen SET eenvoudigfactureren_laatste_url = $1 WHERE id = $2', [resultaat.url, req.params.id]);
+    }
+    await db.query(
+      `INSERT INTO communicatie (boeking_id, type, richting, onderwerp, inhoud) VALUES ($1, 'notitie', 'intern', $2, $3)`,
+      [req.params.id, `${soort === 'betaalverzoek' ? 'Betaalverzoek' : 'Factuur'} aangemaakt in EenvoudigFactureren`, resultaat.url || `id: ${resultaat.id || '?'}`]
+    );
+
+    res.json({ url: resultaat.url, id: resultaat.id, viaFallback: !!resultaat.viaFallback });
+  } catch (err) {
+    res.status(502).json({ fout: err.message });
+  }
 }));
 
 // Gedeelde filter (status/periode/klant) en basisquery voor het boekingenoverzicht —
@@ -373,6 +492,19 @@ router.get('/:id', asyncHandler(async (req, res) => {
   );
   const prijstabel = await berekenPrijstabel(req.params.id);
 
+  // Foto's die de chauffeur bij plaatsing/afhaling in de crew-app nam — die
+  // schrijft rechtstreeks in dezelfde databank (leveringen_fotos), dus hier
+  // gewoon meelezen. Wordt best-effort ook al naar Dropbox gekopieerd door de
+  // crew-app zelf op het moment van uploaden.
+  const { rows: fotos } = await db.query(
+    `SELECT lf.id, lf.fase, lf.naam, lf.data_url, lf.aangemaakt_op
+     FROM leveringen_fotos lf
+     JOIN leveringen l ON l.id = lf.leveringen_id
+     WHERE l.boeking_id = $1
+     ORDER BY lf.aangemaakt_op`,
+    [req.params.id]
+  );
+
   res.json({
     ...boeking,
     producten,
@@ -380,6 +512,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
     levering: levering[0] || null,
     betaling_transacties: betalingTransacties,
     communicatie,
+    fotos,
     prijstabel,
     voorgestelde_transportkost: berekenVoorgesteldeTransportkost(boeking),
   });

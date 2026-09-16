@@ -260,7 +260,7 @@ function toonLogin() {
 function toonApp() {
   elLogin.hidden = true;
   elShell.hidden = false;
-  Promise.all([laadProductenCache(), laadVoertuigen()]).then(() => {
+  Promise.all([laadProductenCache(), laadVoertuigen(), laadMailTemplates()]).then(() => {
     vulBoekingenProductFilter();
     wisselView('dashboard');
   });
@@ -302,7 +302,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'boeking-detail', 'klant-detail'];
+const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'boeking-detail', 'klant-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -332,6 +332,8 @@ function wisselView(naam) {
   if (naam === 'statistieken') laadStatistieken();
   if (naam === 'gebruikers') laadGebruikersOverzicht();
   if (naam === 'instellingen') laadInstellingen();
+  if (naam === 'crew') laadCrewOverzicht();
+  if (naam === 'voertuigen') laadVoertuigenBeheerOverzicht();
   if (naam === 'webinzendingen') laadWebinzendingen();
 }
 
@@ -415,6 +417,21 @@ async function laadVoertuigen() {
   } catch (err) {
     VOERTUIGEN = [];
   }
+}
+
+let MAIL_TEMPLATES = [];
+
+async function laadMailTemplates() {
+  try {
+    MAIL_TEMPLATES = await api('/api/mail-templates');
+  } catch (err) {
+    MAIL_TEMPLATES = [];
+  }
+}
+
+function mailTemplateOptiesHtml() {
+  if (!MAIL_TEMPLATES.length) return '<option value="">Geen templates ingesteld (zie Instellingen)</option>';
+  return MAIL_TEMPLATES.map((t) => `<option value="${t.id}">${t.naam}</option>`).join('');
 }
 
 function voertuigSelectOpties(huidigVoertuig) {
@@ -966,7 +983,10 @@ function planningRenderKolom(container, items, type) {
   let html = '';
   groepen.forEach((lijst, voertuigNaam) => {
     if (!lijst.length) return;
-    html += `<div class="planning-voertuiggroep-kop">${voertuigNaam ? `🚐 ${voertuigNaam}` : '⬜ Niet toegewezen'} (${lijst.length})</div>`;
+    html += `<div class="planning-voertuiggroep-kop">${voertuigNaam ? `🚐 ${voertuigNaam}` : '⬜ Niet toegewezen'} (${lijst.length})`
+      + (voertuigNaam ? ` <button type="button" class="linkbtn planning-route-btn" data-voertuig="${voertuigNaam.replace(/"/g, '&quot;')}" data-type="${type}">🕒 Route-inschatting</button>` : '')
+      + `</div>`;
+    if (voertuigNaam) html += `<div class="planning-route-resultaat" data-voertuig="${voertuigNaam.replace(/"/g, '&quot;')}" data-type="${type}" hidden></div>`;
     html += lijst.map((b) => planningStopHtml(b, type, voertuigNaam)).join('');
   });
   container.innerHTML = html;
@@ -989,6 +1009,59 @@ function planningRenderKolom(container, items, type) {
   planningKoppelProductToggle(container);
   planningKoppelTijdInput(container);
   planningKoppelDragDrop(container, type);
+  planningKoppelRouteInschatting(container);
+}
+
+// ============================================================
+// ROUTE-INSCHATTING (punt 6): op basis van de al handmatig vastgelegde
+// volgorde (het slepen hierboven) een haalbare timing berekenen — rijtijd
+// tussen de adressen (via OSRM) + een vaste tijd per stop + de gekende
+// opsteltijd van de producten. "Gewoon een inschatting" — geen garantie, en
+// wordt bewust pas berekend op aanvraag (niet automatisch bij elke wijziging)
+// om de gratis OSRM-dienst niet nodeloos te belasten. Na een nieuwe sleep-
+// beweging is de knop gewoon opnieuw te klikken.
+function planningKoppelRouteInschatting(container) {
+  container.querySelectorAll('.planning-route-btn').forEach((btn) => {
+    btn.addEventListener('click', () => planningBerekenRoute(container, btn.dataset.voertuig, btn.dataset.type));
+  });
+}
+
+function planningRouteResultaatEl(container, voertuigNaam, type) {
+  return [...container.querySelectorAll('.planning-route-resultaat')]
+    .find((el) => el.dataset.voertuig === voertuigNaam && el.dataset.type === type);
+}
+
+async function planningBerekenRoute(container, voertuigNaam, type) {
+  const resultEl = planningRouteResultaatEl(container, voertuigNaam, type);
+  if (!resultEl) return;
+  const datum = document.getElementById('planning-datum').value;
+  resultEl.hidden = false;
+  resultEl.innerHTML = '<p class="leeg-bericht">Route wordt berekend...</p>';
+  try {
+    const data = await api(`/api/planning/route-inschatting?voertuigNaam=${encodeURIComponent(voertuigNaam)}&datum=${encodeURIComponent(datum)}&type=${encodeURIComponent(type)}`);
+    resultEl.innerHTML = planningRouteResultaatHtml(data);
+  } catch (err) {
+    resultEl.innerHTML = `<p class="foutmelding">${err.message}</p>`;
+  }
+}
+
+function planningRouteResultaatHtml(data) {
+  if (!data.stops.length) return '<p class="leeg-bericht">Niets om een route van te maken (enkel eigen afhalingen door de klant in deze groep?).</p>';
+  const stopsHtml = data.stops.map((s, i) => `
+    <div class="planning-route-stop">
+      <strong>${i + 1}. ${s.aankomstTijd}</strong> — ${s.klantNaam}${s.geenLocatie ? ' <span class="uitleg">(adres niet gelokaliseerd — telt niet mee in de rijtijd)</span>' : ''}
+      <span class="uitleg">${s.rijtijdMinuten != null ? `${s.rijtijdMinuten} min rijden · ` : ''}${s.opstelMinuten ? `${s.opstelMinuten} min opstellen · ` : ''}vertrek ${s.vertrekTijd}</span>
+    </div>
+  `).join('');
+  const uur = Math.floor(data.totaalMinuten / 60);
+  const min = data.totaalMinuten % 60;
+  const waarschuwingenHtml = (data.waarschuwingen || []).length
+    ? `<p class="foutmelding">${data.waarschuwingen.join('<br>')}</p>` : '';
+  return `
+    <div class="planning-route-samenvatting">Vertrek ${data.vertrekTijd} → terug rond ${data.eindTijd} (±${uur}u${String(min).padStart(2, '0')}, waarvan ${data.totaalRijtijdMinuten} min rijden) — <span class="uitleg">gewoon een inschatting</span></div>
+    ${stopsHtml}
+    ${waarschuwingenHtml}
+  `;
 }
 
 // Bereik-weergave (Deze week/Volgende week/Aangepast, ...): per dag gegroepeerd
@@ -1182,16 +1255,34 @@ document.getElementById('btn-planning-bereik-toepassen').addEventListener('click
 // printvenster kiest Jonas gewoon "Opslaan als PDF" i.p.v. een fysieke printer.
 function planningLogistiekTotalen(b) {
   const producten = b.producten_detail || [];
-  const totalen = { gewicht: 0, valmatten: 0, piketten: 0, zandzakken: 0, motoren: new Set() };
+  const totalen = {
+    gewicht: 0, valmatten: 0, piketten: 0, zandzakken: 0,
+    kabelStandaard: 0, kabelDubbel: 0,
+    motoren: new Map(), // type -> aantal
+    overige: new Map(), // omschrijving -> aantal
+  };
   producten.forEach((p) => {
     const aantal = Number(p.aantal) || 1;
     totalen.gewicht += (Number(p.gewicht_kg) || 0) * aantal;
     totalen.valmatten += (Number(p.aantal_valmatten) || 0) * aantal;
     totalen.piketten += (Number(p.aantal_piketten) || 0) * aantal;
     totalen.zandzakken += (Number(p.aantal_zandzakken) || 0) * aantal;
-    if (p.motor_type) totalen.motoren.add(p.motor_type);
+    totalen.kabelStandaard += (Number(p.verlengkabel_standaard) || 0) * aantal;
+    totalen.kabelDubbel += (Number(p.verlengkabel_dubbel) || 0) * aantal;
+    if (p.motor_type) {
+      totalen.motoren.set(p.motor_type, (totalen.motoren.get(p.motor_type) || 0) + (Number(p.aantal_motors) || 1) * aantal);
+    }
+    if (p.overige_benodigdheden) {
+      totalen.overige.set(p.overige_benodigdheden, (totalen.overige.get(p.overige_benodigdheden) || 0) + aantal);
+    }
   });
   return totalen;
+}
+function planningMotorenLabel(motorenMap) {
+  return [...motorenMap.entries()].map(([type, aantal]) => `${aantal}x ${type}`).join(', ');
+}
+function planningOverigeLabel(overigeMap) {
+  return [...overigeMap.entries()].map(([naam, aantal]) => (aantal > 1 ? `${aantal}x ${naam}` : naam)).join(', ');
 }
 
 function planningPrintKopHtml(titel, subtitel) {
@@ -1209,45 +1300,57 @@ function planningBouwLaadlijstHtml() {
   if (!data || !data.leveringen.length) return '<p class="leeg-bericht">Niets te leveren op deze dag.</p>';
   const groepen = planningGroepeerPerVoertuig(data.leveringen, 'levering');
   let html = planningPrintKopHtml('Laadlijst', `Te leveren op ${fmtDatum(planningHuidigeDatum)}`);
-  const eindtotaal = { gewicht: 0, valmatten: 0, piketten: 0, zandzakken: 0 };
+  const eindtotaal = { gewicht: 0, valmatten: 0, piketten: 0, zandzakken: 0, kabelStandaard: 0, kabelDubbel: 0, motoren: new Map(), overige: new Map() };
+  const merge = (doel, bron) => { bron.forEach((aantal, key) => doel.set(key, (doel.get(key) || 0) + aantal)); };
 
   groepen.forEach((lijst, voertuigNaam) => {
     if (!lijst.length) return;
     html += `<div class="planning-print-groep-kop">${voertuigNaam ? `🚐 ${voertuigNaam}` : '⬜ Niet toegewezen'}</div>`;
     html += `<table class="planning-print-tabel"><thead><tr>
       <th>Tijd</th><th>Klant</th><th>Product(en)</th><th>Motor</th>
-      <th>Gewicht</th><th>Valmatten</th><th>Piketten</th><th>Zandzakken</th>
+      <th>Gewicht</th><th>Valmatten</th><th>Piketten</th><th>Zandzakken</th><th>Kabel std/dub</th><th>Overige</th>
     </tr></thead><tbody>`;
-    const subtotaal = { gewicht: 0, valmatten: 0, piketten: 0, zandzakken: 0 };
+    const subtotaal = { gewicht: 0, valmatten: 0, piketten: 0, zandzakken: 0, kabelStandaard: 0, kabelDubbel: 0, motoren: new Map(), overige: new Map() };
     lijst.forEach((b) => {
       const t = planningLogistiekTotalen(b);
       subtotaal.gewicht += t.gewicht;
       subtotaal.valmatten += t.valmatten;
       subtotaal.piketten += t.piketten;
       subtotaal.zandzakken += t.zandzakken;
+      subtotaal.kabelStandaard += t.kabelStandaard;
+      subtotaal.kabelDubbel += t.kabelDubbel;
+      merge(subtotaal.motoren, t.motoren);
+      merge(subtotaal.overige, t.overige);
       html += `<tr>
         <td>${planningEffectieveTijdWaarde(b, 'levering')}</td>
         <td>${b.klant_naam}</td>
         <td>${b.producten_namen || '—'}</td>
-        <td>${[...t.motoren].join(', ') || '—'}</td>
+        <td>${planningMotorenLabel(t.motoren) || '—'}</td>
         <td>${t.gewicht ? t.gewicht.toFixed(0) + ' kg' : '—'}</td>
         <td>${t.valmatten || '—'}</td>
         <td>${t.piketten || '—'}</td>
         <td>${t.zandzakken || '—'}</td>
+        <td>${(t.kabelStandaard || t.kabelDubbel) ? `${t.kabelStandaard}/${t.kabelDubbel}` : '—'}</td>
+        <td>${planningOverigeLabel(t.overige) || '—'}</td>
       </tr>`;
     });
     html += `<tr class="planning-print-totaalrij">
       <td colspan="4">Subtotaal ${voertuigNaam || 'niet toegewezen'}</td>
       <td>${subtotaal.gewicht.toFixed(0)} kg</td><td>${subtotaal.valmatten}</td><td>${subtotaal.piketten}</td><td>${subtotaal.zandzakken}</td>
+      <td>${subtotaal.kabelStandaard}/${subtotaal.kabelDubbel}</td><td>${planningOverigeLabel(subtotaal.overige) || '—'}</td>
     </tr>`;
     html += '</tbody></table>';
     eindtotaal.gewicht += subtotaal.gewicht;
     eindtotaal.valmatten += subtotaal.valmatten;
     eindtotaal.piketten += subtotaal.piketten;
     eindtotaal.zandzakken += subtotaal.zandzakken;
+    eindtotaal.kabelStandaard += subtotaal.kabelStandaard;
+    eindtotaal.kabelDubbel += subtotaal.kabelDubbel;
+    merge(eindtotaal.motoren, subtotaal.motoren);
+    merge(eindtotaal.overige, subtotaal.overige);
   });
 
-  html += `<p class="planning-print-eindtotaal">Totaal alle voertuigen: ${eindtotaal.gewicht.toFixed(0)} kg · ${eindtotaal.valmatten} valmatten · ${eindtotaal.piketten} piketten · ${eindtotaal.zandzakken} zandzakken</p>`;
+  html += `<p class="planning-print-eindtotaal">Totaal alle voertuigen: ${eindtotaal.gewicht.toFixed(0)} kg · ${eindtotaal.valmatten} valmatten · ${eindtotaal.piketten} piketten · ${eindtotaal.zandzakken} zandzakken · ${eindtotaal.kabelStandaard}/${eindtotaal.kabelDubbel} kabels (std/dub)${eindtotaal.motoren.size ? ' · ' + planningMotorenLabel(eindtotaal.motoren) : ''}${eindtotaal.overige.size ? ' · ' + planningOverigeLabel(eindtotaal.overige) : ''}</p>`;
   return html;
 }
 
@@ -2157,6 +2260,229 @@ function openGebruikerBewerken(id, gebruiker) {
   modalGebruikerBewerken.hidden = false;
 }
 
+// ============================================================
+// CREW (logistiek: crewleden van de leveringen-app + meldingen sturen)
+// ============================================================
+async function laadCrewOverzicht() {
+  const crew = await api('/api/crew');
+  const tbody = document.getElementById('tabel-crew');
+  tbody.innerHTML = '';
+  for (const c of crew) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${c.naam || '—'}</td>
+      <td>${c.username}</td>
+      <td>${c.rol === 'admin' ? 'Admin' : 'Plaatser'}</td>
+      <td>${c.telefoon || '—'}</td>
+      <td>${c.opmerking || '—'}</td>
+      <td><button type="button" class="linkbtn btn-crew-melding" data-id="${c.id}" data-naam="${(c.naam || c.username).replace(/"/g, '&quot;')}">🔔 Melding</button></td>
+      <td><button type="button" class="linkbtn btn-crew-bewerken" data-id="${c.id}">✎ Bewerken</button></td>
+      <td><button type="button" class="linkbtn gevaar btn-crew-verwijderen" data-id="${c.id}" data-naam="${(c.naam || c.username).replace(/"/g, '&quot;')}">🗑 Verwijderen</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  tbody.querySelectorAll('.btn-crew-bewerken').forEach((btn) => {
+    btn.addEventListener('click', () => openCrewBewerken(btn.dataset.id, crew.find((c) => String(c.id) === btn.dataset.id)));
+  });
+  tbody.querySelectorAll('.btn-crew-verwijderen').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Crewlid "${btn.dataset.naam}" verwijderen? Die kan dan niet meer inloggen op de crew-app.`)) return;
+      try {
+        await api(`/api/crew/${btn.dataset.id}`, { method: 'DELETE' });
+        laadCrewOverzicht();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  tbody.querySelectorAll('.btn-crew-melding').forEach((btn) => {
+    btn.addEventListener('click', () => openMeldingModal('crew', btn.dataset.id, btn.dataset.naam));
+  });
+}
+
+document.getElementById('form-nieuwe-crew').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const elFout = document.getElementById('nieuwe-crew-fout');
+  elFout.textContent = '';
+  try {
+    await api('/api/crew', {
+      method: 'POST',
+      body: JSON.stringify({
+        naam: document.getElementById('nc-naam').value.trim(),
+        username: document.getElementById('nc-username').value.trim(),
+        wachtwoord: document.getElementById('nc-wachtwoord').value,
+        rol: document.getElementById('nc-rol').value,
+        telefoon: document.getElementById('nc-telefoon').value.trim() || null,
+        opmerking: document.getElementById('nc-opmerking').value.trim() || null,
+      }),
+    });
+    document.getElementById('form-nieuwe-crew').reset();
+    document.getElementById('nieuwe-crew-details').open = false;
+    laadCrewOverzicht();
+  } catch (err) {
+    elFout.textContent = err.message;
+  }
+});
+
+const modalCrewBewerken = document.getElementById('modal-crew-bewerken');
+document.getElementById('btn-modal-crew-bewerken-sluiten').addEventListener('click', () => { modalCrewBewerken.hidden = true; });
+modalCrewBewerken.addEventListener('click', (e) => { if (e.target === modalCrewBewerken) modalCrewBewerken.hidden = true; });
+
+function openCrewBewerken(id, crewlid) {
+  const inhoud = document.getElementById('modal-crew-bewerken-inhoud');
+  inhoud.innerHTML = `
+    <h3>Crewlid bewerken</h3>
+    <form id="form-crew-bewerken">
+      <label>Naam<input type="text" id="cb-naam" value="${(crewlid.naam || '').replace(/"/g, '&quot;')}" /></label>
+      <label>Rol
+        <select id="cb-rol">
+          <option value="plaatser" ${crewlid.rol !== 'admin' ? 'selected' : ''}>Plaatser</option>
+          <option value="admin" ${crewlid.rol === 'admin' ? 'selected' : ''}>Admin (crew-app)</option>
+        </select>
+      </label>
+      <label>Telefoon<input type="text" id="cb-telefoon" value="${(crewlid.telefoon || '').replace(/"/g, '&quot;')}" /></label>
+      <label>Opmerking<input type="text" id="cb-opmerking" value="${(crewlid.opmerking || '').replace(/"/g, '&quot;')}" /></label>
+      <label>Nieuw wachtwoord <span class="uitleg">(leeg laten om het huidige te behouden)</span><input type="password" id="cb-wachtwoord" minlength="6" /></label>
+      <div class="form-acties">
+        <button type="submit">Opslaan</button>
+        <button type="button" id="btn-crew-bewerken-annuleren" class="linkbtn">Annuleren</button>
+      </div>
+      <p id="crew-bewerken-fout" class="foutmelding"></p>
+    </form>
+  `;
+  document.getElementById('btn-crew-bewerken-annuleren').addEventListener('click', () => { modalCrewBewerken.hidden = true; });
+  document.getElementById('form-crew-bewerken').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const elFout = document.getElementById('crew-bewerken-fout');
+    elFout.textContent = '';
+    try {
+      const wachtwoord = document.getElementById('cb-wachtwoord').value;
+      await api(`/api/crew/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          naam: document.getElementById('cb-naam').value.trim() || null,
+          rol: document.getElementById('cb-rol').value,
+          telefoon: document.getElementById('cb-telefoon').value.trim() || null,
+          opmerking: document.getElementById('cb-opmerking').value.trim() || null,
+          wachtwoord: wachtwoord || undefined,
+        }),
+      });
+      modalCrewBewerken.hidden = true;
+      laadCrewOverzicht();
+    } catch (err) {
+      elFout.textContent = err.message;
+    }
+  });
+  modalCrewBewerken.hidden = false;
+}
+
+// ============================================================
+// VOERTUIGEN (logistiek: voertuigen beheren, toegangscode vast iPad-account,
+// meldingen sturen)
+// ============================================================
+async function laadVoertuigenBeheerOverzicht() {
+  const voertuigen = await api('/api/voertuigen');
+  const tbody = document.getElementById('tabel-voertuigen-beheer');
+  tbody.innerHTML = '';
+  for (const v of voertuigen) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${v.naam}</td>
+      <td>${v.toegangscode ? `<code>${v.toegangscode}</code>` : '<span class="uitleg">nog geen code ingesteld</span>'}</td>
+      <td><button type="button" class="linkbtn btn-voertuig-code" data-id="${v.id}" data-naam="${v.naam.replace(/"/g, '&quot;')}">🔑 ${v.toegangscode ? 'Nieuwe code' : 'Code aanmaken'}</button></td>
+      <td><button type="button" class="linkbtn btn-voertuig-melding" data-id="${v.id}" data-naam="${v.naam.replace(/"/g, '&quot;')}">🔔 Melding</button></td>
+      <td><button type="button" class="linkbtn gevaar btn-voertuig-verwijderen" data-id="${v.id}" data-naam="${v.naam.replace(/"/g, '&quot;')}">🗑 Verwijderen</button></td>
+    `;
+    tbody.appendChild(tr);
+  }
+
+  tbody.querySelectorAll('.btn-voertuig-code').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Nieuwe toegangscode aanmaken voor "${btn.dataset.naam}"? De iPad in dit voertuig moet dan opnieuw aanmelden met de nieuwe code (tenzij die al ingelogd bleef).`)) return;
+      try {
+        await api(`/api/voertuigen/${btn.dataset.id}/nieuwe-toegangscode`, { method: 'POST' });
+        laadVoertuigenBeheerOverzicht();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  tbody.querySelectorAll('.btn-voertuig-verwijderen').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Voertuig "${btn.dataset.naam}" verwijderen uit de lijst?`)) return;
+      try {
+        await api(`/api/voertuigen/${btn.dataset.id}`, { method: 'DELETE' });
+        laadVoertuigenBeheerOverzicht();
+        laadVoertuigen();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  tbody.querySelectorAll('.btn-voertuig-melding').forEach((btn) => {
+    btn.addEventListener('click', () => openMeldingModal('voertuig', btn.dataset.id, btn.dataset.naam));
+  });
+}
+
+document.getElementById('form-nieuw-voertuig-beheer').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const elFout = document.getElementById('nieuw-voertuig-beheer-fout');
+  elFout.textContent = '';
+  try {
+    await api('/api/voertuigen', { method: 'POST', body: JSON.stringify({ naam: document.getElementById('nv-naam').value.trim() }) });
+    document.getElementById('form-nieuw-voertuig-beheer').reset();
+    document.getElementById('nieuw-voertuig-beheer-details').open = false;
+    laadVoertuigenBeheerOverzicht();
+    laadVoertuigen();
+  } catch (err) {
+    elFout.textContent = err.message;
+  }
+});
+
+// ============================================================
+// MELDING STUREN (modal, gedeeld tussen Crew en Voertuigen)
+// ============================================================
+let meldingDoel = null; // { type: 'crew'|'voertuig', id, naam }
+const modalMelding = document.getElementById('modal-melding');
+document.getElementById('btn-modal-melding-sluiten').addEventListener('click', () => { modalMelding.hidden = true; });
+document.getElementById('btn-melding-annuleren').addEventListener('click', () => { modalMelding.hidden = true; });
+modalMelding.addEventListener('click', (e) => { if (e.target === modalMelding) modalMelding.hidden = true; });
+
+function openMeldingModal(type, id, naam) {
+  meldingDoel = { type, id, naam };
+  document.getElementById('modal-melding-titel').textContent = type === 'crew' ? `Melding naar ${naam}` : `Melding naar voertuig ${naam}`;
+  document.getElementById('form-melding').reset();
+  document.getElementById('melding-fout').textContent = '';
+  document.getElementById('melding-resultaat').hidden = true;
+  modalMelding.hidden = false;
+}
+
+document.getElementById('form-melding').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const elFout = document.getElementById('melding-fout');
+  const elResultaat = document.getElementById('melding-resultaat');
+  elFout.textContent = '';
+  elResultaat.hidden = true;
+  if (!meldingDoel) return;
+  try {
+    const pad = meldingDoel.type === 'crew' ? `/api/crew/${meldingDoel.id}/melding` : `/api/voertuigen/${meldingDoel.id}/melding`;
+    const resultaat = await api(pad, {
+      method: 'POST',
+      body: JSON.stringify({
+        titel: document.getElementById('melding-titel').value.trim(),
+        bericht: document.getElementById('melding-bericht').value.trim(),
+      }),
+    });
+    elResultaat.hidden = false;
+    elResultaat.textContent = resultaat.verstuurd
+      ? `✓ Verstuurd (${resultaat.verstuurd}${resultaat.mislukt ? `, ${resultaat.mislukt} mislukt` : ''}).`
+      : (resultaat.opgeslagen ? 'Opgeslagen — verschijnt zodra het toestel ververst (push nog niet geconfigureerd).' : 'Verstuurd.');
+  } catch (err) {
+    elFout.textContent = err.message;
+  }
+});
+
 // Snelfilters (zoals in het huidige bookingonline.co.uk-systeem)
 function berekenDatumRange(bereik) {
   const vandaag = new Date();
@@ -2287,7 +2613,7 @@ async function openDetail(boekingId) {
   // gebruiker net had opengeklapt (bv. om een communicatie-item te loggen) meteen
   // weer dichtklappen na het opslaan — net wanneer je het resultaat wil zien. Onthoud
   // daarom welke secties open stonden vóór de herrender, en herstel dat nadien.
-  const geopendeSecties = ['details-locatie-transport', 'details-communicatie', 'details-historiek']
+  const geopendeSecties = ['details-locatie-transport', 'details-fotos', 'details-communicatie', 'details-historiek']
     .filter((id) => document.getElementById(id)?.open);
 
   // Welke producten zijn nog vrij op de (huidige) periode van deze boeking, voor de
@@ -2335,6 +2661,25 @@ async function openDetail(boekingId) {
   const historiekHtml = b.historiek
     .map((h) => `<div class="historiek-item">${fmtDatum(h.gewijzigd_op)} — ${h.van_status ? STATUS_LABELS[h.van_status] + ' → ' : ''}${STATUS_LABELS[h.naar_status]}${h.opmerking ? ' (' + h.opmerking + ')' : ''}</div>`)
     .join('');
+
+  // Foto's genomen door de chauffeur in de crew-app (plaatsing/afhaling) —
+  // rechtstreeks tonen op een klein grid, klik = volledige grootte in nieuw
+  // tabblad. Groepeer per fase zodat duidelijk is wanneer een foto genomen werd.
+  const fotosPerFase = { plaatsing: [], afhaling: [] };
+  (b.fotos || []).forEach((f) => { (fotosPerFase[f.fase] || (fotosPerFase[f.fase] = [])).push(f); });
+  const fotosGroepHtml = (label, lijst) => {
+    if (!lijst.length) return '';
+    return `<div class="fotos-groep">
+      <p class="fotos-groep-titel">${label}</p>
+      <div class="fotos-grid">${lijst.map((f) => `
+        <a href="${f.data_url}" target="_blank" rel="noopener" title="${f.naam || ''} — ${fmtDatum(f.aangemaakt_op)}">
+          <img src="${f.data_url}" alt="${f.naam || ''}" class="foto-thumbnail" />
+        </a>
+      `).join('')}</div>
+    </div>`;
+  };
+  const fotosHtml = fotosGroepHtml('Bij plaatsing', fotosPerFase.plaatsing || [])
+    + fotosGroepHtml('Bij afhaling', fotosPerFase.afhaling || []);
 
   const overgangen = TOEGELATEN_OVERGANGEN[b.status] || [];
   const actiesHtml = overgangen
@@ -2495,6 +2840,12 @@ async function openDetail(boekingId) {
             <label>Opmerking<input type="text" id="np-betaling-opmerking" placeholder="optioneel, bv. 'overschrijving'" /></label>
           </form>
           <div class="betaling-log">${betalingLogHtml}</div>
+          <div class="ef-blok">
+            <button type="button" class="linkbtn btn-ef" data-boeking-id="${b.id}" data-soort="factuur">🧾 Factuur (EenvoudigFactureren)</button>
+            <button type="button" class="linkbtn btn-ef" data-boeking-id="${b.id}" data-soort="betaalverzoek">💳 Betaalverzoek aanmaken</button>
+            ${b.eenvoudigfactureren_laatste_url ? `<a href="${b.eenvoudigfactureren_laatste_url}" target="_blank" rel="noopener" class="uitleg">Laatst aangemaakte document ↗</a>` : ''}
+            <p id="ef-resultaat" class="melding" hidden></p>
+          </div>
         </div>
       </div>
     </div>
@@ -2525,9 +2876,21 @@ async function openDetail(boekingId) {
       </div>
     </details>
 
+    <details class="paneel" id="details-fotos" ${geopendeSecties.includes('details-fotos') ? 'open' : ''}>
+      <summary>Foto's${(b.fotos || []).length ? ` <span class="details-badge details-badge-neutraal">${b.fotos.length}</span>` : ''}</summary>
+      <div class="paneel-inhoud">
+        ${fotosHtml || '<p class="leeg-bericht">Nog geen foto\'s — die verschijnen hier automatisch zodra de chauffeur er één neemt in de crew-app.</p>'}
+      </div>
+    </details>
+
     <details class="paneel" id="details-communicatie" ${geopendeSecties.includes('details-communicatie') ? 'open' : ''}>
       <summary>Communicatie</summary>
       <div class="paneel-inhoud">
+        <div class="template-verstuur-blok">
+          <select id="template-select">${mailTemplateOptiesHtml()}</select>
+          <button type="button" id="btn-template-versturen" class="linkbtn" data-boeking-id="${b.id}">📧 Template versturen</button>
+          <p id="template-versturen-resultaat" class="melding" hidden></p>
+        </div>
         <form id="form-communicatie" class="grid-2">
           <label>Type
             <select id="cm-type">
@@ -2548,7 +2911,6 @@ async function openDetail(boekingId) {
           <label>Inhoud/notitie<input type="text" id="cm-inhoud" placeholder="korte samenvatting" /></label>
           <button type="submit">+ Toevoegen aan log</button>
         </form>
-        <p class="uitleg" style="margin-top:0.3rem">Mails automatisch versturen vanuit dit dossier komt in een latere fase — voorlopig log je hier manueel wat je verstuurd/besproken hebt.</p>
         <div class="communicatie-lijst">${communicatieHtml}</div>
       </div>
     </details>
@@ -2906,6 +3268,57 @@ async function openDetail(boekingId) {
       body: JSON.stringify({ notities: document.getElementById('dd-notities').value }),
     });
     openDetail(boekingId);
+  });
+
+  document.querySelectorAll('.btn-ef').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const resultaat = document.getElementById('ef-resultaat');
+      const soort = btn.dataset.soort;
+      if (!confirm(`${soort === 'betaalverzoek' ? 'Betaalverzoek' : 'Factuur'} aanmaken in EenvoudigFactureren voor deze boeking?`)) return;
+      resultaat.hidden = true;
+      btn.disabled = true;
+      const oorspronkelijk = btn.textContent;
+      btn.textContent = 'Bezig...';
+      try {
+        const data = await api(`/api/boekingen/${btn.dataset.boekingId}/eenvoudigfactureren`, {
+          method: 'POST',
+          body: JSON.stringify({ soort }),
+        });
+        resultaat.hidden = false;
+        resultaat.className = 'melding ok';
+        resultaat.innerHTML = (data.viaFallback
+          ? 'Betaalverzoek-eindpunt niet gevonden bij EenvoudigFactureren — in plaats daarvan een factuur aangemaakt. '
+          : '✓ Aangemaakt. ')
+          + (data.url ? `<a href="${data.url}" target="_blank" rel="noopener">Openen ↗</a>` : '');
+        openDetail(boekingId);
+      } catch (err) {
+        resultaat.hidden = false;
+        resultaat.className = 'melding fout';
+        resultaat.textContent = err.message;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = oorspronkelijk;
+      }
+    });
+  });
+
+  document.getElementById('btn-template-versturen').addEventListener('click', async () => {
+    const select = document.getElementById('template-select');
+    const resultaat = document.getElementById('template-versturen-resultaat');
+    const templateId = select.value;
+    if (!templateId) return;
+    const template = MAIL_TEMPLATES.find((t) => t.id === templateId);
+    if (!confirm(`Template "${template ? template.naam : ''}" versturen naar de klant van dit dossier?`)) return;
+    resultaat.hidden = true;
+    try {
+      await api(`/api/boekingen/${boekingId}/verstuur-template`, { method: 'POST', body: JSON.stringify({ templateId }) });
+      toonToast('Template verstuurd');
+      openDetail(boekingId);
+    } catch (err) {
+      resultaat.hidden = false;
+      resultaat.className = 'melding fout';
+      resultaat.textContent = err.message;
+    }
   });
 
   document.getElementById('form-communicatie').addEventListener('submit', async (e) => {
@@ -3755,6 +4168,12 @@ document.getElementById('form-nieuw-product').addEventListener('submit', async (
         aantal_valmatten: document.getElementById('np-aantal-valmatten').value !== '' ? parseInt(document.getElementById('np-aantal-valmatten').value, 10) : null,
         aantal_piketten: document.getElementById('np-aantal-piketten').value !== '' ? parseInt(document.getElementById('np-aantal-piketten').value, 10) : null,
         aantal_zandzakken: document.getElementById('np-aantal-zandzakken').value !== '' ? parseInt(document.getElementById('np-aantal-zandzakken').value, 10) : null,
+        aantal_motors: document.getElementById('np-aantal-motors').value !== '' ? parseInt(document.getElementById('np-aantal-motors').value, 10) : null,
+        verlengkabel_standaard: document.getElementById('np-verlengkabel-standaard').value !== '' ? parseInt(document.getElementById('np-verlengkabel-standaard').value, 10) : null,
+        verlengkabel_dubbel: document.getElementById('np-verlengkabel-dubbel').value !== '' ? parseInt(document.getElementById('np-verlengkabel-dubbel').value, 10) : null,
+        gemiddelde_opsteltijd_minuten: document.getElementById('np-opsteltijd').value !== '' ? parseInt(document.getElementById('np-opsteltijd').value, 10) : null,
+        overige_benodigdheden: document.getElementById('np-overige-benodigdheden').value.trim() || null,
+        materiaal_opmerking: document.getElementById('np-materiaal-opmerking').value.trim() || null,
       }),
     });
     document.getElementById('form-nieuw-product').reset();
@@ -3936,7 +4355,13 @@ async function openProductDetail(productId) {
         <label>Valmatten (harde ondergrond)<input type="number" id="pb-aantal-valmatten" min="0" step="1" value="${p.aantal_valmatten != null ? p.aantal_valmatten : ''}" /></label>
         <label>Piketten (zachte ondergrond)<input type="number" id="pb-aantal-piketten" min="0" step="1" value="${p.aantal_piketten != null ? p.aantal_piketten : ''}" /></label>
         <label>Zandzakken (harde ondergrond)<input type="number" id="pb-aantal-zandzakken" min="0" step="1" value="${p.aantal_zandzakken != null ? p.aantal_zandzakken : ''}" /></label>
+        <label>Aantal motors<input type="number" id="pb-aantal-motors" min="0" step="1" value="${p.aantal_motors != null ? p.aantal_motors : ''}" /></label>
+        <label>Verlengkabel standaard<input type="number" id="pb-verlengkabel-standaard" min="0" step="1" value="${p.verlengkabel_standaard != null ? p.verlengkabel_standaard : ''}" /></label>
+        <label>Verlengkabel dubbel<input type="number" id="pb-verlengkabel-dubbel" min="0" step="1" value="${p.verlengkabel_dubbel != null ? p.verlengkabel_dubbel : ''}" /></label>
+        <label>Opsteltijd (minuten, voor routeplanner)<input type="number" id="pb-opsteltijd" min="0" step="1" value="${p.gemiddelde_opsteltijd_minuten != null ? p.gemiddelde_opsteltijd_minuten : ''}" /></label>
       </div>
+      <label>Overige benodigdheden<input type="text" id="pb-overige-benodigdheden" value="${p.overige_benodigdheden || ''}" placeholder="bv. Ballen + 2 stokken" /></label>
+      <label>Opmerking materiaal<input type="text" id="pb-materiaal-opmerking" value="${p.materiaal_opmerking || ''}" placeholder="optioneel" /></label>
       <div class="form-acties">
         <button type="submit">Wijzigingen opslaan</button>
         <button type="button" id="btn-product-verwijderen" class="linkbtn gevaar">✕ Product verwijderen</button>
@@ -3983,6 +4408,12 @@ async function openProductDetail(productId) {
           aantal_valmatten: document.getElementById('pb-aantal-valmatten').value !== '' ? parseInt(document.getElementById('pb-aantal-valmatten').value, 10) : null,
           aantal_piketten: document.getElementById('pb-aantal-piketten').value !== '' ? parseInt(document.getElementById('pb-aantal-piketten').value, 10) : null,
           aantal_zandzakken: document.getElementById('pb-aantal-zandzakken').value !== '' ? parseInt(document.getElementById('pb-aantal-zandzakken').value, 10) : null,
+          aantal_motors: document.getElementById('pb-aantal-motors').value !== '' ? parseInt(document.getElementById('pb-aantal-motors').value, 10) : null,
+          verlengkabel_standaard: document.getElementById('pb-verlengkabel-standaard').value !== '' ? parseInt(document.getElementById('pb-verlengkabel-standaard').value, 10) : null,
+          verlengkabel_dubbel: document.getElementById('pb-verlengkabel-dubbel').value !== '' ? parseInt(document.getElementById('pb-verlengkabel-dubbel').value, 10) : null,
+          gemiddelde_opsteltijd_minuten: document.getElementById('pb-opsteltijd').value !== '' ? parseInt(document.getElementById('pb-opsteltijd').value, 10) : null,
+          overige_benodigdheden: document.getElementById('pb-overige-benodigdheden').value.trim() || null,
+          materiaal_opmerking: document.getElementById('pb-materiaal-opmerking').value.trim() || null,
         }),
       });
       modalProduct.hidden = true;
@@ -4063,7 +4494,96 @@ async function laadInstellingen() {
   } catch (err) {
     meldingNietGeconfigureerd.hidden = true;
   }
+  await laadMailTemplates();
+  renderMailTemplatesInstellingen();
 }
+
+// ============================================================
+// E-MAILTEMPLATES (Instellingen) — beheer van de sjablonen die vanuit een
+// boekingdossier verstuurd kunnen worden (zie het "📧 Template versturen"-
+// blok bij Communicatie in openDetail()).
+// ============================================================
+function renderMailTemplatesInstellingen() {
+  const container = document.getElementById('lijst-mail-templates');
+  if (!MAIL_TEMPLATES.length) {
+    container.innerHTML = '<p class="leeg-bericht">Nog geen templates.</p>';
+    return;
+  }
+  container.innerHTML = MAIL_TEMPLATES.map((t) => `
+    <details class="paneel">
+      <summary>${t.naam}</summary>
+      <div class="paneel-inhoud">
+        <form class="form-template-bewerken" data-id="${t.id}">
+          <label>Naam<input type="text" class="tpl-naam" value="${(t.naam || '').replace(/"/g, '&quot;')}" required /></label>
+          <label>Onderwerp<input type="text" class="tpl-onderwerp" value="${(t.onderwerp || '').replace(/"/g, '&quot;')}" required /></label>
+          <label>Inhoud<textarea class="tpl-inhoud" rows="8" required>${t.inhoud || ''}</textarea></label>
+          <div class="form-acties">
+            <button type="submit">Opslaan</button>
+            <button type="button" class="linkbtn gevaar btn-template-verwijderen" data-id="${t.id}" data-naam="${(t.naam || '').replace(/"/g, '&quot;')}">🗑 Verwijderen</button>
+          </div>
+          <p class="foutmelding tpl-fout"></p>
+        </form>
+      </div>
+    </details>
+  `).join('');
+
+  container.querySelectorAll('.form-template-bewerken').forEach((form) => {
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const elFout = form.querySelector('.tpl-fout');
+      elFout.textContent = '';
+      try {
+        await api(`/api/mail-templates/${form.dataset.id}`, {
+          method: 'PUT',
+          body: JSON.stringify({
+            naam: form.querySelector('.tpl-naam').value.trim(),
+            onderwerp: form.querySelector('.tpl-onderwerp').value.trim(),
+            inhoud: form.querySelector('.tpl-inhoud').value,
+          }),
+        });
+        toonToast('Template opgeslagen');
+        await laadMailTemplates();
+        renderMailTemplatesInstellingen();
+      } catch (err) {
+        elFout.textContent = err.message;
+      }
+    });
+  });
+  container.querySelectorAll('.btn-template-verwijderen').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm(`Template "${btn.dataset.naam}" verwijderen?`)) return;
+      try {
+        await api(`/api/mail-templates/${btn.dataset.id}`, { method: 'DELETE' });
+        await laadMailTemplates();
+        renderMailTemplatesInstellingen();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+document.getElementById('form-nieuwe-template').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const elFout = document.getElementById('nieuwe-template-fout');
+  elFout.textContent = '';
+  try {
+    await api('/api/mail-templates', {
+      method: 'POST',
+      body: JSON.stringify({
+        naam: document.getElementById('nt-naam').value.trim(),
+        onderwerp: document.getElementById('nt-onderwerp').value.trim(),
+        inhoud: document.getElementById('nt-inhoud').value,
+      }),
+    });
+    document.getElementById('form-nieuwe-template').reset();
+    document.getElementById('nieuwe-template-details').open = false;
+    await laadMailTemplates();
+    renderMailTemplatesInstellingen();
+  } catch (err) {
+    elFout.textContent = err.message;
+  }
+});
 
 document.getElementById('btn-sync-leveringen-app').addEventListener('click', async () => {
   const knop = document.getElementById('btn-sync-leveringen-app');
