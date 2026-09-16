@@ -17,6 +17,7 @@ const statistiekenRoutes = require('./routes/statistieken');
 const gebruikersRoutes = require('./routes/gebruikers');
 const dashboardRoutes = require('./routes/dashboard');
 const syncRoutes = require('./routes/sync');
+const syncWebhookRoutes = require('./routes/sync-webhook');
 const voertuigenRoutes = require('./routes/voertuigen');
 const planningRoutes = require('./routes/planning');
 
@@ -61,6 +62,9 @@ app.use('/api/reservatie-import', reservatieImportRoutes);
 app.use('/api/statistieken', statistiekenRoutes);
 app.use('/api/gebruikers', gebruikersRoutes);
 app.use('/api/dashboard', dashboardRoutes);
+// Vóór de ingelogde sync-routes: dit ene pad komt van de leveringen-app-server
+// zelf (geen ingelogde browser), en beveiligt zichzelf met de gedeelde sleutel.
+app.use('/api/sync', syncWebhookRoutes);
 app.use('/api/sync', syncRoutes);
 app.use('/api/voertuigen', voertuigenRoutes);
 app.use('/api/planning', planningRoutes);

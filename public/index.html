@@ -108,16 +108,32 @@
     <section id="view-planning" class="pagina" hidden>
       <div class="dashboard-titelrij">
         <h2>Planning</h2>
-        <div class="dashboard-datumkiezer">
+        <div class="dashboard-datumkiezer" id="planning-datumkiezer">
           <button type="button" id="btn-planning-vorige" class="linkbtn" title="Vorige dag">‹</button>
           <input type="date" id="planning-datum" />
           <button type="button" id="btn-planning-vandaag" class="linkbtn">Vandaag</button>
           <button type="button" id="btn-planning-volgende" class="linkbtn" title="Volgende dag">›</button>
         </div>
+        <div class="dashboard-bereik-info" id="planning-bereik-info" hidden></div>
       </div>
-      <p class="uitleg">Wijs een voertuig toe en bepaal met ▲/▼ de volgorde van de route — dit komt mee bij "Nu synchroniseren" (Instellingen) naar de leveringen-app.</p>
+      <div class="dashboard-snelfilters" id="planning-snelfilters">
+        <button type="button" data-pbereik="vandaag" class="actief">Vandaag</button>
+        <button type="button" data-pbereik="morgen">Morgen</button>
+        <button type="button" data-pbereik="deze-week">Deze week</button>
+        <button type="button" data-pbereik="volgende-week">Volgende week</button>
+        <button type="button" data-pbereik="vorige-week">Vorige week</button>
+        <button type="button" data-pbereik="vorige-maand">Vorige maand</button>
+        <button type="button" data-pbereik="aangepast">Aangepast</button>
+      </div>
+      <div class="dashboard-aangepast-bereik" id="planning-aangepast-bereik" hidden>
+        <label>Van <input type="date" id="planning-bereik-vanaf" /></label>
+        <label>Tot <input type="date" id="planning-bereik-tot" /></label>
+        <button type="button" id="btn-planning-bereik-toepassen" class="linkbtn">Toepassen</button>
+      </div>
+      <p class="uitleg" id="planning-uitleg">Wijs een voertuig toe en sleep een stop naar boven/onder om de volgorde van de route te bepalen — dit komt mee bij "Nu synchroniseren" (Instellingen) naar de leveringen-app.</p>
+      <p class="uitleg" id="planning-uitleg-bereik" hidden>Overzicht over meerdere dagen — enkel lezen. Kies "Vandaag" of een andere dag om voertuigen/volgorde aan te passen.</p>
 
-      <div class="planning-voertuigbeheer">
+      <div class="planning-voertuigbeheer" id="planning-voertuigbeheer">
         <span class="planning-voertuigbeheer-label">Voertuigen:</span>
         <span id="planning-voertuigen-lijst"></span>
         <form id="form-planning-voertuig-toevoegen" class="planning-voertuig-toevoegen">
@@ -126,17 +142,29 @@
         </form>
       </div>
 
-      <div class="dashboard-kolommen">
+      <div class="dashboard-kolommen" id="planning-dashboard-kolommen">
         <div class="dashboard-kolom">
           <h3>📦 Te leveren <span id="planning-aantal-leveringen" class="stat-categorie-totaal"></span></h3>
+          <div class="planning-kolom-acties">
+            <button type="button" id="btn-planning-leveringslijst" class="linkbtn">📄 Leveringslijst (PDF)</button>
+            <button type="button" id="btn-planning-laadlijst" class="linkbtn">📄 Laadlijst (PDF)</button>
+          </div>
           <div id="planning-leveringen-lijst" class="planning-kolom"></div>
         </div>
         <div class="dashboard-kolom">
           <h3>🔙 Af te halen <span id="planning-aantal-ophalingen" class="stat-categorie-totaal"></span></h3>
+          <div class="planning-kolom-acties">
+            <button type="button" id="btn-planning-afhaallijst" class="linkbtn">📄 Afhaallijst (PDF)</button>
+          </div>
           <div id="planning-ophalingen-lijst" class="planning-kolom"></div>
         </div>
       </div>
     </section>
+
+    <!-- Verborgen op het scherm — verschijnt enkel tijdens het afdrukken van
+         een laadlijst/leveringslijst/afhaallijst vanop de Planning-pagina
+         (zie planning-print in app.js, zelfde principe als drop-sheet-print). -->
+    <div id="planning-print" class="planning-print" hidden></div>
 
     <!-- AANVRAGEN-INBOX -->
     <section id="view-aanvragen" class="pagina" hidden>
@@ -283,7 +311,7 @@
 
       <div class="instellingen-blok">
         <h3>Koppeling met de leveringen-app</h3>
-        <p class="uitleg">Stuurt geplande boekingen (leverdatum, afhaaldatum, artikelen, voertuig + routevolgorde uit Planning) door naar de leveringen-app, en haalt meteen ook terug op welke leveringen/afhalingen de crew daar al als "geplaatst"/"afgerond" aangevinkt heeft (zichtbaar als "voltooid" op het Dashboard). Gebeurt enkel wanneer je hier op de knop drukt — niets automatisch, niets op de achtergrond.</p>
+        <p class="uitleg">Stuurt geplande boekingen (leverdatum, afhaaldatum, artikelen, voertuig + routevolgorde uit Planning) door naar de leveringen-app. Zodra de crew daar een levering/afhaling als geleverd/opgehaald markeert, verschijnt dat trouwens meteen live als "voltooid" op het Dashboard hier — zonder deze knop. Deze knop is vooral nodig om nieuwe/gewijzigde boekingen en routes daar te krijgen; als terugval haalt ze bij het drukken ook nog eens de huidige status op, voor het geval de live koppeling ooit een moment gemist heeft.</p>
         <p id="instellingen-sync-niet-geconfigureerd" class="uitleg" hidden>Nog niet gekoppeld — zet <code>LEVERINGEN_APP_URL</code> en <code>LEVERINGEN_APP_SYNC_SECRET</code> bij de omgevingsvariabelen op Render (zie .env.example).</p>
         <button type="button" id="btn-sync-leveringen-app" class="linkbtn">🔄 Nu synchroniseren</button>
         <p id="instellingen-sync-resultaat" class="melding" hidden></p>

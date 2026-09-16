@@ -694,16 +694,42 @@ document.getElementById('btn-dashboard-bereik-toepassen').addEventListener('clic
 // ============================================================
 // PLANNING (routes opstellen: voertuig + volgorde per dag)
 // ============================================================
-// Enkel handmatige volgorde (op/neer per stop) — geen automatische
-// routeberekening/optimalisatie (geen kaartafstanden, verkeer, ...). Jonas
-// bouwt de route zelf op basis van zijn eigen kennis van het traject; dit is
-// dus bewust een eenvoudig hulpmiddel, geen navigatiesysteem.
+// Enkel handmatige volgorde (slepen) — geen automatische routeberekening/
+// -optimalisatie (geen kaartafstanden, verkeer, ...). Jonas bouwt de route
+// zelf op basis van zijn eigen kennis van het traject; dit is dus bewust een
+// eenvoudig hulpmiddel, geen navigatiesysteem.
 let planningHuidigeDatum = null;
+let planningLaatsteData = null; // voor de PDF-knoppen (laadlijst/leveringslijst/afhaallijst)
+
+// 'dag' = één specifieke dag (Vandaag/Morgen/de datumkiezer met pijltjes, met
+// voertuig-toewijzing en sleepbare volgorde); 'bereik' = een periode (Deze
+// week/Volgende week/Aangepast, ...) — enkel-lezen overzicht, per dag en dan
+// per voertuig gegroepeerd, want de volgorde is altijd per dag bepaald.
+let planningModus = 'dag';
+let planningBereikVanaf = null;
+let planningBereikTot = null;
 
 function planningVandaagIso() {
   const nu = new Date();
   nu.setMinutes(nu.getMinutes() - nu.getTimezoneOffset());
   return nu.toISOString().slice(0, 10);
+}
+
+// Effectief tijdstip voor weergave én sortering: zolang niemand het tijdstip
+// expliciet instelde (zie Dashboard) blijft leveringstijd/afhaaltijd leeg —
+// zonder terugval hierop toonde Planning dan "--:--" en werkte de gevraagde
+// "initieel op tijd sorteren" niet. Zelfde standaardwaarden als Dashboard
+// (08:00 bij levering, 20:00 bij afhaling).
+function planningStandaardTijd(type) {
+  return type === 'levering' ? '08:00' : '20:00';
+}
+function planningEffectieveTijdWaarde(b, type) {
+  const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
+  return b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(11, 16) : planningStandaardTijd(type);
+}
+function planningTijdNaarMinuten(hhmm) {
+  const [u, m] = String(hhmm).split(':').map(Number);
+  return (u || 0) * 60 + (m || 0);
 }
 
 async function laadVoertuigenBeheer() {
@@ -745,7 +771,6 @@ document.getElementById('form-planning-voertuig-toevoegen').addEventListener('su
 function planningGroepeerPerVoertuig(items, type) {
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   const volgordeVeld = type === 'levering' ? 'volgorde_levering' : 'volgorde_afhaling';
-  const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
 
   const groepen = new Map();
   VOERTUIGEN.forEach((v) => groepen.set(v.naam, []));
@@ -764,30 +789,26 @@ function planningGroepeerPerVoertuig(items, type) {
       if (va != null && vb != null) return va - vb;
       if (va != null) return -1;
       if (vb != null) return 1;
-      const ta = a[tijdVeld] ? new Date(a[tijdVeld]).getTime() : Infinity;
-      const tb = b[tijdVeld] ? new Date(b[tijdVeld]).getTime() : Infinity;
-      return ta - tb;
+      // Nog nooit gesleept: initieel gewoon op (effectief) tijdstip sorteren
+      // i.p.v. op willekeurige volgorde — zie planningEffectieveTijdWaarde.
+      return planningTijdNaarMinuten(planningEffectieveTijdWaarde(a, type)) - planningTijdNaarMinuten(planningEffectieveTijdWaarde(b, type));
     });
   });
 
   return groepen;
 }
 
-function planningStopHtml(b, type, positieInfo) {
+function planningStopHtml(b, type, groepNaam) {
   const adres = dashboardAdresTekst(b);
-  const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
-  const tijdWaarde = b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(11, 16) : '--:--';
+  const tijdWaarde = planningEffectieveTijdWaarde(b, type);
   const eersteProduct = b.eerste_product_naam || (b.producten_namen || '').split(',')[0].trim() || '—';
   const meerdereProducten = Number(b.aantal_producten) > 1;
   const productHeadline = meerdereProducten ? `${eersteProduct}…` : eersteProduct;
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   const voltooidVeld = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
   return `
-    <div class="planning-stop${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
-      <span class="planning-stop-volgorde-knoppen">
-        <button type="button" class="linkbtn planning-stop-omhoog" ${positieInfo.eerste ? 'disabled' : ''} title="Naar boven">▲</button>
-        <button type="button" class="linkbtn planning-stop-omlaag" ${positieInfo.laatste ? 'disabled' : ''} title="Naar beneden">▼</button>
-      </span>
+    <div class="planning-stop planning-stop-sleepbaar${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}" draggable="true" data-boeking-id="${b.id}" data-klant="${b.klant_naam}" data-groep="${groepNaam}">
+      <span class="planning-stop-greep" title="Sleep om de volgorde te wijzigen">⠿</span>
       <span class="planning-stop-tijd">${tijdWaarde}</span>
       <span class="planning-stop-info" title="${b.klant_naam}">
         <strong>${productHeadline}</strong> · ${adres}
@@ -795,6 +816,58 @@ function planningStopHtml(b, type, positieInfo) {
       <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
     </div>
   `;
+}
+
+// Bijgehouden tussen dragstart en drop: het gesleepte element zelf en zijn
+// kolom (leveringen- of ophalingenlijst) — enkel binnen dezelfde kolom ÉN
+// dezelfde voertuiggroep mag een stop verplaatst worden.
+let planningGesleeptStop = null;
+let planningGesleeptContainer = null;
+
+function planningKoppelDragDrop(container, type) {
+  container.querySelectorAll('.planning-stop-sleepbaar').forEach((stop) => {
+    stop.addEventListener('dragstart', () => {
+      planningGesleeptStop = stop;
+      planningGesleeptContainer = container;
+      stop.classList.add('planning-stop-wordt-gesleept');
+    });
+    stop.addEventListener('dragend', () => {
+      stop.classList.remove('planning-stop-wordt-gesleept');
+      container.querySelectorAll('.planning-stop-sleep-over').forEach((el) => el.classList.remove('planning-stop-sleep-over'));
+      planningGesleeptStop = null;
+      planningGesleeptContainer = null;
+    });
+    stop.addEventListener('dragover', (e) => {
+      if (!planningGesleeptStop || planningGesleeptStop === stop || planningGesleeptContainer !== container) return;
+      if (stop.dataset.groep !== planningGesleeptStop.dataset.groep) return; // enkel binnen dezelfde voertuiggroep
+      e.preventDefault();
+      stop.classList.add('planning-stop-sleep-over');
+    });
+    stop.addEventListener('dragleave', () => stop.classList.remove('planning-stop-sleep-over'));
+    stop.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      stop.classList.remove('planning-stop-sleep-over');
+      if (!planningGesleeptStop || planningGesleeptStop === stop) return;
+      if (planningGesleeptContainer !== container || stop.dataset.groep !== planningGesleeptStop.dataset.groep) return;
+
+      // Vóór of na het doelelement invoegen, naargelang de muispositie t.o.v.
+      // het midden ervan.
+      const rect = stop.getBoundingClientRect();
+      const voorHelft = (e.clientY - rect.top) < rect.height / 2;
+      stop.parentNode.insertBefore(planningGesleeptStop, voorHelft ? stop : stop.nextSibling);
+
+      const groep = stop.dataset.groep;
+      const volgorde = [...container.querySelectorAll('.planning-stop')]
+        .filter((el) => el.dataset.groep === groep)
+        .map((el, i) => ({ boekingId: el.dataset.boekingId, positie: i + 1 }));
+      try {
+        await api('/api/planning/volgorde', { method: 'PUT', body: JSON.stringify({ type, volgorde }) });
+        laadPlanning();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
 }
 
 function planningRenderKolom(container, items, type) {
@@ -807,7 +880,7 @@ function planningRenderKolom(container, items, type) {
   groepen.forEach((lijst, voertuigNaam) => {
     if (!lijst.length) return;
     html += `<div class="planning-voertuiggroep-kop">${voertuigNaam ? `🚐 ${voertuigNaam}` : '⬜ Niet toegewezen'} (${lijst.length})</div>`;
-    html += lijst.map((b, i) => planningStopHtml(b, type, { eerste: i === 0, laatste: i === lijst.length - 1 })).join('');
+    html += lijst.map((b) => planningStopHtml(b, type, voertuigNaam)).join('');
   });
   container.innerHTML = html;
 
@@ -826,74 +899,291 @@ function planningRenderKolom(container, items, type) {
     });
   });
 
-  container.querySelectorAll('.planning-stop-omhoog, .planning-stop-omlaag').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      const stop = btn.closest('.planning-stop');
-      // Enkel binnen de groep vanaf de dichtstbijzijnde "kop" tot de volgende
-      // kop (of het einde) verschuiven — de kolom zelf bevat alle groepen na
-      // elkaar in dezelfde container, dus zoek de eigen groep op.
-      const eigenGroep = [];
-      let el = stop.previousElementSibling;
-      while (el && !el.classList.contains('planning-voertuiggroep-kop')) { eigenGroep.unshift(el); el = el.previousElementSibling; }
-      eigenGroep.push(stop);
-      el = stop.nextElementSibling;
-      while (el && !el.classList.contains('planning-voertuiggroep-kop')) { eigenGroep.push(el); el = el.nextElementSibling; }
+  planningKoppelDragDrop(container, type);
+}
 
-      const idx = eigenGroep.indexOf(stop);
-      const naarIdx = btn.classList.contains('planning-stop-omhoog') ? idx - 1 : idx + 1;
-      if (naarIdx < 0 || naarIdx >= eigenGroep.length) return;
-      [eigenGroep[idx], eigenGroep[naarIdx]] = [eigenGroep[naarIdx], eigenGroep[idx]];
+// Bereik-weergave (Deze week/Volgende week/Aangepast, ...): enkel-lezen
+// overzicht, per dag gegroepeerd en daarbinnen per voertuig — geen slepen
+// (de volgorde is altijd per dag) en geen voertuig-select (dat doe je op de
+// dag zelf, via "Vandaag"/de datumkiezer).
+function planningBereikStopHtml(b, type) {
+  const adres = dashboardAdresTekst(b);
+  const tijdWaarde = planningEffectieveTijdWaarde(b, type);
+  const eersteProduct = b.eerste_product_naam || (b.producten_namen || '').split(',')[0].trim() || '—';
+  const meerdereProducten = Number(b.aantal_producten) > 1;
+  const productHeadline = meerdereProducten ? `${eersteProduct}…` : eersteProduct;
+  return `
+    <div class="planning-stop" data-klant="${b.klant_naam}">
+      <span class="planning-stop-tijd">${tijdWaarde}</span>
+      <span class="planning-stop-info" title="${b.klant_naam}">
+        <strong>${productHeadline}</strong> · ${adres}
+      </span>
+    </div>
+  `;
+}
 
-      const type = container.id === 'planning-leveringen-lijst' ? 'levering' : 'afhaling';
-      const volgorde = eigenGroep.map((elStop, i) => ({ boekingId: elStop.dataset.boekingId, positie: i + 1 }));
-      try {
-        await api('/api/planning/volgorde', { method: 'PUT', body: JSON.stringify({ type, volgorde }) });
-        laadPlanning();
-      } catch (err) {
-        alert(err.message);
-      }
+function planningRenderBereikKolom(container, items, type) {
+  if (!items.length) {
+    container.innerHTML = '<p class="leeg-bericht">Niets gepland in deze periode.</p>';
+    return;
+  }
+  const datumVeld = type === 'levering' ? 'gewenste_datum_start' : 'gewenste_datum_einde';
+  const perDag = new Map();
+  items.forEach((b) => {
+    const dag = (b[datumVeld] || '').slice(0, 10);
+    if (!perDag.has(dag)) perDag.set(dag, []);
+    perDag.get(dag).push(b);
+  });
+
+  let html = '';
+  [...perDag.entries()].sort(([a], [c]) => a.localeCompare(c)).forEach(([dag, lijst]) => {
+    html += `<div class="planning-dag-kop">${fmtDatum(dag)}</div>`;
+    const groepen = planningGroepeerPerVoertuig(lijst, type);
+    groepen.forEach((groepLijst, voertuigNaam) => {
+      if (!groepLijst.length) return;
+      html += `<div class="planning-voertuiggroep-kop">${voertuigNaam ? `🚐 ${voertuigNaam}` : '⬜ Niet toegewezen'} (${groepLijst.length})</div>`;
+      html += groepLijst.map((b) => planningBereikStopHtml(b, type)).join('');
     });
   });
+  container.innerHTML = html;
+}
+
+// Toont/verbergt de dagkiezer, voertuigbeheer en PDF-knoppen t.o.v. de
+// periode-info, naargelang de huidige modus — zelfde principe als
+// dashboardToonModusUI hierboven.
+function planningToonModusUI(actieveSleutel) {
+  document.getElementById('planning-datumkiezer').hidden = planningModus === 'bereik';
+  const bereikInfoEl = document.getElementById('planning-bereik-info');
+  bereikInfoEl.hidden = planningModus !== 'bereik';
+  if (planningModus === 'bereik') {
+    bereikInfoEl.textContent = `${fmtDatum(planningBereikVanaf)} — ${fmtDatum(planningBereikTot)}`;
+  }
+  document.querySelectorAll('#planning-snelfilters button').forEach((btn) => {
+    btn.classList.toggle('actief', btn.dataset.pbereik === actieveSleutel);
+  });
+  document.getElementById('planning-uitleg').hidden = planningModus === 'bereik';
+  document.getElementById('planning-uitleg-bereik').hidden = planningModus !== 'bereik';
+  document.getElementById('planning-voertuigbeheer').hidden = planningModus === 'bereik';
+  document.querySelectorAll('#planning-dashboard-kolommen .planning-kolom-acties').forEach((el) => {
+    el.hidden = planningModus === 'bereik';
+  });
+}
+
+function planningGaNaarDag(iso) {
+  planningModus = 'dag';
+  document.getElementById('planning-aangepast-bereik').hidden = true;
+  document.getElementById('planning-datum').value = iso;
+  planningToonModusUI(iso === planningVandaagIso() ? 'vandaag' : null);
+  laadPlanning();
+}
+
+function planningGaNaarBereik(vanaf, tot, sleutel) {
+  planningModus = 'bereik';
+  planningBereikVanaf = vanaf;
+  planningBereikTot = tot;
+  document.getElementById('planning-aangepast-bereik').hidden = sleutel !== 'aangepast';
+  planningToonModusUI(sleutel);
+  laadPlanning();
 }
 
 async function laadPlanning() {
   await laadVoertuigen();
   laadVoertuigenBeheer();
 
-  const datumVeld = document.getElementById('planning-datum');
-  if (!datumVeld.value) datumVeld.value = planningVandaagIso();
-  planningHuidigeDatum = datumVeld.value;
-
   const leveringenEl = document.getElementById('planning-leveringen-lijst');
   const ophalingenEl = document.getElementById('planning-ophalingen-lijst');
   leveringenEl.innerHTML = '<p class="leeg-bericht">Laden...</p>';
   ophalingenEl.innerHTML = '<p class="leeg-bericht">Laden...</p>';
 
-  const data = await api(`/api/planning?datum=${planningHuidigeDatum}`);
+  const bereikModus = planningModus === 'bereik';
+  let data;
+  if (bereikModus) {
+    data = await api(`/api/planning?vanaf=${planningBereikVanaf}&tot=${planningBereikTot}`);
+  } else {
+    const datumVeld = document.getElementById('planning-datum');
+    if (!datumVeld.value) datumVeld.value = planningVandaagIso();
+    planningHuidigeDatum = datumVeld.value;
+    data = await api(`/api/planning?datum=${planningHuidigeDatum}`);
+  }
+  planningLaatsteData = data;
+
   document.getElementById('planning-aantal-leveringen').textContent = `(${data.leveringen.length})`;
   document.getElementById('planning-aantal-ophalingen').textContent = `(${data.ophalingen.length})`;
-  planningRenderKolom(leveringenEl, data.leveringen, 'levering');
-  planningRenderKolom(ophalingenEl, data.ophalingen, 'afhaling');
+
+  if (bereikModus) {
+    planningRenderBereikKolom(leveringenEl, data.leveringen, 'levering');
+    planningRenderBereikKolom(ophalingenEl, data.ophalingen, 'afhaling');
+  } else {
+    planningRenderKolom(leveringenEl, data.leveringen, 'levering');
+    planningRenderKolom(ophalingenEl, data.ophalingen, 'afhaling');
+  }
 }
 
-document.getElementById('planning-datum').addEventListener('change', laadPlanning);
+document.getElementById('planning-datum').addEventListener('change', (e) => planningGaNaarDag(e.target.value));
 document.getElementById('btn-planning-vorige').addEventListener('click', () => {
   const veld = document.getElementById('planning-datum');
   const d = new Date(veld.value || planningVandaagIso());
   d.setDate(d.getDate() - 1);
-  veld.value = d.toISOString().slice(0, 10);
-  laadPlanning();
+  planningGaNaarDag(d.toISOString().slice(0, 10));
 });
 document.getElementById('btn-planning-volgende').addEventListener('click', () => {
   const veld = document.getElementById('planning-datum');
   const d = new Date(veld.value || planningVandaagIso());
   d.setDate(d.getDate() + 1);
-  veld.value = d.toISOString().slice(0, 10);
-  laadPlanning();
+  planningGaNaarDag(d.toISOString().slice(0, 10));
 });
-document.getElementById('btn-planning-vandaag').addEventListener('click', () => {
-  document.getElementById('planning-datum').value = planningVandaagIso();
-  laadPlanning();
+document.getElementById('btn-planning-vandaag').addEventListener('click', () => planningGaNaarDag(planningVandaagIso()));
+
+// Snelfilters boven Planning: Vandaag/Morgen (dagmodus, zelfde als de
+// datumkiezer) en Deze/Volgende/Vorige week, Vorige maand (bereik-modus,
+// enkel-lezen) — hergebruikt dezelfde berekenDatumRange als het Dashboard.
+document.querySelectorAll('#planning-snelfilters button').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const sleutel = btn.dataset.pbereik;
+    if (sleutel === 'aangepast') {
+      const [vanaf, tot] = planningModus === 'bereik'
+        ? [planningBereikVanaf, planningBereikTot]
+        : [planningVandaagIso(), planningVandaagIso()];
+      document.getElementById('planning-bereik-vanaf').value = vanaf;
+      document.getElementById('planning-bereik-tot').value = tot;
+      document.getElementById('planning-aangepast-bereik').hidden = false;
+      document.querySelectorAll('#planning-snelfilters button').forEach((b) => b.classList.toggle('actief', b === btn));
+      return;
+    }
+    if (sleutel === 'vandaag' || sleutel === 'morgen') {
+      const [iso] = berekenDatumRange(sleutel);
+      planningGaNaarDag(iso);
+      return;
+    }
+    const [vanaf, tot] = berekenDatumRange(sleutel);
+    planningGaNaarBereik(vanaf, tot, sleutel);
+  });
+});
+
+document.getElementById('btn-planning-bereik-toepassen').addEventListener('click', () => {
+  const vanaf = document.getElementById('planning-bereik-vanaf').value;
+  const tot = document.getElementById('planning-bereik-tot').value;
+  if (!vanaf || !tot) return alert('Kies zowel een "van"- als een "tot"-datum.');
+  if (vanaf > tot) return alert('De "van"-datum moet vóór de "tot"-datum liggen.');
+  planningGaNaarBereik(vanaf, tot, 'aangepast');
+});
+
+// ============================================================
+// PLANNING — laadlijst / leveringslijst / afhaallijst (PDF)
+// ============================================================
+// Geen aparte PDF-bibliotheek nodig: net als "Print drop sheet" bij
+// Boekingenoverzicht (zie bouwDropSheetHtml hierboven) bouwen we een
+// afdrukvriendelijke HTML-versie op en gebruiken we window.print() — in het
+// printvenster kiest Jonas gewoon "Opslaan als PDF" i.p.v. een fysieke printer.
+function planningLogistiekTotalen(b) {
+  const producten = b.producten_detail || [];
+  const totalen = { gewicht: 0, valmatten: 0, piketten: 0, zandzakken: 0, motoren: new Set() };
+  producten.forEach((p) => {
+    const aantal = Number(p.aantal) || 1;
+    totalen.gewicht += (Number(p.gewicht_kg) || 0) * aantal;
+    totalen.valmatten += (Number(p.aantal_valmatten) || 0) * aantal;
+    totalen.piketten += (Number(p.aantal_piketten) || 0) * aantal;
+    totalen.zandzakken += (Number(p.aantal_zandzakken) || 0) * aantal;
+    if (p.motor_type) totalen.motoren.add(p.motor_type);
+  });
+  return totalen;
+}
+
+function planningPrintKopHtml(titel, subtitel) {
+  const vandaag = new Date().toLocaleDateString('nl-BE');
+  return `<h2>${titel}</h2><p class="uitleg">${subtitel} — afgedrukt op ${vandaag}</p>`;
+}
+
+// Laadlijst: per voertuig, met per stop de logistieke gegevens (gewicht,
+// motor, valmatten/piketten/zandzakken) en een subtotaal per voertuig +
+// eindtotaal — wat Jonas nodig heeft om de wagen(s) te beladen. Enkel zinvol
+// voor een specifieke dag, dus enkel beschikbaar in dagmodus (zie
+// planningToonModusUI, die de knop dan verbergt).
+function planningBouwLaadlijstHtml() {
+  const data = planningLaatsteData;
+  if (!data || !data.leveringen.length) return '<p class="leeg-bericht">Niets te leveren op deze dag.</p>';
+  const groepen = planningGroepeerPerVoertuig(data.leveringen, 'levering');
+  let html = planningPrintKopHtml('Laadlijst', `Te leveren op ${fmtDatum(planningHuidigeDatum)}`);
+  const eindtotaal = { gewicht: 0, valmatten: 0, piketten: 0, zandzakken: 0 };
+
+  groepen.forEach((lijst, voertuigNaam) => {
+    if (!lijst.length) return;
+    html += `<div class="planning-print-groep-kop">${voertuigNaam ? `🚐 ${voertuigNaam}` : '⬜ Niet toegewezen'}</div>`;
+    html += `<table class="planning-print-tabel"><thead><tr>
+      <th>Tijd</th><th>Klant</th><th>Product(en)</th><th>Motor</th>
+      <th>Gewicht</th><th>Valmatten</th><th>Piketten</th><th>Zandzakken</th>
+    </tr></thead><tbody>`;
+    const subtotaal = { gewicht: 0, valmatten: 0, piketten: 0, zandzakken: 0 };
+    lijst.forEach((b) => {
+      const t = planningLogistiekTotalen(b);
+      subtotaal.gewicht += t.gewicht;
+      subtotaal.valmatten += t.valmatten;
+      subtotaal.piketten += t.piketten;
+      subtotaal.zandzakken += t.zandzakken;
+      html += `<tr>
+        <td>${planningEffectieveTijdWaarde(b, 'levering')}</td>
+        <td>${b.klant_naam}</td>
+        <td>${b.producten_namen || '—'}</td>
+        <td>${[...t.motoren].join(', ') || '—'}</td>
+        <td>${t.gewicht ? t.gewicht.toFixed(0) + ' kg' : '—'}</td>
+        <td>${t.valmatten || '—'}</td>
+        <td>${t.piketten || '—'}</td>
+        <td>${t.zandzakken || '—'}</td>
+      </tr>`;
+    });
+    html += `<tr class="planning-print-totaalrij">
+      <td colspan="4">Subtotaal ${voertuigNaam || 'niet toegewezen'}</td>
+      <td>${subtotaal.gewicht.toFixed(0)} kg</td><td>${subtotaal.valmatten}</td><td>${subtotaal.piketten}</td><td>${subtotaal.zandzakken}</td>
+    </tr>`;
+    html += '</tbody></table>';
+    eindtotaal.gewicht += subtotaal.gewicht;
+    eindtotaal.valmatten += subtotaal.valmatten;
+    eindtotaal.piketten += subtotaal.piketten;
+    eindtotaal.zandzakken += subtotaal.zandzakken;
+  });
+
+  html += `<p class="planning-print-eindtotaal">Totaal alle voertuigen: ${eindtotaal.gewicht.toFixed(0)} kg · ${eindtotaal.valmatten} valmatten · ${eindtotaal.piketten} piketten · ${eindtotaal.zandzakken} zandzakken</p>`;
+  return html;
+}
+
+// Leveringslijst/afhaallijst: eenvoudige, per voertuig gegroepeerde route-
+// lijst (tijd/klant/telefoon/adres/producten) zonder de logistieke totalen —
+// dit is wat de chauffeur onderweg nodig heeft, geen laadgegevens.
+function planningBouwEenvoudigeLijstHtml(items, type, titel) {
+  if (!items.length) return '<p class="leeg-bericht">Niets gepland op deze dag.</p>';
+  const groepen = planningGroepeerPerVoertuig(items, type);
+  let html = planningPrintKopHtml(titel, `${type === 'levering' ? 'Te leveren' : 'Af te halen'} op ${fmtDatum(planningHuidigeDatum)}`);
+  groepen.forEach((lijst, voertuigNaam) => {
+    if (!lijst.length) return;
+    html += `<div class="planning-print-groep-kop">${voertuigNaam ? `🚐 ${voertuigNaam}` : '⬜ Niet toegewezen'} (${lijst.length})</div>`;
+    html += `<table class="planning-print-tabel"><thead><tr><th>Tijd</th><th>Klant</th><th>Telefoon</th><th>Adres</th><th>Product(en)</th></tr></thead><tbody>`;
+    lijst.forEach((b) => {
+      const adres = dashboardAdresTekst(b);
+      html += `<tr>
+        <td>${planningEffectieveTijdWaarde(b, type)}</td>
+        <td>${b.klant_naam}</td>
+        <td>${b.klant_telefoon || '—'}</td>
+        <td>${adres}</td>
+        <td>${b.producten_namen || '—'}</td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+  });
+  return html;
+}
+
+function planningAfdrukken(html) {
+  document.getElementById('planning-print').innerHTML = html;
+  document.body.classList.add('print-modus-planning');
+  window.print();
+}
+
+document.getElementById('btn-planning-laadlijst').addEventListener('click', () => planningAfdrukken(planningBouwLaadlijstHtml()));
+document.getElementById('btn-planning-leveringslijst').addEventListener('click', () => {
+  planningAfdrukken(planningBouwEenvoudigeLijstHtml(planningLaatsteData ? planningLaatsteData.leveringen : [], 'levering', 'Leveringslijst'));
+});
+document.getElementById('btn-planning-afhaallijst').addEventListener('click', () => {
+  planningAfdrukken(planningBouwEenvoudigeLijstHtml(planningLaatsteData ? planningLaatsteData.ophalingen : [], 'afhaling', 'Afhaallijst'));
 });
 
 // ============================================================
@@ -1256,6 +1546,7 @@ document.getElementById('btn-drop-sheet').addEventListener('click', () => {
 });
 window.addEventListener('afterprint', () => {
   document.body.classList.remove('print-modus-dropsheet');
+  document.body.classList.remove('print-modus-planning');
 });
 
 // Bulk e-mail: verstuurt via Jonas' eigen Microsoft 365-account (Graph API,
