@@ -93,14 +93,25 @@ async function main() {
     let bijgewerkt = 0;
     let overgeslagenGeenBoekingsnummer = 0;
     let overgeslagenBoekingNietGevonden = [];
+    let overgeslagenGeenGeldigFormaat = [];
     let fotosGekopieerd = 0;
     const heeftBetaalinfoGenegeerd = [];
+    // Sinds de sync bestaat is boekingsnummer altijd de UUID van de boeking op
+    // dit platform (zie sync.js: boekingsnummer: b.id) — maar oudere/handmatige
+    // leveringen in de crew-app kunnen nog een ouder, niet-UUID nummer hebben
+    // (bv. "4175"). Die kunnen we sowieso niet koppelen, dus overslaan i.p.v.
+    // te laten crashen op een ongeldige UUID-cast.
+    const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
     for (const row of deliveries) {
       const d = row.data || {};
       const boekingsnummer = (d.boekingsnummer || '').trim();
       if (!boekingsnummer) {
         overgeslagenGeenBoekingsnummer++;
+        continue;
+      }
+      if (!UUID_REGEX.test(boekingsnummer)) {
+        overgeslagenGeenGeldigFormaat.push({ crewAppDeliveryId: row.id, boekingsnummer, klant: d.klant });
         continue;
       }
 
@@ -182,6 +193,10 @@ async function main() {
     console.log(`Leveringen ${UITVOEREN ? 'bijgewerkt' : 'die bijgewerkt zouden worden'}: ${bijgewerkt}`);
     console.log(`Foto's ${UITVOEREN ? 'gekopieerd' : 'die gekopieerd zouden worden'}: ${fotosGekopieerd} (fase is een inschatting, want de crew-app hield dit niet apart bij — controleer dit best even visueel na)`);
     console.log(`Overgeslagen — geen boekingsnummer (test-levering zonder echte koppeling): ${overgeslagenGeenBoekingsnummer}`);
+    if (overgeslagenGeenGeldigFormaat.length) {
+      console.log(`Overgeslagen — boekingsnummer is geen geldig platform-nummer (waarschijnlijk een ouder/handmatig nummer van vóór de sync, bv. "4175"), kan niet gekoppeld worden (${overgeslagenGeenGeldigFormaat.length}x):`);
+      overgeslagenGeenGeldigFormaat.forEach((x) => console.log(`   - "${x.boekingsnummer}" (${x.klant || '?'}, crew-app id ${x.crewAppDeliveryId})`));
+    }
     if (overgeslagenBoekingNietGevonden.length) {
       console.log(`Overgeslagen — boekingsnummer niet gevonden op het platform (${overgeslagenBoekingNietGevonden.length}x), controleer dit manueel:`);
       overgeslagenBoekingNietGevonden.forEach((x) => console.log(`   - ${x.boekingsnummer} (${x.klant || '?'}, crew-app id ${x.crewAppDeliveryId})`));
