@@ -3422,6 +3422,15 @@ async function openDetail(boekingId) {
   // reeds toegevoegde producten nog wel beschikbaar zijn op de nieuwe datum(s).
   const origineleStart = b.gewenste_datum_start ? String(b.gewenste_datum_start).slice(0, 10) : null;
   const origineleEinde = b.gewenste_datum_einde ? String(b.gewenste_datum_einde).slice(0, 10) : null;
+  // Elke klik in de kalender slaat meteen op (zie comment hierboven) — bij
+  // een periode opbouwen met meerdere snelle kliks (bv. eerst 18 aanklikken,
+  // dan bijsturen naar 19-20) loopt er dus voor elke tussenklik een eigen
+  // PUT-aanroep. Zonder volgnummer kon een TRAGERE, oudere aanvraag (bv. voor
+  // de eerst aangeklikte 18de) later binnenkomen dan de nieuwste, en zo een
+  // foutmelding tonen die niet bij de uiteindelijk getoonde periode hoort —
+  // precies wat Jonas meldde (foutmelding over 18/09 terwijl de kalender al
+  // 19-20/09 toonde). Enkel de reactie op de LAATSTE klik nog verwerken.
+  let periodeVerzoekVolgnummer = 0;
   const dossierPeriodeKalender = maakKalenderWidget({
     container: document.getElementById('kalender-dossier-periode'),
     initieleStart: origineleStart,
@@ -3430,15 +3439,18 @@ async function openDetail(boekingId) {
     opWijziging: async (start, einde) => {
       const elFout = document.getElementById('periode-fout');
       elFout.textContent = '';
+      const ditVerzoek = ++periodeVerzoekVolgnummer;
       try {
         await api(`/api/boekingen/${boekingId}`, {
           method: 'PUT',
           body: JSON.stringify({ gewenste_datum_start: start, gewenste_datum_einde: einde || start }),
         });
+        if (ditVerzoek !== periodeVerzoekVolgnummer) return; // ondertussen alweer een nieuwere klik gebeurd
         toonToast('Periode opgeslagen');
         openDetail(boekingId);
         laadBoekingenOverzicht();
       } catch (err) {
+        if (ditVerzoek !== periodeVerzoekVolgnummer) return; // idem — deze reactie is niet meer de nieuwste
         elFout.textContent = err.message;
         dossierPeriodeKalender.stelIn(origineleStart, origineleEinde);
       }

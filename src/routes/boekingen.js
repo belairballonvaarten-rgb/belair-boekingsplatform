@@ -631,11 +631,18 @@ router.put('/:id', asyncHandler(async (req, res) => {
     if (!huidige[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
     const nieuweStart = req.body.gewenste_datum_start !== undefined ? req.body.gewenste_datum_start : huidige[0].gewenste_datum_start;
     const nieuweEinde = req.body.gewenste_datum_einde !== undefined ? req.body.gewenste_datum_einde : huidige[0].gewenste_datum_einde;
-    const { rows: producten } = await db.query('SELECT product_id, aantal FROM boeking_producten WHERE boeking_id = $1', [req.params.id]);
+    const { rows: producten } = await db.query(
+      `SELECT bp.product_id, bp.aantal, p.naam
+       FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id
+       WHERE bp.boeking_id = $1`,
+      [req.params.id]
+    );
     for (const p of producten) {
       const check = await checkBeschikbaarheid(p.product_id, nieuweStart, nieuweEinde, p.aantal, req.params.id);
       if (!check.beschikbaar) {
-        return res.status(409).json({ fout: `Niet beschikbaar op de nieuwe periode: ${check.reden}`, product_id: p.product_id });
+        // Productnaam mee in de foutmelding — anders weet je bij meerdere
+        // producten op één boeking niet welk van de twee de botsing veroorzaakt.
+        return res.status(409).json({ fout: `Niet beschikbaar op de nieuwe periode voor "${p.naam}": ${check.reden}`, product_id: p.product_id });
       }
     }
   }
