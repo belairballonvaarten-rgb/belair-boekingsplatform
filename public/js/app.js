@@ -515,7 +515,7 @@ function renderDashboardKolom(container, items, type, opties = {}) {
                   title="${isVoltooid ? `Gemarkeerd als ${voltooidWoord} — klik om terug te zetten` : `Markeer als ${voltooidWoord}`}">${isVoltooid ? '✅' : '⬜'}</button>
           <select class="dashboard-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${kaartDatum}" title="Tijdstip">${genereerKwartierOpties(tijdWaarde || standaardTijd)}</select>
           <select class="dashboard-voertuig-select" data-boeking-id="${b.id}" data-type="${type}" title="${huidigVoertuig ? `Voertuig: ${huidigVoertuig}` : 'Geen voertuig toegewezen'}">${voertuigOpties}</select>
-          ${statusPillHtml(b.status)}
+          ${statusPillHtml(b.status, b.saldo_openstaand)}
           <span class="dashboard-kaart-acties">
             ${telLink}
             ${kaartLink}
@@ -2222,7 +2222,7 @@ async function openKlantDetail(klantId) {
           <td>${fmtDatum(b.gewenste_datum_start)}${b.gewenste_datum_einde && b.gewenste_datum_einde !== b.gewenste_datum_start ? ' t/m ' + fmtDatum(b.gewenste_datum_einde) : ''}</td>
           <td>${b.producten_namen || '—'}</td>
           <td>${fmtEuro(b.waarde)}</td>
-          <td>${statusPillHtml(b.status)}</td>
+          <td>${statusPillHtml(b.status, b.saldo_openstaand)}</td>
           <td>Bekijk →</td>
         </tr>`).join('')
     : '<tr><td colspan="5" class="leeg-bericht">Nog geen boekingen.</td></tr>';
@@ -4736,7 +4736,7 @@ function maakRijkeTekstEditor(container, initieelHtml) {
       toolbar: [
         ['bold', 'italic', 'underline'],
         [{ list: 'ordered' }, { list: 'bullet' }],
-        ['link'],
+        ['link', 'image'],
         [{ color: [] }],
         ['clean'],
       ],

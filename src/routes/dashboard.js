@@ -3,6 +3,7 @@ const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { geocodeAdres, ONS_MAGAZIJN_ADRES } = require('../utils/afstand');
+const { berekenPrijstabel } = require('../utils/prijstabel');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -79,6 +80,25 @@ async function zorgVoorGeocodering(rijen) {
   return rijen;
 }
 
+// Het echte openstaande saldo per boeking erbij zetten — de status alleen
+// ("Betaald (volledig)", "Gefactureerd", ...) garandeert niet dat er ook
+// werkelijk niets meer open staat: Jonas kan bewust een tussenstap (bv. het
+// betaalverzoek) overslaan en rechtstreeks naar "klaar voor levering"
+// schakelen. Zonder dit veld toonde het Dashboard dan toch "Betaald
+// (volledig)", ook met een openstaand saldo — zie weergaveStatusLabel() in
+// public/js/app.js, dat hiermee nu ook op het Dashboard "(open saldo)" toont.
+// Het Dashboard toont maar een handvol boekingen per dag/periode, dus de
+// N+1-aanpak (3 kleine, geïndexeerde queries per boeking) is hier geen
+// probleem — anders dan bv. het Boekingenoverzicht (tot 200 rijen), dat
+// daarom bewust een goedkopere benadering gebruikt.
+async function zorgVoorSaldo(rijen) {
+  await Promise.all(rijen.map(async (rij) => {
+    const prijstabel = await berekenPrijstabel(rij.id);
+    rij.saldo_openstaand = prijstabel.saldo_openstaand;
+  }));
+  return rijen;
+}
+
 // In-memory cache voor de locatie van ons eigen magazijn — verandert nooit
 // binnen een lopende serverinstantie, dus geen reden om dit telkens opnieuw
 // op te vragen bij Google.
@@ -145,7 +165,10 @@ router.get('/', asyncHandler(async (req, res) => {
       haalBereik('afhaling', vanaf, tot),
       haalMagazijnLocatieOp(),
     ]);
-    await Promise.all([zorgVoorGeocodering(levering.items), zorgVoorGeocodering(afhaling.items)]);
+    await Promise.all([
+      zorgVoorGeocodering(levering.items), zorgVoorGeocodering(afhaling.items),
+      zorgVoorSaldo(levering.items), zorgVoorSaldo(afhaling.items),
+    ]);
     return res.json({
       vanaf,
       tot,
@@ -168,7 +191,10 @@ router.get('/', asyncHandler(async (req, res) => {
     haalMagazijnLocatieOp(),
   ]);
 
-  await Promise.all([zorgVoorGeocodering(levering.items), zorgVoorGeocodering(afhaling.items)]);
+  await Promise.all([
+    zorgVoorGeocodering(levering.items), zorgVoorGeocodering(afhaling.items),
+    zorgVoorSaldo(levering.items), zorgVoorSaldo(afhaling.items),
+  ]);
 
   res.json({
     datum,

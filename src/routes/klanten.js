@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { berekenPrijstabel } = require('../utils/prijstabel');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -72,6 +73,13 @@ router.get('/:id', asyncHandler(async (req, res) => {
      ORDER BY b.gewenste_datum_start DESC`,
     [req.params.id]
   );
+  // Het echte openstaande saldo per boeking erbij (niet enkel de status) —
+  // zelfde reden als bij het Dashboard (zie utils/prijstabel.js): een status
+  // als "Betaald (volledig)" garandeert niet dat het saldo ook op 0 staat.
+  // Een klant heeft normaliter maar een handvol boekingen, dus dit blijft goedkoop.
+  await Promise.all(boekingenHistoriek.map(async (b) => {
+    b.saldo_openstaand = (await berekenPrijstabel(b.id)).saldo_openstaand;
+  }));
 
   res.json({ ...rows[0], boekingen: boekingenHistoriek });
 }));
