@@ -243,15 +243,32 @@ router.put('/:boekingId/tijdstip', asyncHandler(async (req, res) => {
 // Eenvoudig "geleverd"/"opgehaald"-vinkje vanop het Dashboard — kleurt de kaart
 // groen zodra het effectief gebeurd is. Los van de boeking-status (die kan
 // intussen al "betaald" zijn zonder dat er al iets geleverd is).
+//
+// Terug UITvinken ("was toch nog niet geleverd") moet ook de checklist in de
+// leveringen-app weer openzetten — anders bleef die daar op "✓ Levering
+// bevestigd" (groen, vergrendeld) staan, ook al toonde de lijst intussen weer
+// "te leveren": dashboard.js zette hier voorheen ENKEL levering_voltooid/
+// afhaling_voltooid terug, nooit plaatsing_bevestigd/afhaling_bevestigd (de
+// aparte vlag die de app's checklist-scherm vergrendelt). Zelfde effect als
+// de "Levering bewerken"/"Afhaling bewerken"-knop in de app zelf: de reeds
+// ingevulde checklist (en een eventuele handtekening) blijft gewoon staan,
+// enkel het scherm gaat weer open om opnieuw te bevestigen. Bij AANvinken
+// vanop het Dashboard raken die velden bewust niet aan — dat forceert geen
+// (ongetekende) bevestiging in de app.
 router.put('/:boekingId/voltooid', asyncHandler(async (req, res) => {
   const { type, voltooid } = req.body;
   if (!['levering', 'afhaling'].includes(type) || typeof voltooid !== 'boolean') {
     return res.status(400).json({ fout: 'type ("levering"/"afhaling") en voltooid (true/false) zijn verplicht' });
   }
   const kolom = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
+  const kolomBevestigd = type === 'levering' ? 'plaatsing_bevestigd' : 'afhaling_bevestigd';
+  const kolomBevestigdOp = type === 'levering' ? 'plaatsing_bevestigd_op' : 'afhaling_bevestigd_op';
+  const heropenChecklist = voltooid === false;
 
   const { rows } = await db.query(
-    `UPDATE leveringen SET ${kolom} = $1 WHERE boeking_id = $2 RETURNING *`,
+    `UPDATE leveringen
+     SET ${kolom} = $1${heropenChecklist ? `, ${kolomBevestigd} = false, ${kolomBevestigdOp} = NULL` : ''}
+     WHERE boeking_id = $2 RETURNING *`,
     [voltooid, req.params.boekingId]
   );
   if (rows[0]) return res.json(rows[0]);
