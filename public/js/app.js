@@ -985,9 +985,8 @@ function planningRenderKolom(container, items, type) {
   groepen.forEach((lijst, voertuigNaam) => {
     if (!lijst.length) return;
     html += `<div class="planning-voertuiggroep-kop">${voertuigNaam ? `🚐 ${voertuigNaam}` : '⬜ Niet toegewezen'} (${lijst.length})`
-      + (voertuigNaam ? ` <button type="button" class="linkbtn planning-route-btn" data-voertuig="${voertuigNaam.replace(/"/g, '&quot;')}" data-type="${type}">🕒 Route-inschatting</button>` : '')
+      + (voertuigNaam ? ` <button type="button" class="linkbtn planning-route-btn" data-voertuig="${voertuigNaam.replace(/"/g, '&quot;')}" data-type="${type}">🗺️ Route-inschatting</button>` : '')
       + `</div>`;
-    if (voertuigNaam) html += `<div class="planning-route-resultaat" data-voertuig="${voertuigNaam.replace(/"/g, '&quot;')}" data-type="${type}" hidden></div>`;
     html += lijst.map((b) => planningStopHtml(b, type, voertuigNaam)).join('');
   });
   container.innerHTML = html;
@@ -1014,63 +1013,18 @@ function planningRenderKolom(container, items, type) {
 }
 
 // ============================================================
-// ROUTE-INSCHATTING (punt 6): op basis van de al handmatig vastgelegde
-// volgorde (het slepen hierboven) een haalbare timing berekenen — rijtijd
-// tussen de adressen (via OSRM) + een vaste tijd per stop + de gekende
-// opsteltijd van de producten. "Gewoon een inschatting" — geen garantie, en
-// wordt bewust pas berekend op aanvraag (niet automatisch bij elke wijziging)
-// om de gratis OSRM-dienst niet nodeloos te belasten. Na een nieuwe sleep-
-// beweging is de knop gewoon opnieuw te klikken.
+// ROUTE-INSCHATTING (punt 6): de knop gaat rechtstreeks naar de
+// Routeplanning-pagina (kaart + sleepbare volgorde) met dit voertuig/deze
+// dag/richting al gekozen — geen aparte tekstweergave hier meer.
+// ============================================================
 function planningKoppelRouteInschatting(container) {
   container.querySelectorAll('.planning-route-btn').forEach((btn) => {
-    btn.addEventListener('click', () => planningBerekenRoute(container, btn.dataset.voertuig, btn.dataset.type));
-  });
-}
-
-function planningRouteResultaatEl(container, voertuigNaam, type) {
-  return [...container.querySelectorAll('.planning-route-resultaat')]
-    .find((el) => el.dataset.voertuig === voertuigNaam && el.dataset.type === type);
-}
-
-async function planningBerekenRoute(container, voertuigNaam, type) {
-  const resultEl = planningRouteResultaatEl(container, voertuigNaam, type);
-  if (!resultEl) return;
-  const datum = document.getElementById('planning-datum').value;
-  resultEl.hidden = false;
-  resultEl.innerHTML = '<p class="leeg-bericht">Route wordt berekend...</p>';
-  try {
-    const data = await api(`/api/planning/route-inschatting?voertuigNaam=${encodeURIComponent(voertuigNaam)}&datum=${encodeURIComponent(datum)}&type=${encodeURIComponent(type)}`);
-    resultEl.innerHTML = planningRouteResultaatHtml(data);
-    const kaartBtn = resultEl.querySelector('.btn-route-op-kaart');
-    if (kaartBtn) kaartBtn.addEventListener('click', () => {
+    btn.addEventListener('click', () => {
+      const datum = document.getElementById('planning-datum').value;
       wisselView('routeplanning');
-      rpOpenen({ voertuigNaam, datum, type });
+      rpOpenen({ voertuigNaam: btn.dataset.voertuig, datum, type: btn.dataset.type });
     });
-  } catch (err) {
-    resultEl.innerHTML = `<p class="foutmelding">${err.message}</p>`;
-  }
-}
-
-function planningRouteResultaatHtml(data) {
-  if (!data.stops.length) return '<p class="leeg-bericht">Niets om een route van te maken (enkel eigen afhalingen door de klant in deze groep?).</p>';
-  const stopsHtml = data.stops.map((s, i) => `
-    <div class="planning-route-stop">
-      <strong>${i + 1}. ${s.aankomstTijd}</strong> — ${s.klantNaam}${s.geenLocatie ? ' <span class="uitleg">(adres niet gelokaliseerd — telt niet mee in de rijtijd)</span>' : ''}
-      <span class="uitleg">${s.rijtijdMinuten != null ? `${s.rijtijdMinuten} min rijden · ` : ''}${s.opstelMinuten ? `${s.opstelMinuten} min opstellen · ` : ''}vertrek ${s.vertrekTijd}</span>
-    </div>
-  `).join('');
-  const kaartKnopHtml = '<button type="button" class="linkbtn btn-route-op-kaart">🗺️ Op kaart bekijken &amp; volgorde wisselen</button>';
-  const uur = Math.floor(data.totaalMinuten / 60);
-  const min = data.totaalMinuten % 60;
-  const waarschuwingenHtml = (data.waarschuwingen || []).length
-    ? `<p class="foutmelding">${data.waarschuwingen.join('<br>')}</p>` : '';
-  const vertrekLabel = data.magazijn ? 'Vertrek magazijn' : 'Vertrek';
-  const terugLabel = data.magazijn ? 'terug in het magazijn rond' : 'terug rond';
-  return `
-    <div class="planning-route-samenvatting">${vertrekLabel} ${data.vertrekTijd} → ${terugLabel} ${data.eindTijd} (±${uur}u${String(min).padStart(2, '0')}, waarvan ${data.totaalRijtijdMinuten} min rijden) — <span class="uitleg">gewoon een inschatting${data.magazijn ? '' : ' (startlocatie magazijn niet gekend)'}</span> ${kaartKnopHtml}</div>
-    ${stopsHtml}
-    ${waarschuwingenHtml}
-  `;
+  });
 }
 
 // ============================================================
@@ -1098,6 +1052,7 @@ function rpVulVoertuigSelect(voorkeurNaam) {
 // voorkeur: optioneel { voertuigNaam, datum, type } — gebruikt bij het
 // doorklikken vanuit de Planning-pagina ("🗺️ Op kaart bekijken").
 function rpOpenen(voorkeur) {
+  rpVertrekHandmatig = false;
   rpVulVoertuigSelect(voorkeur && voorkeur.voertuigNaam);
   const datumEl = document.getElementById('rp-datum');
   if (voorkeur && voorkeur.datum) datumEl.value = voorkeur.datum;
@@ -1218,10 +1173,17 @@ function rpRenderLijst(data, voertuigNaam, datum, type) {
   });
 }
 
+// true zodra Jonas zelf de vertrektijd heeft ingetikt (om te simuleren "als ik
+// om X vertrek...") — dan sturen we die mee als override i.p.v. het
+// automatisch afgeleide tijdstip te laten overschrijven bij elke herlading.
+// Wordt gereset bij een nieuwe voertuig/dag/richting-keuze (rpOpenen).
+let rpVertrekHandmatig = false;
+
 async function rpLaadRoute() {
   const datum = document.getElementById('rp-datum').value;
   const voertuigNaam = document.getElementById('rp-voertuig').value;
   const type = document.getElementById('rp-type').value;
+  const vertrektijdEl = document.getElementById('rp-vertrektijd');
   const samenvatting = document.getElementById('rp-samenvatting');
   if (!datum || !voertuigNaam) {
     samenvatting.textContent = 'Kies een datum en een voertuig.';
@@ -1229,7 +1191,10 @@ async function rpLaadRoute() {
   }
   samenvatting.textContent = 'Route wordt berekend...';
   try {
-    const data = await api(`/api/planning/route-inschatting?voertuigNaam=${encodeURIComponent(voertuigNaam)}&datum=${encodeURIComponent(datum)}&type=${encodeURIComponent(type)}`);
+    let url = `/api/planning/route-inschatting?voertuigNaam=${encodeURIComponent(voertuigNaam)}&datum=${encodeURIComponent(datum)}&type=${encodeURIComponent(type)}`;
+    if (rpVertrekHandmatig && vertrektijdEl.value) url += `&vertrekTijd=${encodeURIComponent(vertrektijdEl.value)}`;
+    const data = await api(url);
+    vertrektijdEl.value = data.vertrekTijd || '';
     rpRenderKaart(data);
     rpRenderLijst(data, voertuigNaam, datum, type);
     if (!data.stops.length) {
@@ -1237,7 +1202,7 @@ async function rpLaadRoute() {
     } else {
       const uur = Math.floor(data.totaalMinuten / 60);
       const min = data.totaalMinuten % 60;
-      samenvatting.textContent = `Vertrek ${data.vertrekTijd} → terug rond ${data.eindTijd} (±${uur}u${String(min).padStart(2, '0')}, waarvan ${data.totaalRijtijdMinuten} min rijden) — gewoon een inschatting.`
+      samenvatting.textContent = `Vertrek magazijn ${data.vertrekTijd} → terug rond ${data.eindTijd} (±${uur}u${String(min).padStart(2, '0')}, waarvan ${data.totaalRijtijdMinuten} min rijden) — gewoon een inschatting.`
         + ((data.waarschuwingen || []).length ? ` ${data.waarschuwingen.join(' ')}` : '');
     }
   } catch (err) {
@@ -1246,9 +1211,10 @@ async function rpLaadRoute() {
 }
 
 document.getElementById('btn-rp-laden').addEventListener('click', rpLaadRoute);
-document.getElementById('rp-voertuig').addEventListener('change', rpLaadRoute);
-document.getElementById('rp-type').addEventListener('change', rpLaadRoute);
-document.getElementById('rp-datum').addEventListener('change', rpLaadRoute);
+document.getElementById('rp-voertuig').addEventListener('change', () => { rpVertrekHandmatig = false; rpLaadRoute(); });
+document.getElementById('rp-type').addEventListener('change', () => { rpVertrekHandmatig = false; rpLaadRoute(); });
+document.getElementById('rp-datum').addEventListener('change', () => { rpVertrekHandmatig = false; rpLaadRoute(); });
+document.getElementById('rp-vertrektijd').addEventListener('change', () => { rpVertrekHandmatig = true; rpLaadRoute(); });
 
 // Bereik-weergave (Deze week/Volgende week/Aangepast, ...): per dag gegroepeerd
 // en daarbinnen per voertuig. Voertuig toewijzen kan hier ook al (zelfde

@@ -184,6 +184,13 @@ router.get('/route-inschatting', asyncHandler(async (req, res) => {
     return res.status(501).json({ fout: 'Route-inschatting heeft adres-coördinaten nodig — GOOGLE_MAPS_API_KEY ontbreekt bij Render (dezelfde sleutel als voor de transportkost-berekening en de kaart op het Dashboard).' });
   }
 
+  // Optioneel: Jonas kan op de Routeplanning-pagina zelf een vertrektijd
+  // vanuit het magazijn ingeven, om te simuleren "als ik om X vertrek, ben ik
+  // dan op tijd" — overschrijft dan het automatisch afgeleide tijdstip
+  // hieronder (eerste stop z'n ingesteld tijdstip, of anders 08:00).
+  const tijdRegex = /^\d{2}:\d{2}$/;
+  const vertrekTijdOverride = tijdRegex.test(req.query.vertrekTijd || '') ? req.query.vertrekTijd : null;
+
   const kolom = DATUMKOLOM[type];
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   const volgordeVeld = type === 'levering' ? 'volgorde_levering' : 'volgorde_afhaling';
@@ -205,7 +212,12 @@ router.get('/route-inschatting', asyncHandler(async (req, res) => {
     .filter((b) => b._adres); // eigen afhaling door de klant zelf: geen fysieke stop nodig
 
   if (!stops.length) {
-    return res.json({ voertuigNaam, datum, type, stops: [], totaalRijtijdMinuten: 0, totaalMinuten: 0, waarschuwingen: [] });
+    return res.json({
+      voertuigNaam, datum, type, stops: [], totaalRijtijdMinuten: 0, totaalMinuten: 0,
+      vertrekTijd: vertrekTijdOverride || minutenNaarTijd(8 * 60),
+      eindTijd: vertrekTijdOverride || minutenNaarTijd(8 * 60),
+      magazijn: null, geometrie: null, waarschuwingen: [],
+    });
   }
 
   const waarschuwingen = [];
@@ -258,7 +270,9 @@ router.get('/route-inschatting', asyncHandler(async (req, res) => {
     }
   }
 
-  const startMinuten = tijdNaarMinuten(stops[0][tijdVeld]) ?? (8 * 60);
+  const startMinuten = vertrekTijdOverride != null
+    ? tijdNaarMinuten(vertrekTijdOverride)
+    : (tijdNaarMinuten(stops[0][tijdVeld]) ?? (8 * 60));
   let klokMinuten = startMinuten;
   let bekendeIndex = -1;
   const resultaatStops = stops.map((b, i) => {
