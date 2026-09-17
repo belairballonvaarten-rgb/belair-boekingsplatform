@@ -964,3 +964,30 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 /* PRODUCT — logistieke velden & certificaat */
 .form-certificaat { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem; }
 .certificaat-huidig { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+
+/* E-mailtemplates: rijke-tekst-editor (Quill) in Instellingen — zowel bij het
+   bewerken van een bestaande template als bij "+ Nieuwe template toevoegen".
+   Vaste hoogte voor de tekstzone zodat de toolbar niet in de layout springt. */
+.rijke-tekst-editor { background: white; border-radius: 0 0 6px 6px; margin-bottom: 0.8rem; }
+.rijke-tekst-editor .ql-toolbar { border-radius: 6px 6px 0 0; }
+.rijke-tekst-editor .ql-container { min-height: 9rem; font-size: 0.92rem; }
+.instellingen-blok-breed { max-width: 46rem; }
+
+/* Dossier: 4 vaste sneltoetsen bovenaan om een e-mailtemplate te versturen
+   (Aanvraagbevestiging/Betaalverzoek/Reservatiebevestiging/Review) — zie
+   .dossier-snelknop-mail-handlers in app.js. */
+.dossier-snelknoppen { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 0.6rem 0; }
+.dossier-snelknoppen button {
+  border: 1px solid var(--blauw); color: var(--blauw); background: white;
+  border-radius: 6px; padding: 0.45rem 0.8rem; font-weight: 600; font-size: 0.85rem;
+}
+.dossier-snelknoppen button:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* Voorvertoning-modal ("ff controle") vóór een template effectief te versturen. */
+.modal-inhoud-breed { width: 680px; }
+.tpv-voorvertoning {
+  border: 1px solid var(--rand); border-radius: 8px; padding: 0.8rem 1rem;
+  max-height: 45vh; overflow-y: auto; margin: 0.6rem 0 1rem; background: var(--grijs-licht);
+}
+.tpv-voorvertoning p:first-child { margin-top: 0; }
+.tpv-voorvertoning p:last-child { margin-bottom: 0; }

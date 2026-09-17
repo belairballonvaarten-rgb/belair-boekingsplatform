@@ -435,6 +435,19 @@ function mailTemplateOptiesHtml() {
   return MAIL_TEMPLATES.map((t) => `<option value="${t.id}">${t.naam}</option>`).join('');
 }
 
+// De 4 vaste sneltoetsen bovenaan een dossier (zie ROL_LABELS verderop) —
+// enkel klikbaar als er zowel een e-mailadres bekend is als een template met
+// die rol ingesteld staat in Instellingen (anders duidelijk uitgelegd waarom niet).
+function dossierSnelknopHtml(rol, label, b) {
+  const heeftEmail = !!b.klant_email;
+  const heeftTemplate = MAIL_TEMPLATES.some((t) => t.rol === rol);
+  const uitgeschakeld = !heeftEmail || !heeftTemplate;
+  const titel = !heeftEmail
+    ? 'Geen e-mailadres bekend bij deze klant'
+    : (!heeftTemplate ? 'Nog geen template ingesteld voor deze knop (zie Instellingen → E-mailtemplates)' : '');
+  return `<button type="button" class="dossier-snelknop-mail" data-rol="${rol}" ${uitgeschakeld ? 'disabled' : ''} title="${titel}">${label}</button>`;
+}
+
 function voertuigSelectOpties(huidigVoertuig) {
   return ['<option value="">🚐 —</option>']
     .concat(VOERTUIGEN.map((v) => `<option value="${v.naam}"${huidigVoertuig === v.naam ? ' selected' : ''}>🚐 ${v.naam}</option>`))
@@ -2635,6 +2648,58 @@ document.getElementById('form-melding').addEventListener('submit', async (e) => 
   }
 });
 
+// ============================================================
+// TEMPLATE-MAIL VOORVERTONING ("ff controle" vóór versturen) — gedeeld door
+// zowel de 4 vaste dossier-sneltoetsen bovenaan een dossier als de vrije
+// templatelijst bij Communicatie (zie openDetail()).
+// ============================================================
+let tpvDoel = null; // { boekingId, templateId }
+const modalTemplatePreview = document.getElementById('modal-template-preview');
+document.getElementById('btn-modal-template-preview-sluiten').addEventListener('click', () => { modalTemplatePreview.hidden = true; });
+document.getElementById('btn-tpv-annuleren').addEventListener('click', () => { modalTemplatePreview.hidden = true; });
+modalTemplatePreview.addEventListener('click', (e) => { if (e.target === modalTemplatePreview) modalTemplatePreview.hidden = true; });
+
+async function openTemplateVoorvertoning(boekingId, templateId) {
+  const elFout = document.getElementById('tpv-fout');
+  elFout.textContent = '';
+  document.getElementById('tpv-titel').textContent = 'Mail wordt klaargemaakt...';
+  document.getElementById('tpv-naar').textContent = '';
+  document.getElementById('tpv-onderwerp').textContent = '';
+  document.getElementById('tpv-inhoud').innerHTML = '';
+  tpvDoel = { boekingId, templateId };
+  modalTemplatePreview.hidden = false;
+  try {
+    const preview = await api(`/api/boekingen/${boekingId}/template-preview/${templateId}`);
+    document.getElementById('tpv-titel').textContent = 'Mail versturen';
+    document.getElementById('tpv-naar').textContent = preview.klantEmail || '—';
+    document.getElementById('tpv-onderwerp').textContent = preview.onderwerp;
+    document.getElementById('tpv-inhoud').innerHTML = preview.inhoud;
+  } catch (err) {
+    elFout.textContent = err.message;
+  }
+}
+
+document.getElementById('btn-tpv-versturen').addEventListener('click', async () => {
+  const elFout = document.getElementById('tpv-fout');
+  elFout.textContent = '';
+  if (!tpvDoel) return;
+  const knop = document.getElementById('btn-tpv-versturen');
+  knop.disabled = true;
+  try {
+    await api(`/api/boekingen/${tpvDoel.boekingId}/verstuur-template`, {
+      method: 'POST',
+      body: JSON.stringify({ templateId: tpvDoel.templateId }),
+    });
+    modalTemplatePreview.hidden = true;
+    toonToast('Mail verstuurd');
+    openDetail(tpvDoel.boekingId);
+  } catch (err) {
+    elFout.textContent = err.message;
+  } finally {
+    knop.disabled = false;
+  }
+});
+
 // Snelfilters (zoals in het huidige bookingonline.co.uk-systeem)
 function berekenDatumRange(bereik) {
   const vandaag = new Date();
@@ -2877,6 +2942,7 @@ async function openDetail(boekingId) {
     <div class="paneel">
       <h3>${b.klant_naam} ${statusPillHtml(b.status, b.prijstabel.saldo_openstaand)}${speciaalSterHtml(b)}</h3>
       ${b.speciaal_verzoek ? `<div class="speciaal-verzoek-banner">⭑ Speciaal verzoek${b.speciaal_verzoek_notitie ? ': ' + b.speciaal_verzoek_notitie : ''}</div>` : ''}
+      <div class="dossier-snelknoppen">${dossierSnelknopHtml('aanvraag_bevestiging', '📨 Aanvraagbevestiging', b)}${dossierSnelknopHtml('betaalverzoek', '💳 Betaalverzoek', b)}${dossierSnelknopHtml('reservatie_bevestiging', '✅ Reservatiebevestiging', b)}${dossierSnelknopHtml('review_verzoek', '⭐ Review vragen', b)}</div>
       ${statusStepperHtml(b.status, b.prijstabel.saldo_openstaand)}
       <p class="uitleg" style="margin: 0 0 0.4rem;">Klik op een fase hierboven om ernaartoe te springen, of klik de actieve fase nogmaals aan om terug te gaan naar de vorige status.</p>
       <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen volgende stap voorgesteld</p>'}</div>
@@ -3454,23 +3520,20 @@ async function openDetail(boekingId) {
     });
   });
 
-  document.getElementById('btn-template-versturen').addEventListener('click', async () => {
-    const select = document.getElementById('template-select');
-    const resultaat = document.getElementById('template-versturen-resultaat');
-    const templateId = select.value;
+  document.getElementById('btn-template-versturen').addEventListener('click', () => {
+    const templateId = document.getElementById('template-select').value;
     if (!templateId) return;
-    const template = MAIL_TEMPLATES.find((t) => t.id === templateId);
-    if (!confirm(`Template "${template ? template.naam : ''}" versturen naar de klant van dit dossier?`)) return;
-    resultaat.hidden = true;
-    try {
-      await api(`/api/boekingen/${boekingId}/verstuur-template`, { method: 'POST', body: JSON.stringify({ templateId }) });
-      toonToast('Template verstuurd');
-      openDetail(boekingId);
-    } catch (err) {
-      resultaat.hidden = false;
-      resultaat.className = 'melding fout';
-      resultaat.textContent = err.message;
-    }
+    openTemplateVoorvertoning(boekingId, templateId);
+  });
+
+  // De 4 vaste sneltoetsen bovenaan het dossier (zie dossierSnelknopHtml) —
+  // elke rol wijst naar precies één template (afgedwongen in de databank).
+  document.querySelectorAll('.dossier-snelknop-mail').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const template = MAIL_TEMPLATES.find((t) => t.rol === btn.dataset.rol);
+      if (!template) return; // knop staat sowieso disabled zonder template
+      openTemplateVoorvertoning(boekingId, template.id);
+    });
   });
 
   document.getElementById('form-communicatie').addEventListener('submit', async (e) => {
@@ -4652,9 +4715,50 @@ async function laadInstellingen() {
 
 // ============================================================
 // E-MAILTEMPLATES (Instellingen) — beheer van de sjablonen die vanuit een
-// boekingdossier verstuurd kunnen worden (zie het "📧 Template versturen"-
-// blok bij Communicatie in openDetail()).
+// boekingdossier verstuurd kunnen worden: ofwel via één van de 4 vaste
+// sneltoetsen bovenaan het dossier (ROL_LABELS hieronder, zie dossierSnelknopHtml()
+// en de .dossier-snelknop-mail-listeners in openDetail()), ofwel vrij via de lijst
+// bij Communicatie.
+// Opmaak gebeurt via Quill (CDN, zie index.html) i.p.v. een platte textarea —
+// editor.root.innerHTML is de echte HTML die uiteindelijk verstuurd wordt.
 // ============================================================
+const ROL_LABELS = {
+  aanvraag_bevestiging: 'Knop 1 — Aanvraagbevestiging',
+  betaalverzoek: 'Knop 2 — Betaalverzoek',
+  reservatie_bevestiging: 'Knop 3 — Reservatiebevestiging',
+  review_verzoek: 'Knop 4 — Review-verzoek',
+};
+
+function maakRijkeTekstEditor(container, initieelHtml) {
+  const editor = new Quill(container, {
+    theme: 'snow',
+    modules: {
+      toolbar: [
+        ['bold', 'italic', 'underline'],
+        [{ list: 'ordered' }, { list: 'bullet' }],
+        ['link'],
+        [{ color: [] }],
+        ['clean'],
+      ],
+    },
+  });
+  if (initieelHtml) editor.root.innerHTML = initieelHtml;
+  return editor;
+}
+
+// Rollen die al door een ANDERE template bezet zijn, mag je hier niet nog eens
+// kiezen (de databank zou het toch weigeren, maar dit is duidelijker dan
+// pas na het opslaan een foutmelding te krijgen).
+function rolOptiesHtml(huidigeRol, eigenTemplateId) {
+  const bezetteRollen = MAIL_TEMPLATES.filter((t) => t.rol && t.id !== eigenTemplateId).map((t) => t.rol);
+  const opties = ['<option value="">Geen (enkel via de vrije lijst bij Communicatie)</option>']
+    .concat(Object.entries(ROL_LABELS).map(([rol, label]) => {
+      const bezet = bezetteRollen.includes(rol);
+      return `<option value="${rol}" ${rol === huidigeRol ? 'selected' : ''} ${bezet ? 'disabled' : ''}>${label}${bezet ? ' — al in gebruik' : ''}</option>`;
+    }));
+  return opties.join('');
+}
+
 function renderMailTemplatesInstellingen() {
   const container = document.getElementById('lijst-mail-templates');
   if (!MAIL_TEMPLATES.length) {
@@ -4663,12 +4767,14 @@ function renderMailTemplatesInstellingen() {
   }
   container.innerHTML = MAIL_TEMPLATES.map((t) => `
     <details class="paneel">
-      <summary>${t.naam}</summary>
+      <summary>${t.naam}${t.rol ? ` <span class="details-badge details-badge-neutraal">${ROL_LABELS[t.rol]}</span>` : ''}</summary>
       <div class="paneel-inhoud">
         <form class="form-template-bewerken" data-id="${t.id}">
           <label>Naam<input type="text" class="tpl-naam" value="${(t.naam || '').replace(/"/g, '&quot;')}" required /></label>
           <label>Onderwerp<input type="text" class="tpl-onderwerp" value="${(t.onderwerp || '').replace(/"/g, '&quot;')}" required /></label>
-          <label>Inhoud<textarea class="tpl-inhoud" rows="8" required>${t.inhoud || ''}</textarea></label>
+          <label>Dossierknop<select class="tpl-rol">${rolOptiesHtml(t.rol, t.id)}</select></label>
+          <label>Inhoud</label>
+          <div class="rijke-tekst-editor"><div class="tpl-inhoud-editor" data-id="${t.id}"></div></div>
           <div class="form-acties">
             <button type="submit">Opslaan</button>
             <button type="button" class="linkbtn gevaar btn-template-verwijderen" data-id="${t.id}" data-naam="${(t.naam || '').replace(/"/g, '&quot;')}">🗑 Verwijderen</button>
@@ -4678,6 +4784,14 @@ function renderMailTemplatesInstellingen() {
       </div>
     </details>
   `).join('');
+
+  // Eén Quill-editor per template — bijgehouden in een Map (i.p.v. op het
+  // element zelf) zodat de submit-handler hieronder er zo aan kan.
+  const editorsPerTemplate = new Map();
+  container.querySelectorAll('.tpl-inhoud-editor').forEach((el) => {
+    const template = MAIL_TEMPLATES.find((t) => t.id === el.dataset.id);
+    editorsPerTemplate.set(el.dataset.id, maakRijkeTekstEditor(el, template ? template.inhoud : ''));
+  });
 
   container.querySelectorAll('.form-template-bewerken').forEach((form) => {
     form.addEventListener('submit', async (e) => {
@@ -4690,7 +4804,8 @@ function renderMailTemplatesInstellingen() {
           body: JSON.stringify({
             naam: form.querySelector('.tpl-naam').value.trim(),
             onderwerp: form.querySelector('.tpl-onderwerp').value.trim(),
-            inhoud: form.querySelector('.tpl-inhoud').value,
+            inhoud: editorsPerTemplate.get(form.dataset.id).root.innerHTML,
+            rol: form.querySelector('.tpl-rol').value || null,
           }),
         });
         toonToast('Template opgeslagen');
@@ -4715,6 +4830,10 @@ function renderMailTemplatesInstellingen() {
   });
 }
 
+// De "nieuwe template"-editor staat buiten #lijst-mail-templates (dus wordt
+// niet elke render vervangen) — dus maar één keer aanmaken, bij het opstarten.
+const nieuweTemplateEditor = maakRijkeTekstEditor(document.getElementById('nt-inhoud-editor'));
+
 document.getElementById('form-nieuwe-template').addEventListener('submit', async (e) => {
   e.preventDefault();
   const elFout = document.getElementById('nieuwe-template-fout');
@@ -4725,10 +4844,13 @@ document.getElementById('form-nieuwe-template').addEventListener('submit', async
       body: JSON.stringify({
         naam: document.getElementById('nt-naam').value.trim(),
         onderwerp: document.getElementById('nt-onderwerp').value.trim(),
-        inhoud: document.getElementById('nt-inhoud').value,
+        inhoud: nieuweTemplateEditor.root.innerHTML,
+        rol: document.getElementById('nt-rol').value || null,
       }),
     });
     document.getElementById('form-nieuwe-template').reset();
+    nieuweTemplateEditor.setText('');
+    document.getElementById('nt-rol').value = '';
     document.getElementById('nieuwe-template-details').open = false;
     await laadMailTemplates();
     renderMailTemplatesInstellingen();

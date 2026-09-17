@@ -19,9 +19,22 @@ function iso(d) {
   return d ? new Date(d).toISOString().slice(0, 10) : '';
 }
 
+// De 'inhoud' van een template is voortaan echte HTML (opgemaakt via de
+// rich-text-editor in Instellingen) — waarden die daarin ingevuld worden
+// moeten dus HTML-veilig zijn (bv. een klantnaam met een "&" of "<" mag de
+// opmaak niet breken). Het onderwerp blijft platte tekst en heeft dat niet nodig.
+function escapeHtml(tekst) {
+  return String(tekst)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 // boeking: rij uit 'boekingen' (met klant_naam erbij gejoined).
 // producten: [{naam, aantal}, ...]
 // prijstabel: resultaat van berekenPrijstabel() in routes/boekingen.js.
+// Geeft { onderwerpContext, inhoudContext } terug — zelfde velden, enkel de
+// tweede is HTML-escaped.
 function bouwTemplateContext(boeking, producten, prijstabel) {
   const productenNamen = (producten || [])
     .map((p) => (Number(p.aantal) > 1 ? `${p.naam} (x${p.aantal})` : p.naam))
@@ -30,7 +43,7 @@ function bouwTemplateContext(boeking, producten, prijstabel) {
     ? fmtDatumNl(boeking.gewenste_datum_start)
     : `${fmtDatumNl(boeking.gewenste_datum_start)} t.e.m. ${fmtDatumNl(boeking.gewenste_datum_einde)}`;
 
-  return {
+  const basis = {
     klant_naam: boeking.klant_naam || '',
     producten: productenNamen,
     periode,
@@ -39,9 +52,13 @@ function bouwTemplateContext(boeking, producten, prijstabel) {
     prijs: fmtEuro(prijstabel.subtotaal_producten),
     transportkost: fmtEuro(prijstabel.transportkost),
     totaal: fmtEuro(prijstabel.totaal),
+    betaald: fmtEuro(prijstabel.betaald_bedrag),
     saldo: fmtEuro(prijstabel.saldo_openstaand),
     boeking_nummer: String(boeking.id || '').slice(0, 8),
   };
+  const inhoudContext = { ...basis };
+  Object.keys(inhoudContext).forEach((sleutel) => { inhoudContext[sleutel] = escapeHtml(inhoudContext[sleutel]); });
+  return { onderwerpContext: basis, inhoudContext };
 }
 
 function vulTemplateIn(tekst, context) {

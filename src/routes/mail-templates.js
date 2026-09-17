@@ -9,6 +9,30 @@ const { asyncHandler } = require('../utils/asyncHandler');
 const router = express.Router();
 router.use(vereistIngelogd);
 
+// De 4 vaste sneltoetsen bovenaan een boekingdossier — 'rol' koppelt een
+// template daaraan (zie migratie 028). NULL/leeg = gewoon een vrije, extra
+// template (enkel bereikbaar via de vrije lijst bij Communicatie).
+const GELDIGE_ROLLEN = ['aanvraag_bevestiging', 'betaalverzoek', 'reservatie_bevestiging', 'review_verzoek'];
+
+function normaliseerRol(rol) {
+  if (!rol) return null;
+  if (!GELDIGE_ROLLEN.includes(rol)) {
+    throw Object.assign(new Error(`Ongeldige rol: ${rol}`), { status: 400 });
+  }
+  return rol;
+}
+
+// Postgres-foutcode 23505 (unique_violation) op de rol-index -> vriendelijke
+// melding i.p.v. de ruwe DB-fout, want dat is de enige manier waarop deze
+// insert/update normaal kan mislukken.
+function afhandelenDbFout(err, res) {
+  if (err.status === 400) return res.status(400).json({ fout: err.message });
+  if (err.code === '23505' && err.constraint === 'mail_templates_rol_uniek') {
+    return res.status(409).json({ fout: 'Er is al een andere template met deze rol — ken die eerst een andere rol toe (of "Geen").' });
+  }
+  throw err;
+}
+
 router.get('/', asyncHandler(async (req, res) => {
   const { rows } = await db.query('SELECT * FROM mail_templates ORDER BY aangemaakt_op');
   res.json(rows);
@@ -19,11 +43,16 @@ router.post('/', asyncHandler(async (req, res) => {
   if (!naam || !onderwerp || !inhoud) {
     return res.status(400).json({ fout: 'Naam, onderwerp en inhoud zijn verplicht' });
   }
-  const { rows } = await db.query(
-    'INSERT INTO mail_templates (naam, onderwerp, inhoud) VALUES ($1, $2, $3) RETURNING *',
-    [naam.trim(), onderwerp.trim(), inhoud]
-  );
-  res.status(201).json(rows[0]);
+  try {
+    const rol = normaliseerRol(req.body.rol);
+    const { rows } = await db.query(
+      'INSERT INTO mail_templates (naam, onderwerp, inhoud, rol) VALUES ($1, $2, $3, $4) RETURNING *',
+      [naam.trim(), onderwerp.trim(), inhoud, rol]
+    );
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    afhandelenDbFout(err, res);
+  }
 }));
 
 router.put('/:id', asyncHandler(async (req, res) => {
@@ -31,12 +60,17 @@ router.put('/:id', asyncHandler(async (req, res) => {
   if (!naam || !onderwerp || !inhoud) {
     return res.status(400).json({ fout: 'Naam, onderwerp en inhoud zijn verplicht' });
   }
-  const { rows } = await db.query(
-    'UPDATE mail_templates SET naam = $1, onderwerp = $2, inhoud = $3, bijgewerkt_op = now() WHERE id = $4 RETURNING *',
-    [naam.trim(), onderwerp.trim(), inhoud, req.params.id]
-  );
-  if (!rows[0]) return res.status(404).json({ fout: 'Template niet gevonden' });
-  res.json(rows[0]);
+  try {
+    const rol = normaliseerRol(req.body.rol);
+    const { rows } = await db.query(
+      'UPDATE mail_templates SET naam = $1, onderwerp = $2, inhoud = $3, rol = $4, bijgewerkt_op = now() WHERE id = $5 RETURNING *',
+      [naam.trim(), onderwerp.trim(), inhoud, rol, req.params.id]
+    );
+    if (!rows[0]) return res.status(404).json({ fout: 'Template niet gevonden' });
+    res.json(rows[0]);
+  } catch (err) {
+    afhandelenDbFout(err, res);
+  }
 }));
 
 router.delete('/:id', asyncHandler(async (req, res) => {

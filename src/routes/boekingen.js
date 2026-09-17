@@ -107,6 +107,49 @@ router.post('/bulk-email', asyncHandler(async (req, res) => {
   res.json({ resultaten });
 }));
 
+// Gedeelde opbouw voor zowel de preview (ff-controle-stap vóór versturen) als
+// het effectief versturen: haalt de template + boekingsgegevens op en vult de
+// {{plaatshouders}} in. Onderwerp = platte tekst, inhoud = HTML (zie
+// utils/mailTemplates.js voor waarom die twee apart ingevuld worden).
+async function haalIngevuldeTemplateOp(boekingId, templateId) {
+  const { rows: templateRows } = await db.query('SELECT * FROM mail_templates WHERE id = $1', [templateId]);
+  const template = templateRows[0];
+  if (!template) return { fout: 'Template niet gevonden', status: 404 };
+
+  const { rows: boekingRows } = await db.query(
+    `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email
+     FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
+    [boekingId]
+  );
+  const boeking = boekingRows[0];
+  if (!boeking) return { fout: 'Boeking niet gevonden', status: 404 };
+
+  const { rows: producten } = await db.query(
+    `SELECT p.naam, bp.aantal FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1 ORDER BY p.naam`,
+    [boekingId]
+  );
+  const prijstabel = await berekenPrijstabel(boekingId);
+  const { onderwerpContext, inhoudContext } = bouwTemplateContext(boeking, producten, prijstabel);
+
+  const onderwerp = vulTemplateIn(template.onderwerp, onderwerpContext);
+  const inhoud = vulTemplateIn(template.inhoud, inhoudContext);
+  return { template, boeking, onderwerp, inhoud };
+}
+
+// Preview van een template voor deze ene boeking — vult de plaatshouders in,
+// maar verstuurt niets. Gebruikt door de "ff controle"-stap vóór het
+// effectief versturen (de 4 sneltoetsen bovenaan het dossier, en de vrije
+// templatelijst bij Communicatie).
+router.get('/:id/template-preview/:templateId', asyncHandler(async (req, res) => {
+  const resultaat = await haalIngevuldeTemplateOp(req.params.id, req.params.templateId);
+  if (resultaat.fout) return res.status(resultaat.status).json({ fout: resultaat.fout });
+  res.json({
+    onderwerp: resultaat.onderwerp,
+    inhoud: resultaat.inhoud,
+    klantEmail: resultaat.boeking.klant_email,
+  });
+}));
+
 // Verstuurt één van de (in Instellingen beheerde) e-mailtemplates naar de
 // klant van dit ene dossier, met de {{plaatshouders}} al ingevuld met de
 // gegevens van deze boeking — en logt dat net als bulk-email in Communicatie.
@@ -114,31 +157,13 @@ router.post('/:id/verstuur-template', asyncHandler(async (req, res) => {
   const { templateId } = req.body || {};
   if (!templateId) return res.status(400).json({ fout: 'templateId is verplicht' });
 
-  const { rows: templateRows } = await db.query('SELECT * FROM mail_templates WHERE id = $1', [templateId]);
-  const template = templateRows[0];
-  if (!template) return res.status(404).json({ fout: 'Template niet gevonden' });
-
-  const { rows: boekingRows } = await db.query(
-    `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email
-     FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
-    [req.params.id]
-  );
-  const boeking = boekingRows[0];
-  if (!boeking) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+  const resultaat = await haalIngevuldeTemplateOp(req.params.id, templateId);
+  if (resultaat.fout) return res.status(resultaat.status).json({ fout: resultaat.fout });
+  const { boeking, onderwerp, inhoud } = resultaat;
   if (!boeking.klant_email) return res.status(400).json({ fout: 'Deze klant heeft geen e-mailadres bekend' });
 
-  const { rows: producten } = await db.query(
-    `SELECT p.naam, bp.aantal FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1 ORDER BY p.naam`,
-    [req.params.id]
-  );
-  const prijstabel = await berekenPrijstabel(req.params.id);
-  const context = bouwTemplateContext(boeking, producten, prijstabel);
-
-  const onderwerp = vulTemplateIn(template.onderwerp, context);
-  const inhoud = vulTemplateIn(template.inhoud, context);
-
   try {
-    await verstuurMail({ naar: boeking.klant_email, onderwerp, html: inhoud.replace(/\n/g, '<br>') });
+    await verstuurMail({ naar: boeking.klant_email, onderwerp, html: inhoud });
     await db.query(
       `INSERT INTO communicatie (boeking_id, type, richting, onderwerp, inhoud) VALUES ($1, 'email', 'uitgaand', $2, $3)`,
       [req.params.id, onderwerp, inhoud]

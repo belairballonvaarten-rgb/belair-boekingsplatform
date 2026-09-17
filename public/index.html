@@ -7,6 +7,8 @@
 <link rel="stylesheet" href="/css/style.css" />
 <!-- Leaflet: gratis, sleutelloze kaart (OpenStreetMap-tegels) voor de Routeplanning-pagina -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.css" />
+<!-- Quill: rich-text-editor voor de e-mailtemplates (opmaak: vet/cursief, lijsten, links, kleur) -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" />
 </head>
 <body>
 
@@ -360,16 +362,25 @@
         <p id="instellingen-sync-resultaat" class="melding" hidden></p>
       </div>
 
-      <div class="instellingen-blok">
+      <div class="instellingen-blok instellingen-blok-breed">
         <h3>E-mailtemplates</h3>
-        <p class="uitleg">Sjablonen die je vanuit een boekingdossier (bij "Communicatie") naar de klant kan sturen, via je eigen Microsoft 365-account. Plaatshouders die automatisch ingevuld worden met de gegevens van die ene boeking: <code>{{klant_naam}}</code>, <code>{{producten}}</code>, <code>{{periode}}</code>, <code>{{datum_start}}</code>, <code>{{datum_einde}}</code>, <code>{{prijs}}</code>, <code>{{transportkost}}</code>, <code>{{totaal}}</code>, <code>{{saldo}}</code>, <code>{{boeking_nummer}}</code>.</p>
+        <p class="uitleg">Sjablonen die je met opmaak (vet, lijsten, links, ...) kan instellen en die je vanuit een boekingdossier naar de klant stuurt, via je eigen Microsoft 365-account. De 4 knoppen bovenaan een dossier (Aanvraagbevestiging / Betaalverzoek / Reservatiebevestiging / Review-verzoek) sturen telkens de template die je hieronder die rol geeft — overige templates blijven bereikbaar via de vrije lijst bij "Communicatie" in het dossier zelf.</p>
+        <p class="uitleg">Plaatshouders die automatisch ingevuld worden met de gegevens van die ene boeking: <code>{{klant_naam}}</code>, <code>{{producten}}</code>, <code>{{periode}}</code>, <code>{{datum_start}}</code>, <code>{{datum_einde}}</code>, <code>{{prijs}}</code>, <code>{{transportkost}}</code>, <code>{{totaal}}</code>, <code>{{betaald}}</code>, <code>{{saldo}}</code>, <code>{{boeking_nummer}}</code>.</p>
         <div id="lijst-mail-templates"></div>
         <details id="nieuwe-template-details">
           <summary>+ Nieuwe template toevoegen</summary>
           <form id="form-nieuwe-template">
             <label>Naam<input type="text" id="nt-naam" required /></label>
             <label>Onderwerp<input type="text" id="nt-onderwerp" required /></label>
-            <label>Inhoud<textarea id="nt-inhoud" rows="6" required></textarea></label>
+            <label>Dossierknop<select id="nt-rol">
+              <option value="">Geen (enkel via de vrije lijst bij Communicatie)</option>
+              <option value="aanvraag_bevestiging">Knop 1 — Aanvraagbevestiging</option>
+              <option value="betaalverzoek">Knop 2 — Betaalverzoek</option>
+              <option value="reservatie_bevestiging">Knop 3 — Reservatiebevestiging</option>
+              <option value="review_verzoek">Knop 4 — Review-verzoek</option>
+            </select></label>
+            <label>Inhoud</label>
+            <div class="rijke-tekst-editor"><div id="nt-inhoud-editor"></div></div>
             <button type="submit">Template toevoegen</button>
             <p id="nieuwe-template-fout" class="foutmelding"></p>
           </form>
@@ -776,6 +787,22 @@
         </form>
       </div>
     </div>
+
+    <!-- TEMPLATE-MAIL VOORVERTONING ("ff controle" vóór versturen) -->
+    <div id="modal-template-preview" class="modal" hidden>
+      <div class="modal-inhoud modal-inhoud-breed">
+        <button id="btn-modal-template-preview-sluiten" class="modal-sluiten">&times;</button>
+        <h3 id="tpv-titel">Mail versturen</h3>
+        <p class="uitleg">Naar: <strong id="tpv-naar"></strong></p>
+        <p class="uitleg">Onderwerp: <strong id="tpv-onderwerp"></strong></p>
+        <div id="tpv-inhoud" class="tpv-voorvertoning"></div>
+        <div class="form-acties">
+          <button type="button" id="btn-tpv-versturen">✓ Versturen</button>
+          <button type="button" id="btn-tpv-annuleren" class="linkbtn">Annuleren</button>
+        </div>
+        <p id="tpv-fout" class="foutmelding"></p>
+      </div>
+    </div>
   </main>
     </div>
   </div>
@@ -783,6 +810,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
 <script src="/js/app.js"></script>
 </body>
 </html>
