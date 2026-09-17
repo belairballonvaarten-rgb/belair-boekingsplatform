@@ -43,6 +43,7 @@
           <button class="navbtn" data-view="planning"><span class="navbtn-icoon">🚚</span> Planning</button>
           <button class="navbtn" data-view="dagoverzicht"><span class="navbtn-icoon">✅</span> Dagoverzicht <span id="ster-dagoverzicht" class="navbtn-ster" hidden title="Bijzonderheden vandaag">⭐</span></button>
           <button class="navbtn" data-view="boekingen"><span class="navbtn-icoon">📋</span> Reservatieoverzicht</button>
+          <button class="navbtn" data-view="geweigerd"><span class="navbtn-icoon">🚫</span> Geweigerd</button>
           <button class="navbtn" data-view="beschikbaarheid"><span class="navbtn-icoon">📆</span> Beschikbaarheid</button>
           <button class="navbtn" data-view="nieuwe-boeking"><span class="navbtn-icoon">➕</span> Nieuwe boeking</button>
         </div>
@@ -226,7 +227,6 @@
         <span><span class="legende-stip geel"></span>Bevestigd</span>
         <span><span class="legende-stip oranje"></span>Betaalverzoek / deels betaald</span>
         <span><span class="legende-stip groen"></span>Betaald, klaar voor levering</span>
-        <span><span class="legende-stip grijs"></span>Geweigerd</span>
         <span><span class="ster-speciaal">⭑</span>Speciaal verzoek</span>
       </div>
       <div class="snelfilters" id="snelfilters">
@@ -262,7 +262,6 @@
             <option value="betaald_volledig">Betaald (volledig)</option>
             <option value="gefactureerd">Gefactureerd</option>
             <option value="voldaan_manueel">Voldaan manueel</option>
-            <option value="geweigerd">Geweigerd</option>
           </select>
         </label>
         <label>Product
@@ -294,6 +293,13 @@
            (zie btn-drop-sheet in app.js) — een aparte, leveringsgerichte lay-out
            i.p.v. de gewone tabel, met ruimte voor de chauffeur om af te vinken. -->
       <div id="drop-sheet-print" class="drop-sheet-print" hidden></div>
+    </section>
+
+    <!-- GEWEIGERD -->
+    <section id="view-geweigerd" class="pagina" hidden>
+      <h2>Geweigerd (<span id="geweigerd-aantal">0</span>)</h2>
+      <p class="uitleg">Aanvragen die geweigerd zijn (bv. product niet meer beschikbaar) — staan niet meer tussen het gewone reservatieoverzicht. Volledig verwijderde boekingen staan hier niet tussen; dat blijft definitief.</p>
+      <div id="lijst-geweigerd" class="kaarten-lijst"></div>
     </section>
 
     <!-- BOEKING DETAIL (volledige pagina) -->

@@ -302,7 +302,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'boekingen', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail'];
+const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'boekingen', 'geweigerd', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -325,6 +325,7 @@ function wisselView(naam) {
   if (naam === 'dagoverzicht') laadDagoverzicht();
   if (naam === 'aanvragen') laadAanvragen();
   if (naam === 'boekingen') laadBoekingenOverzicht();
+  if (naam === 'geweigerd') laadGeweigerd();
   if (naam === 'klanten') laadKlantenOverzicht();
   if (naam === 'beschikbaarheid') laadBeschikbaarheidsoverzicht();
   if (naam === 'nieuwe-boeking' && !document.getElementById('producten-rijen').children.length) nieuweProductRij();
@@ -387,9 +388,22 @@ async function laadDashboard() {
   document.getElementById('dash-aantal-leveringen').textContent = `(${data.leveringen.length})`;
   document.getElementById('dash-aantal-ophalingen').textContent = `(${data.ophalingen.length})`;
 
-  renderDashboardKolom(leveringenEl, data.leveringen, 'levering', { bereikModus });
-  renderDashboardKolom(ophalingenEl, data.ophalingen, 'afhaling', { bereikModus });
+  renderDashboardKolom(leveringenEl, bereikModus ? data.leveringen : dashboardSorteerOpVolgorde(data.leveringen, 'levering'), 'levering', { bereikModus });
+  renderDashboardKolom(ophalingenEl, bereikModus ? data.ophalingen : dashboardSorteerOpVolgorde(data.ophalingen, 'afhaling'), 'afhaling', { bereikModus });
   dashboardRenderKaart(data);
+}
+
+// Verschuift Jonas op de Planning-pagina de volgorde van een route (slepen,
+// per voertuig), dan moet het Dashboard diezelfde volgorde tonen i.p.v. enkel
+// op naam/tijdstip te sorteren — hergebruikt daarvoor exact dezelfde
+// groepeer-/sorteerlogica als Planning zelf (planningGroepeerPerVoertuig
+// hieronder), gewoon terug plat getrokken tot één lijst. Enkel zinvol op een
+// concrete dag (net als in Planning): bij een periode (bereik) loopt de
+// volgorde toch door meerdere dagen door elkaar, dus dan blijft de bestaande
+// datum/tijdstip-sortering gewoon staan.
+function dashboardSorteerOpVolgorde(items, type) {
+  const groepen = planningGroepeerPerVoertuig(items, type);
+  return [...groepen.values()].flat();
 }
 
 function dashboardZetKolomTitel(elId, titelVandaag, titelEerstvolgende, type, kolomDatum) {
@@ -1822,14 +1836,60 @@ async function wijzigStatus(boekingId, nieuweStatus, opmerking) {
     });
     laadAanvragen();
     if (!document.getElementById('view-boekingen').hidden) laadBoekingenOverzicht();
+    if (!document.getElementById('view-geweigerd').hidden) laadGeweigerd();
     // Bij een statuswijziging vanuit het dossier zelf (snelknoppen of de vrije "Andere
     // status instellen"-lijst) blijven we in het dossier — enkel de inhoud herladen,
     // zodat Jonas meteen de bijgewerkte statusbalk/kleur ziet in plaats van uit het
     // dossier te worden gestuurd. Vanuit de Aanvragen-inbox (waar het dossier niet
     // zichtbaar is) verandert er hier niets: dat blijft gewoon de kaartenlijst tonen.
     if (!document.getElementById('view-boeking-detail').hidden) openDetail(boekingId);
+    // Meteen de weigeringsmail klaarzetten (ff controle -> versturen) — zelfde
+    // 2-klik-flow als de 4 vaste dossierknoppen, op vraag van Jonas: bij een
+    // weigering moet de klant onmiddellijk een mailtje kunnen krijgen.
+    if (nieuweStatus === 'geweigerd') {
+      const template = MAIL_TEMPLATES.find((t) => t.rol === 'weigering');
+      if (template) openTemplateVoorvertoning(boekingId, template.id);
+    }
   } catch (err) {
     alert(err.message);
+  }
+}
+
+// ============================================================
+// GEWEIGERD — overzicht van geweigerde aanvragen, apart van het gewone
+// Reservatieoverzicht (op vraag van Jonas: goed overzicht houden van hoeveel
+// er geweigerd wordt, zonder dat dit tussen de echte reservaties staat). Een
+// "Volledig verwijderde" boeking staat hier NIET tussen — dat blijft, zoals
+// voorheen, definitief en zonder spoor.
+// ============================================================
+async function laadGeweigerd() {
+  const container = document.getElementById('lijst-geweigerd');
+  container.innerHTML = '<p class="leeg-bericht">Laden...</p>';
+  const geweigerd = await api('/api/boekingen?status=geweigerd&sortering=laatst_geweigerd');
+
+  document.getElementById('geweigerd-aantal').textContent = geweigerd.length;
+
+  if (!geweigerd.length) {
+    container.innerHTML = '<p class="leeg-bericht">Geen geweigerde aanvragen.</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+  for (const b of geweigerd) {
+    const kaart = document.createElement('div');
+    kaart.className = 'kaart';
+    kaart.innerHTML = `
+      <div class="kaart-info">
+        <h3>${b.klant_naam}</h3>
+        <p>📅 ${fmtDatum(b.gewenste_datum_start)}${b.gewenste_datum_start !== b.gewenste_datum_einde ? ' – ' + fmtDatum(b.gewenste_datum_einde) : ''}</p>
+        <p>🎪 ${b.producten_namen || '—'}</p>
+        ${b.weigeringsreden ? `<p>✕ Reden: ${b.weigeringsreden}</p>` : ''}
+      </div>
+      <div class="kaart-acties"></div>
+    `;
+    const acties = kaart.querySelector('.kaart-acties');
+    acties.appendChild(maakActieKnop('Bekijk', '', () => openDetail(b.id)));
+    container.appendChild(kaart);
   }
 }
 
@@ -2241,6 +2301,7 @@ async function openKlantDetail(klantId) {
             <div class="detail-rij"><span>Telefoon</span><span>${k.telefoon || '—'}</span></div>
             <div class="detail-rij"><span>E-mail</span><span>${k.email || '—'}</span></div>
             <div class="detail-rij"><span>Adres</span><span>${[k.adres, [k.postcode, k.gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '—'}</span></div>
+            <div class="detail-rij"><span>Facturatieadres</span><span>${[k.facturatie_adres, [k.facturatie_postcode, k.facturatie_gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '— (zelfde als adres)'}</span></div>
             <div class="detail-rij"><span>Marketing opt-in</span><span>${{ ja: 'Ja', nee: 'Nee', nog_niet_gevraagd: 'Nog niet gevraagd' }[k.marketing_opt_in] || '—'}</span></div>
           </div>
           <form id="form-klant-bewerken" hidden>
@@ -2257,6 +2318,10 @@ async function openKlantDetail(klantId) {
             <label>Adres<input type="text" id="kb-adres" value="${k.adres || ''}" /></label>
             <label>Postcode<input type="text" id="kb-postcode" value="${k.postcode || ''}" /></label>
             <label>Gemeente<input type="text" id="kb-gemeente" value="${k.gemeente || ''}" /></label>
+            <p class="uitleg">Facturatieadres — enkel invullen als dit afwijkt van het adres hierboven (bv. boekhouding op een ander adres). Leeg = facturen gebruiken gewoon het adres hierboven. Wordt meegestuurd naar EenvoudigFactureren.</p>
+            <label>Facturatie — straat + nr<input type="text" id="kb-fact-adres" value="${k.facturatie_adres || ''}" /></label>
+            <label>Facturatie — postcode<input type="text" id="kb-fact-postcode" value="${k.facturatie_postcode || ''}" /></label>
+            <label>Facturatie — gemeente<input type="text" id="kb-fact-gemeente" value="${k.facturatie_gemeente || ''}" /></label>
             <label>Marketing opt-in
               <select id="kb-marketing">
                 <option value="nog_niet_gevraagd" ${k.marketing_opt_in === 'nog_niet_gevraagd' ? 'selected' : ''}>Nog niet gevraagd</option>
@@ -2312,6 +2377,9 @@ async function openKlantDetail(klantId) {
           adres: document.getElementById('kb-adres').value.trim() || null,
           postcode: document.getElementById('kb-postcode').value.trim() || null,
           gemeente: document.getElementById('kb-gemeente').value.trim() || null,
+          facturatie_adres: document.getElementById('kb-fact-adres').value.trim() || null,
+          facturatie_postcode: document.getElementById('kb-fact-postcode').value.trim() || null,
+          facturatie_gemeente: document.getElementById('kb-fact-gemeente').value.trim() || null,
           marketing_opt_in: document.getElementById('kb-marketing').value,
         }),
       });
@@ -2963,6 +3031,7 @@ async function openDetail(boekingId) {
             <h4>Klantgegevens</h4>
             <button type="button" id="btn-klantgegevens-bewerken" class="linkbtn">✎ Bewerken</button>
           </div>
+          <button type="button" id="btn-naar-klantfiche" class="linkbtn">👤 Volledige klantfiche (incl. facturatiegegevens, historiek)</button>
 
           <div id="klantgegevens-weergave">
             <div class="detail-rij"><span>Telefoon</span><span>${b.klant_telefoon || '—'}</span></div>
@@ -3155,6 +3224,8 @@ async function openDetail(boekingId) {
 
   bouwTijdstipOpties(document.getElementById('kg-tijdstip-levering'), b.voorkeur_tijdstip_levering || undefined);
   bouwTijdstipOpties(document.getElementById('kg-tijdstip-afhaling'), b.voorkeur_tijdstip_afhaling || undefined);
+
+  document.getElementById('btn-naar-klantfiche').addEventListener('click', () => openKlantDetail(b.klant_id));
 
   document.getElementById('btn-klantgegevens-bewerken').addEventListener('click', () => {
     document.getElementById('klantgegevens-weergave').hidden = true;
@@ -4736,6 +4807,7 @@ const ROL_LABELS = {
   betaalverzoek: 'Knop 2 — Betaalverzoek',
   reservatie_bevestiging: 'Knop 3 — Reservatiebevestiging',
   review_verzoek: 'Knop 4 — Review-verzoek',
+  weigering: 'Weigeringsmail (bij "Weigeren" van een aanvraag)',
 };
 
 function maakRijkeTekstEditor(container, initieelHtml) {

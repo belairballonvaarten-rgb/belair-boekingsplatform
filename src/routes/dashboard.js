@@ -24,7 +24,7 @@ const DASHBOARD_SELECT = `
          k.id AS klant_id, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
          l.leveringstijd, l.afhaaltijd, l.lat, l.lng, l.geocode_adres,
-         l.voertuig_levering, l.voertuig_afhaling,
+         l.voertuig_levering, l.voertuig_afhaling, l.volgorde_levering, l.volgorde_afhaling,
          COALESCE(l.levering_voltooid, false) AS levering_voltooid,
          COALESCE(l.afhaling_voltooid, false) AS afhaling_voltooid,
          bp_namen.producten_namen, bp_namen.eerste_product_naam, bp_namen.aantal_producten

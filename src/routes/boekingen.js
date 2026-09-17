@@ -210,7 +210,8 @@ router.post('/:id/eenvoudigfactureren', asyncHandler(async (req, res) => {
 
   const { rows: boekingRows } = await db.query(
     `SELECT b.id, k.id AS klant_id, k.naam AS klant_naam, k.email AS klant_email, k.adres AS klant_adres,
-            k.postcode AS klant_postcode, k.gemeente AS klant_gemeente, k.eenvoudigfactureren_klant_id
+            k.postcode AS klant_postcode, k.gemeente AS klant_gemeente, k.eenvoudigfactureren_klant_id,
+            k.btw_nummer, k.facturatie_adres, k.facturatie_postcode, k.facturatie_gemeente
      FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
     [req.params.id]
   );
@@ -244,6 +245,10 @@ router.post('/:id/eenvoudigfactureren', asyncHandler(async (req, res) => {
       adres: boeking.klant_adres,
       postcode: boeking.klant_postcode,
       gemeente: boeking.klant_gemeente,
+      btw_nummer: boeking.btw_nummer,
+      facturatie_adres: boeking.facturatie_adres,
+      facturatie_postcode: boeking.facturatie_postcode,
+      facturatie_gemeente: boeking.facturatie_gemeente,
       eenvoudigfactureren_klant_id: boeking.eenvoudigfactureren_klant_id,
     });
 
@@ -276,6 +281,11 @@ function bouwBoekingenFilter(query) {
   if (status) {
     params.push(status);
     condities.push(`b.status = $${params.length}`);
+  } else {
+    // Geen expliciete status gekozen ("Alle") -> geweigerde aanvragen horen daar
+    // niet meer tussen te staan (op vraag van Jonas), die krijgen een eigen menu
+    // ("Geweigerd" in de zijbalk, dat wél expliciet ?status=geweigerd opvraagt).
+    condities.push(`b.status <> 'geweigerd'`);
   }
   if (product_id) {
     params.push(product_id);
@@ -348,6 +358,8 @@ router.get('/', asyncHandler(async (req, res) => {
   const { where, params } = bouwBoekingenFilter(req.query);
   const orderBy = req.query.sortering === 'laatst_toegevoegd'
     ? 'b.aangemaakt_op DESC'
+    : req.query.sortering === 'laatst_geweigerd'
+    ? 'b.bijgewerkt_op DESC'
     : 'b.gewenste_datum_start ASC';
   const { rows } = await db.query(
     `${BOEKINGEN_OVERZICHT_SELECT} ${where} ORDER BY ${orderBy} LIMIT 200`,

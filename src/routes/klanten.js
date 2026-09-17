@@ -85,23 +85,31 @@ router.get('/:id', asyncHandler(async (req, res) => {
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
-  const { naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in } = req.body;
+  const {
+    naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in,
+    facturatie_adres, facturatie_postcode, facturatie_gemeente,
+  } = req.body;
   if (!naam) return res.status(400).json({ fout: 'Naam is verplicht' });
   if (klant_type === 'bedrijf' && !btw_nummer) {
     return res.status(400).json({ fout: 'btw_nummer is verplicht voor klant_type bedrijf' });
   }
 
   const { rows } = await db.query(
-    `INSERT INTO klanten (naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in)
-     VALUES ($1, COALESCE($2, 'particulier'), $3, $4, $5, $6, $7, $8, COALESCE($9, 'nog_niet_gevraagd'))
+    `INSERT INTO klanten (naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in,
+                           facturatie_adres, facturatie_postcode, facturatie_gemeente)
+     VALUES ($1, COALESCE($2, 'particulier'), $3, $4, $5, $6, $7, $8, COALESCE($9, 'nog_niet_gevraagd'), $10, $11, $12)
      RETURNING *`,
-    [naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in]
+    [naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in,
+      facturatie_adres, facturatie_postcode, facturatie_gemeente]
   );
   res.status(201).json(rows[0]);
 }));
 
 router.put('/:id', asyncHandler(async (req, res) => {
-  const { naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in } = req.body;
+  const {
+    naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in,
+    facturatie_adres, facturatie_postcode, facturatie_gemeente,
+  } = req.body;
   const { rows } = await db.query(
     `UPDATE klanten SET
        naam = COALESCE($1, naam),
@@ -113,10 +121,14 @@ router.put('/:id', asyncHandler(async (req, res) => {
        telefoon = COALESCE($7, telefoon),
        email = COALESCE($8, email),
        marketing_opt_in = COALESCE($9, marketing_opt_in),
+       facturatie_adres = COALESCE($10, facturatie_adres),
+       facturatie_postcode = COALESCE($11, facturatie_postcode),
+       facturatie_gemeente = COALESCE($12, facturatie_gemeente),
        bijgewerkt_op = now()
-     WHERE id = $10
+     WHERE id = $13
      RETURNING *`,
-    [naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in, req.params.id]
+    [naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in,
+      facturatie_adres, facturatie_postcode, facturatie_gemeente, req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Klant niet gevonden' });
   res.json(rows[0]);

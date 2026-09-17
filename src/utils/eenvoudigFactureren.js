@@ -58,13 +58,19 @@ async function zorgVoorKlant(db, klant) {
   if (klant.eenvoudigfactureren_klant_id) {
     return klant.eenvoudigfactureren_klant_id;
   }
+  // 'street'/'postal_code'/'city' zijn in EenvoudigFactureren's klantmodel het
+  // echte facturatieadres (bevestigd via hun API-docs — er bestaat geen apart
+  // 'billing_address'-veld). Heeft de klant een afwijkend facturatieadres
+  // ingevuld (bv. boekhouding op een ander adres), dan gaat dat hier mee i.p.v.
+  // het gewone adres. 'tax_code' is hun bevestigde veldnaam voor het btw-nummer.
   const payload = {
     name: klant.naam,
     email_address: klant.email || undefined,
-    street: klant.adres || undefined,
-    postal_code: klant.postcode || undefined,
-    city: klant.gemeente || undefined,
+    street: klant.facturatie_adres || klant.adres || undefined,
+    postal_code: klant.facturatie_postcode || klant.postcode || undefined,
+    city: klant.facturatie_gemeente || klant.gemeente || undefined,
     country_code: 'BE',
+    tax_code: klant.btw_nummer || undefined,
   };
   const resultaat = await efRequest('POST', '/clients', payload);
   const klantId = String(resultaat.client_id || resultaat.id || (resultaat.client && resultaat.client.id) || '');
