@@ -371,7 +371,8 @@
       <div class="instellingen-blok instellingen-blok-breed">
         <h3>E-mailtemplates</h3>
         <p class="uitleg">Sjablonen die je met opmaak (vet, lijsten, links, ...) kan instellen en die je vanuit een boekingdossier naar de klant stuurt, via je eigen Microsoft 365-account. De 4 knoppen bovenaan een dossier (Aanvraagbevestiging / Betaalverzoek / Reservatiebevestiging / Review-verzoek) sturen telkens de template die je hieronder die rol geeft — overige templates blijven bereikbaar via de vrije lijst bij "Communicatie" in het dossier zelf.</p>
-        <p class="uitleg">Plaatshouders die automatisch ingevuld worden met de gegevens van die ene boeking: <code>{{klant_naam}}</code>, <code>{{producten}}</code>, <code>{{periode}}</code>, <code>{{datum_start}}</code>, <code>{{datum_einde}}</code>, <code>{{prijs}}</code>, <code>{{transportkost}}</code>, <code>{{totaal}}</code>, <code>{{betaald}}</code>, <code>{{saldo}}</code>, <code>{{boeking_nummer}}</code>.</p>
+        <p class="uitleg">Plaatshouders die automatisch ingevuld worden met de gegevens van die ene boeking: <code>{{klant_naam}}</code>, <code>{{producten}}</code>, <code>{{periode}}</code>, <code>{{datum_start}}</code>, <code>{{datum_einde}}</code>, <code>{{prijs}}</code>, <code>{{transportkost}}</code>, <code>{{totaal}}</code>, <code>{{betaald}}</code>, <code>{{saldo}}</code>, <code>{{boeking_nummer}}</code>, <code>{{bevestig_knop}}</code>, <code>{{bevestig_link}}</code>.</p>
+        <p class="uitleg"><code>{{bevestig_knop}}</code> zet een kant-en-klare "Ik bevestig mijn reservatie"-knop in de mail — zet die in de template met rol "Aanvraagbevestiging". Klikt de klant erop, dan wordt de aanvraag automatisch op "Geaccepteerd" gezet (geen antwoordmail meer nodig), en gaat automatisch de template met rol "Automatische mail (als de klant zelf bevestigt...)" naar de klant (jij krijgt daarnaast ook zelf een seintje). <code>{{bevestig_link}}</code> is dezelfde link maar dan als kale URL, voor als je liever zelf een link/tekst opmaakt i.p.v. de kant-en-klare knop.</p>
         <div id="lijst-mail-templates"></div>
         <details id="nieuwe-template-details">
           <summary>+ Nieuwe template toevoegen</summary>
@@ -394,8 +395,8 @@
       </div>
 
       <div class="instellingen-blok instellingen-blok-breed">
-        <h3>E-mailhandtekening</h3>
-        <p class="uitleg">Wordt automatisch onderaan elke template-mail toegevoegd (de 4 dossierknoppen en de vrije templatelijst bij Communicatie) — je hoeft ze dus niet in elke template apart te zetten. Plak hier gewoon je bestaande handtekening (bv. gekopieerd vanuit Outlook: selecteer ze daar, Ctrl+C, en Ctrl+V hieronder) — opmaak en logo blijven daarbij behouden.</p>
+        <h3>Standaard e-mailhandtekening</h3>
+        <p class="uitleg">Wordt automatisch onderaan elke template-mail toegevoegd (de 4 dossierknoppen en de vrije templatelijst bij Communicatie), voor elke gebruiker die zelf geen eigen handtekening instelde hieronder — je hoeft ze dus niet in elke template apart te zetten. Plak hier gewoon je bestaande handtekening (bv. gekopieerd vanuit Outlook: selecteer ze daar, Ctrl+C, en Ctrl+V hieronder) — opmaak en logo blijven daarbij behouden.</p>
         <div id="handtekening-editor" class="html-bron-editor" contenteditable="true"></div>
         <textarea id="handtekening-bron" class="html-bron-textarea" rows="10" hidden></textarea>
         <div class="form-acties">
@@ -405,6 +406,20 @@
         <p class="uitleg">Ziet je geplakte handtekening er hierboven vreemd uit (bv. een tabel die niet goed staat)? Dat komt doordat Outlook z'n eigen opmaak gebruikt die buiten Outlook niet altijd exact hetzelfde overkomt — via "HTML-bron bewerken" kan je de code zelf nog bijschaven.</p>
         <p id="handtekening-fout" class="foutmelding"></p>
         <p id="handtekening-resultaat" class="melding" hidden></p>
+      </div>
+
+      <div class="instellingen-blok instellingen-blok-breed">
+        <h3>Mijn eigen e-mailhandtekening <span id="eigen-handtekening-naam" class="details-badge details-badge-neutraal"></span></h3>
+        <p class="uitleg">Optioneel: enkel voor jouw eigen account (de gebruiker waarmee je nu ingelogd bent) — overschrijft dan de standaard hierboven bij mails die JIJ verstuurt. Leeg = gewoon de standaard gebruiken.</p>
+        <div id="eigen-handtekening-editor" class="html-bron-editor" contenteditable="true"></div>
+        <textarea id="eigen-handtekening-bron" class="html-bron-textarea" rows="10" hidden></textarea>
+        <div class="form-acties">
+          <button type="button" id="btn-eigen-handtekening-opslaan">Opslaan</button>
+          <button type="button" id="btn-eigen-handtekening-wissen" class="linkbtn">Wissen (terug standaard gebruiken)</button>
+          <button type="button" id="btn-eigen-handtekening-bron-toggle" class="linkbtn">&lt;/&gt; HTML-bron bewerken</button>
+        </div>
+        <p id="eigen-handtekening-fout" class="foutmelding"></p>
+        <p id="eigen-handtekening-resultaat" class="melding" hidden></p>
       </div>
     </section>
 
@@ -428,6 +443,9 @@
             </label>
             <label>Telefoon<input type="text" id="nc-telefoon" placeholder="Optioneel" /></label>
             <label>Opmerking<input type="text" id="nc-opmerking" placeholder="Optioneel" /></label>
+            <label>Standaard voertuig <span class="uitleg">(voor een vast voertuig-account, bv. de iPad in een bestelwagen)</span>
+              <select id="nc-standaard-voertuig"><option value="">Geen — zelf kiezen in de app</option></select>
+            </label>
           </div>
           <button type="submit">Crewlid toevoegen</button>
           <p id="nieuwe-crew-fout" class="foutmelding"></p>
@@ -435,7 +453,7 @@
       </details>
 
       <table class="tabel">
-        <thead><tr><th>Naam</th><th>Gebruikersnaam</th><th>Rol</th><th>Telefoon</th><th>Opmerking</th><th></th><th></th><th></th></tr></thead>
+        <thead><tr><th>Naam</th><th>Gebruikersnaam</th><th>Rol</th><th>Telefoon</th><th>Opmerking</th><th>Standaard voertuig</th><th></th><th></th><th></th></tr></thead>
         <tbody id="tabel-crew"></tbody>
       </table>
     </section>

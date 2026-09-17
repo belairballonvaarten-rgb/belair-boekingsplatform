@@ -2496,11 +2496,22 @@ function openGebruikerBewerken(id, gebruiker) {
 // ============================================================
 // CREW (logistiek: crewleden van de leveringen-app + meldingen sturen)
 // ============================================================
+// Vult een <select> met de beheerbare voertuigen, met "Geen" als eerste optie
+// — herbruikt voor zowel het "nieuw crewlid"-formulier als de bewerken-modal.
+function vulVoertuigSelect(select, geselecteerdId) {
+  select.innerHTML = '<option value="">Geen — zelf kiezen in de app</option>'
+    + VOERTUIGEN.map((v) => `<option value="${v.id}" ${String(v.id) === String(geselecteerdId || '') ? 'selected' : ''}>${(v.naam || '').replace(/"/g, '&quot;')}</option>`).join('');
+}
+
 async function laadCrewOverzicht() {
   const crew = await api('/api/crew');
+  vulVoertuigSelect(document.getElementById('nc-standaard-voertuig'));
   const tbody = document.getElementById('tabel-crew');
   tbody.innerHTML = '';
   for (const c of crew) {
+    const voertuigNaam = c.standaard_voertuig_id
+      ? (VOERTUIGEN.find((v) => String(v.id) === String(c.standaard_voertuig_id)) || {}).naam
+      : null;
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${c.naam || '—'}</td>
@@ -2508,6 +2519,7 @@ async function laadCrewOverzicht() {
       <td>${c.rol === 'admin' ? 'Admin' : 'Plaatser'}</td>
       <td>${c.telefoon || '—'}</td>
       <td>${c.opmerking || '—'}</td>
+      <td>${voertuigNaam || '—'}</td>
       <td><button type="button" class="linkbtn btn-crew-melding" data-id="${c.id}" data-naam="${(c.naam || c.username).replace(/"/g, '&quot;')}">🔔 Melding</button></td>
       <td><button type="button" class="linkbtn btn-crew-bewerken" data-id="${c.id}">✎ Bewerken</button></td>
       <td><button type="button" class="linkbtn gevaar btn-crew-verwijderen" data-id="${c.id}" data-naam="${(c.naam || c.username).replace(/"/g, '&quot;')}">🗑 Verwijderen</button></td>
@@ -2548,6 +2560,7 @@ document.getElementById('form-nieuwe-crew').addEventListener('submit', async (e)
         rol: document.getElementById('nc-rol').value,
         telefoon: document.getElementById('nc-telefoon').value.trim() || null,
         opmerking: document.getElementById('nc-opmerking').value.trim() || null,
+        standaardVoertuigId: document.getElementById('nc-standaard-voertuig').value || null,
       }),
     });
     document.getElementById('form-nieuwe-crew').reset();
@@ -2576,6 +2589,9 @@ function openCrewBewerken(id, crewlid) {
       </label>
       <label>Telefoon<input type="text" id="cb-telefoon" value="${(crewlid.telefoon || '').replace(/"/g, '&quot;')}" /></label>
       <label>Opmerking<input type="text" id="cb-opmerking" value="${(crewlid.opmerking || '').replace(/"/g, '&quot;')}" /></label>
+      <label>Standaard voertuig <span class="uitleg">(voor een vast voertuig-account, bv. de iPad in een bestelwagen)</span>
+        <select id="cb-standaard-voertuig"></select>
+      </label>
       <label>Nieuw wachtwoord <span class="uitleg">(leeg laten om het huidige te behouden)</span><input type="password" id="cb-wachtwoord" minlength="6" /></label>
       <div class="form-acties">
         <button type="submit">Opslaan</button>
@@ -2584,6 +2600,7 @@ function openCrewBewerken(id, crewlid) {
       <p id="crew-bewerken-fout" class="foutmelding"></p>
     </form>
   `;
+  vulVoertuigSelect(document.getElementById('cb-standaard-voertuig'), crewlid.standaard_voertuig_id);
   document.getElementById('btn-crew-bewerken-annuleren').addEventListener('click', () => { modalCrewBewerken.hidden = true; });
   document.getElementById('form-crew-bewerken').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -2598,6 +2615,7 @@ function openCrewBewerken(id, crewlid) {
           rol: document.getElementById('cb-rol').value,
           telefoon: document.getElementById('cb-telefoon').value.trim() || null,
           opmerking: document.getElementById('cb-opmerking').value.trim() || null,
+          standaardVoertuigId: document.getElementById('cb-standaard-voertuig').value || null,
           wachtwoord: wachtwoord || undefined,
         }),
       });
@@ -3587,6 +3605,10 @@ async function openDetail(boekingId) {
           ? 'Betaalverzoek-eindpunt niet gevonden bij EenvoudigFactureren — in plaats daarvan een factuur aangemaakt. '
           : '✓ Aangemaakt. ')
           + (data.url ? `<a href="${data.url}" target="_blank" rel="noopener">Openen ↗</a>` : '');
+        // Meteen zelf in een nieuw tabblad openen — Jonas moet daarvoor niet
+        // ook nog eens apart op de link hierboven klikken. Lukt dat niet (bv.
+        // pop-upblokkering), dan blijft die link hierboven gewoon staan als terugval.
+        if (data.url) window.open(data.url, '_blank', 'noopener');
         openDetail(boekingId);
       } catch (err) {
         resultaat.hidden = false;
@@ -4791,6 +4813,7 @@ async function laadInstellingen() {
   await laadMailTemplates();
   renderMailTemplatesInstellingen();
   await laadHandtekening();
+  laadEigenHandtekening();
 }
 
 // ============================================================
@@ -4808,6 +4831,7 @@ const ROL_LABELS = {
   reservatie_bevestiging: 'Knop 3 — Reservatiebevestiging',
   review_verzoek: 'Knop 4 — Review-verzoek',
   weigering: 'Weigeringsmail (bij "Weigeren" van een aanvraag)',
+  klant_zelfbevestiging: 'Automatische mail (als de klant zelf bevestigt via de knop in de e-mail)',
 };
 
 function maakRijkeTekstEditor(container, initieelHtml) {
@@ -5000,6 +5024,67 @@ document.getElementById('btn-handtekening-opslaan').addEventListener('click', as
   } catch (err) {
     elFout.textContent = err.message;
   }
+});
+
+// Eigen (per-gebruiker) handtekening — zelfde bewerk-patroon als hierboven,
+// maar bewaart voor de eigen, ingelogde account (zie migratie 033 / PUT
+// /api/auth/mijn-handtekening) en overschrijft daarmee enkel voor die
+// gebruiker de gedeelde standaard hierboven.
+const eigenHandtekeningEditor = document.getElementById('eigen-handtekening-editor');
+const eigenHandtekeningBron = document.getElementById('eigen-handtekening-bron');
+const btnEigenHandtekeningBronToggle = document.getElementById('btn-eigen-handtekening-bron-toggle');
+
+function laadEigenHandtekening() {
+  const naamBadge = document.getElementById('eigen-handtekening-naam');
+  naamBadge.textContent = huidigeGebruiker ? `(${huidigeGebruiker.naam})` : '';
+  const html = (huidigeGebruiker && huidigeGebruiker.email_handtekening) || '';
+  eigenHandtekeningEditor.innerHTML = html;
+  eigenHandtekeningBron.value = html;
+}
+
+btnEigenHandtekeningBronToggle.addEventListener('click', () => {
+  const naarBron = eigenHandtekeningBron.hidden;
+  if (naarBron) {
+    eigenHandtekeningBron.value = eigenHandtekeningEditor.innerHTML;
+    eigenHandtekeningEditor.hidden = true;
+    eigenHandtekeningBron.hidden = false;
+    btnEigenHandtekeningBronToggle.textContent = '👁 Voorbeeld tonen';
+  } else {
+    eigenHandtekeningEditor.innerHTML = eigenHandtekeningBron.value;
+    eigenHandtekeningEditor.hidden = false;
+    eigenHandtekeningBron.hidden = true;
+    btnEigenHandtekeningBronToggle.textContent = '</> HTML-bron bewerken';
+  }
+});
+
+async function bewaarEigenHandtekening(html) {
+  const elFout = document.getElementById('eigen-handtekening-fout');
+  const elResultaat = document.getElementById('eigen-handtekening-resultaat');
+  elFout.textContent = '';
+  elResultaat.hidden = true;
+  try {
+    await api('/api/auth/mijn-handtekening', { method: 'PUT', body: JSON.stringify({ html }) });
+    eigenHandtekeningEditor.innerHTML = html;
+    eigenHandtekeningBron.value = html;
+    if (huidigeGebruiker) huidigeGebruiker.email_handtekening = html;
+    elResultaat.hidden = false;
+    elResultaat.textContent = html ? '✓ Eigen handtekening opgeslagen.' : '✓ Gewist — je mails gebruiken nu terug de standaard.';
+  } catch (err) {
+    elFout.textContent = err.message;
+  }
+}
+
+document.getElementById('btn-eigen-handtekening-opslaan').addEventListener('click', () => {
+  const html = eigenHandtekeningBron.hidden ? eigenHandtekeningEditor.innerHTML : eigenHandtekeningBron.value;
+  bewaarEigenHandtekening(html);
+});
+
+document.getElementById('btn-eigen-handtekening-wissen').addEventListener('click', () => {
+  if (!confirm('Eigen handtekening wissen? Je mails gebruiken dan terug de standaard handtekening.')) return;
+  eigenHandtekeningBron.hidden = true;
+  eigenHandtekeningEditor.hidden = false;
+  btnEigenHandtekeningBronToggle.textContent = '</> HTML-bron bewerken';
+  bewaarEigenHandtekening('');
 });
 
 document.getElementById('btn-sync-leveringen-app').addEventListener('click', async () => {

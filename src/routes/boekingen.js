@@ -115,7 +115,7 @@ router.post('/bulk-email', asyncHandler(async (req, res) => {
 // het effectief versturen: haalt de template + boekingsgegevens op en vult de
 // {{plaatshouders}} in. Onderwerp = platte tekst, inhoud = HTML (zie
 // utils/mailTemplates.js voor waarom die twee apart ingevuld worden).
-async function haalIngevuldeTemplateOp(boekingId, templateId) {
+async function haalIngevuldeTemplateOp(boekingId, templateId, adminId) {
   const { rows: templateRows } = await db.query('SELECT * FROM mail_templates WHERE id = $1', [templateId]);
   const template = templateRows[0];
   if (!template) return { fout: 'Template niet gevonden', status: 404 };
@@ -138,11 +138,20 @@ async function haalIngevuldeTemplateOp(boekingId, templateId) {
   const onderwerp = vulTemplateIn(template.onderwerp, onderwerpContext);
   let inhoud = vulTemplateIn(template.inhoud, inhoudContext);
 
-  // De (eventueel) ingestelde e-mailhandtekening automatisch onderaan plakken
-  // (zie Instellingen → E-mailhandtekening, en migratie 030) — zo hoeft Jonas
-  // ze niet in elke template apart te zetten.
-  const { rows: instellingenRows } = await db.query('SELECT email_handtekening FROM platform_instellingen WHERE id = true');
-  const handtekening = instellingenRows[0] && instellingenRows[0].email_handtekening;
+  // De e-mailhandtekening automatisch onderaan plakken (zie Instellingen →
+  // E-mailhandtekening) — zo hoeft niemand ze in elke template apart te
+  // zetten. Eerst de EIGEN handtekening van de gebruiker die verstuurt (bv.
+  // Ria, zie migratie 033); heeft die zelf niets ingesteld, dan de gedeelde
+  // standaard (van Jonas, migratie 030).
+  let handtekening = null;
+  if (adminId) {
+    const { rows: adminRows } = await db.query('SELECT email_handtekening FROM admins WHERE id = $1', [adminId]);
+    handtekening = adminRows[0] && adminRows[0].email_handtekening;
+  }
+  if (!handtekening || !handtekening.trim()) {
+    const { rows: instellingenRows } = await db.query('SELECT email_handtekening FROM platform_instellingen WHERE id = true');
+    handtekening = instellingenRows[0] && instellingenRows[0].email_handtekening;
+  }
   if (handtekening && handtekening.trim()) {
     inhoud += `<br><br>${handtekening}`;
   }
@@ -155,7 +164,7 @@ async function haalIngevuldeTemplateOp(boekingId, templateId) {
 // effectief versturen (de 4 sneltoetsen bovenaan het dossier, en de vrije
 // templatelijst bij Communicatie).
 router.get('/:id/template-preview/:templateId', asyncHandler(async (req, res) => {
-  const resultaat = await haalIngevuldeTemplateOp(req.params.id, req.params.templateId);
+  const resultaat = await haalIngevuldeTemplateOp(req.params.id, req.params.templateId, req.session.adminId);
   if (resultaat.fout) return res.status(resultaat.status).json({ fout: resultaat.fout });
   res.json({
     onderwerp: resultaat.onderwerp,
@@ -175,7 +184,7 @@ router.post('/:id/verstuur-template', asyncHandler(async (req, res) => {
   const { templateId, onderwerp: onderwerpOverride, inhoud: inhoudOverride } = req.body || {};
   if (!templateId) return res.status(400).json({ fout: 'templateId is verplicht' });
 
-  const resultaat = await haalIngevuldeTemplateOp(req.params.id, templateId);
+  const resultaat = await haalIngevuldeTemplateOp(req.params.id, templateId, req.session.adminId);
   if (resultaat.fout) return res.status(resultaat.status).json({ fout: resultaat.fout });
   const { boeking } = resultaat;
   const onderwerp = (typeof onderwerpOverride === 'string' && onderwerpOverride.trim())
@@ -989,4 +998,8 @@ router.post('/:id/status', asyncHandler(async (req, res) => {
   }
 }));
 
+// Ook herbruikt door routes/klant-bevestiging.js (de automatische
+// bevestigingsmail bij zelf-bevestiging door de klant) — vandaar apart
+// meegegeven op de router zelf i.p.v. enkel intern hier gebruikt.
 module.exports = router;
+module.exports.haalIngevuldeTemplateOp = haalIngevuldeTemplateOp;

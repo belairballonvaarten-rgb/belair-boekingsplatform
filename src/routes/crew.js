@@ -15,14 +15,14 @@ router.use(vereistIngelogd);
 
 router.get('/', asyncHandler(async (req, res) => {
   const { rows } = await db.query(
-    `SELECT id, username, naam, rol, telefoon, opmerking, created_at
+    `SELECT id, username, naam, rol, telefoon, opmerking, standaard_voertuig_id, created_at
      FROM users ORDER BY naam`
   );
   res.json(rows);
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
-  const { username, wachtwoord, naam, rol, telefoon, opmerking } = req.body || {};
+  const { username, wachtwoord, naam, rol, telefoon, opmerking, standaardVoertuigId } = req.body || {};
   if (!username || !wachtwoord || !naam) {
     return res.status(400).json({ fout: 'Gebruikersnaam, wachtwoord en naam zijn verplicht' });
   }
@@ -32,10 +32,10 @@ router.post('/', asyncHandler(async (req, res) => {
   const hash = await bcrypt.hash(wachtwoord, 10);
   try {
     const { rows } = await db.query(
-      `INSERT INTO users (username, password_hash, naam, rol, telefoon, opmerking)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, username, naam, rol, telefoon, opmerking, created_at`,
-      [username.trim(), hash, naam.trim(), rol === 'admin' ? 'admin' : 'plaatser', telefoon || null, opmerking || null]
+      `INSERT INTO users (username, password_hash, naam, rol, telefoon, opmerking, standaard_voertuig_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, username, naam, rol, telefoon, opmerking, standaard_voertuig_id, created_at`,
+      [username.trim(), hash, naam.trim(), rol === 'admin' ? 'admin' : 'plaatser', telefoon || null, opmerking || null, standaardVoertuigId || null]
     );
     res.status(201).json(rows[0]);
   } catch (err) {
@@ -47,7 +47,7 @@ router.post('/', asyncHandler(async (req, res) => {
 }));
 
 router.put('/:id', asyncHandler(async (req, res) => {
-  const { naam, rol, telefoon, opmerking, wachtwoord } = req.body || {};
+  const { naam, rol, telefoon, opmerking, wachtwoord, standaardVoertuigId } = req.body || {};
   if (wachtwoord && wachtwoord.length < 6) {
     return res.status(400).json({ fout: 'Wachtwoord moet minstens 6 tekens lang zijn' });
   }
@@ -58,10 +58,11 @@ router.put('/:id', asyncHandler(async (req, res) => {
        rol = COALESCE($2, rol),
        telefoon = $3,
        opmerking = $4,
-       password_hash = COALESCE($5, password_hash)
+       password_hash = COALESCE($5, password_hash),
+       standaard_voertuig_id = $7
      WHERE id = $6
-     RETURNING id, username, naam, rol, telefoon, opmerking, created_at`,
-    [naam || null, rol === 'admin' || rol === 'plaatser' ? rol : null, telefoon || null, opmerking || null, wachtwoordHash, req.params.id]
+     RETURNING id, username, naam, rol, telefoon, opmerking, standaard_voertuig_id, created_at`,
+    [naam || null, rol === 'admin' || rol === 'plaatser' ? rol : null, telefoon || null, opmerking || null, wachtwoordHash, req.params.id, standaardVoertuigId || null]
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Crewlid niet gevonden' });
   res.json(rows[0]);

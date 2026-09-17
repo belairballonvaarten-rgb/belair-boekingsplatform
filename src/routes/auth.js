@@ -36,13 +36,29 @@ router.get('/me', asyncHandler(async (req, res) => {
   if (!req.session.adminId) {
     return res.status(401).json({ fout: 'Niet ingelogd' });
   }
-  const { rows } = await db.query('SELECT id, email, naam FROM admins WHERE id = $1', [req.session.adminId]);
+  const { rows } = await db.query('SELECT id, email, naam, email_handtekening FROM admins WHERE id = $1', [req.session.adminId]);
   if (!rows[0]) {
     // Account ondertussen verwijderd door een collega, maar sessie nog actief.
     req.session.destroy(() => {});
     return res.status(401).json({ fout: 'Niet ingelogd' });
   }
-  res.json({ adminId: req.session.adminId, email: rows[0].email, naam: rows[0].naam });
+  res.json({
+    adminId: req.session.adminId,
+    email: rows[0].email,
+    naam: rows[0].naam,
+    email_handtekening: rows[0].email_handtekening || '',
+  });
+}));
+
+// Eigen e-mailhandtekening instellen — enkel voor de eigen, ingelogde account
+// (zie migratie 033): overschrijft voor deze gebruiker de gedeelde standaard
+// (Instellingen → E-mailhandtekening). Leeg opslaan = terug de standaard
+// gebruiken.
+router.put('/mijn-handtekening', asyncHandler(async (req, res) => {
+  if (!req.session.adminId) return res.status(401).json({ fout: 'Niet ingelogd' });
+  const html = typeof (req.body && req.body.html) === 'string' ? req.body.html : '';
+  await db.query('UPDATE admins SET email_handtekening = $1 WHERE id = $2', [html || null, req.session.adminId]);
+  res.json({ html });
 }));
 
 module.exports = router;

@@ -12,7 +12,7 @@ router.use(vereistIngelogd);
 // De 4 vaste sneltoetsen bovenaan een boekingdossier — 'rol' koppelt een
 // template daaraan (zie migratie 028). NULL/leeg = gewoon een vrije, extra
 // template (enkel bereikbaar via de vrije lijst bij Communicatie).
-const GELDIGE_ROLLEN = ['aanvraag_bevestiging', 'betaalverzoek', 'reservatie_bevestiging', 'review_verzoek', 'weigering'];
+const GELDIGE_ROLLEN = ['aanvraag_bevestiging', 'betaalverzoek', 'reservatie_bevestiging', 'review_verzoek', 'weigering', 'klant_zelfbevestiging'];
 
 function normaliseerRol(rol) {
   if (!rol) return null;
