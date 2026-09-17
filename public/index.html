@@ -386,6 +386,20 @@
           </form>
         </details>
       </div>
+
+      <div class="instellingen-blok instellingen-blok-breed">
+        <h3>E-mailhandtekening</h3>
+        <p class="uitleg">Wordt automatisch onderaan elke template-mail toegevoegd (de 4 dossierknoppen en de vrije templatelijst bij Communicatie) — je hoeft ze dus niet in elke template apart te zetten. Plak hier gewoon je bestaande handtekening (bv. gekopieerd vanuit Outlook: selecteer ze daar, Ctrl+C, en Ctrl+V hieronder) — opmaak en logo blijven daarbij behouden.</p>
+        <div id="handtekening-editor" class="html-bron-editor" contenteditable="true"></div>
+        <textarea id="handtekening-bron" class="html-bron-textarea" rows="10" hidden></textarea>
+        <div class="form-acties">
+          <button type="button" id="btn-handtekening-opslaan">Handtekening opslaan</button>
+          <button type="button" id="btn-handtekening-bron-toggle" class="linkbtn">&lt;/&gt; HTML-bron bewerken</button>
+        </div>
+        <p class="uitleg">Ziet je geplakte handtekening er hierboven vreemd uit (bv. een tabel die niet goed staat)? Dat komt doordat Outlook z'n eigen opmaak gebruikt die buiten Outlook niet altijd exact hetzelfde overkomt — via "HTML-bron bewerken" kan je de code zelf nog bijschaven.</p>
+        <p id="handtekening-fout" class="foutmelding"></p>
+        <p id="handtekening-resultaat" class="melding" hidden></p>
+      </div>
     </section>
 
     <!-- CREW (logistiek: crewleden van de leveringen-app beheren + meldingen sturen) -->
@@ -794,8 +808,9 @@
         <button id="btn-modal-template-preview-sluiten" class="modal-sluiten">&times;</button>
         <h3 id="tpv-titel">Mail versturen</h3>
         <p class="uitleg">Naar: <strong id="tpv-naar"></strong></p>
-        <p class="uitleg">Onderwerp: <strong id="tpv-onderwerp"></strong></p>
-        <div id="tpv-inhoud" class="tpv-voorvertoning"></div>
+        <label class="tpv-onderwerp-label">Onderwerp<input type="text" id="tpv-onderwerp" /></label>
+        <p class="uitleg tpv-bewerk-hint">Tekst hieronder klopt niet helemaal (bv. enkelvoud/meervoud)? Klik erin en pas gewoon aan — dat wordt zo verstuurd.</p>
+        <div id="tpv-inhoud" class="tpv-voorvertoning" contenteditable="true"></div>
         <div class="form-acties">
           <button type="button" id="btn-tpv-versturen">✓ Versturen</button>
           <button type="button" id="btn-tpv-annuleren" class="linkbtn">Annuleren</button>

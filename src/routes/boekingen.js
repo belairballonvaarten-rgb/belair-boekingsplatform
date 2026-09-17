@@ -136,7 +136,17 @@ async function haalIngevuldeTemplateOp(boekingId, templateId) {
   const { onderwerpContext, inhoudContext } = bouwTemplateContext(boeking, producten, prijstabel);
 
   const onderwerp = vulTemplateIn(template.onderwerp, onderwerpContext);
-  const inhoud = vulTemplateIn(template.inhoud, inhoudContext);
+  let inhoud = vulTemplateIn(template.inhoud, inhoudContext);
+
+  // De (eventueel) ingestelde e-mailhandtekening automatisch onderaan plakken
+  // (zie Instellingen → E-mailhandtekening, en migratie 030) — zo hoeft Jonas
+  // ze niet in elke template apart te zetten.
+  const { rows: instellingenRows } = await db.query('SELECT email_handtekening FROM platform_instellingen WHERE id = true');
+  const handtekening = instellingenRows[0] && instellingenRows[0].email_handtekening;
+  if (handtekening && handtekening.trim()) {
+    inhoud += `<br><br>${handtekening}`;
+  }
+
   return { template, boeking, onderwerp, inhoud };
 }
 
@@ -157,13 +167,21 @@ router.get('/:id/template-preview/:templateId', asyncHandler(async (req, res) =>
 // Verstuurt één van de (in Instellingen beheerde) e-mailtemplates naar de
 // klant van dit ene dossier, met de {{plaatshouders}} al ingevuld met de
 // gegevens van deze boeking — en logt dat net als bulk-email in Communicatie.
+// Optioneel: onderwerp/inhoud (zoals Jonas ze in de "ff controle"-voorvertoning
+// eventueel nog snel bijstuurde, bv. enkelvoud/meervoud) overschrijven de
+// automatisch ingevulde template-tekst — dat is dan ook wat er verstuurd én
+// gelogd wordt, niet de ongewijzigde template.
 router.post('/:id/verstuur-template', asyncHandler(async (req, res) => {
-  const { templateId } = req.body || {};
+  const { templateId, onderwerp: onderwerpOverride, inhoud: inhoudOverride } = req.body || {};
   if (!templateId) return res.status(400).json({ fout: 'templateId is verplicht' });
 
   const resultaat = await haalIngevuldeTemplateOp(req.params.id, templateId);
   if (resultaat.fout) return res.status(resultaat.status).json({ fout: resultaat.fout });
-  const { boeking, onderwerp, inhoud } = resultaat;
+  const { boeking } = resultaat;
+  const onderwerp = (typeof onderwerpOverride === 'string' && onderwerpOverride.trim())
+    ? onderwerpOverride.trim() : resultaat.onderwerp;
+  const inhoud = (typeof inhoudOverride === 'string' && inhoudOverride.trim())
+    ? inhoudOverride : resultaat.inhoud;
   if (!boeking.klant_email) return res.status(400).json({ fout: 'Deze klant heeft geen e-mailadres bekend' });
 
   try {

@@ -2664,7 +2664,7 @@ async function openTemplateVoorvertoning(boekingId, templateId) {
   elFout.textContent = '';
   document.getElementById('tpv-titel').textContent = 'Mail wordt klaargemaakt...';
   document.getElementById('tpv-naar').textContent = '';
-  document.getElementById('tpv-onderwerp').textContent = '';
+  document.getElementById('tpv-onderwerp').value = '';
   document.getElementById('tpv-inhoud').innerHTML = '';
   tpvDoel = { boekingId, templateId };
   modalTemplatePreview.hidden = false;
@@ -2672,13 +2672,17 @@ async function openTemplateVoorvertoning(boekingId, templateId) {
     const preview = await api(`/api/boekingen/${boekingId}/template-preview/${templateId}`);
     document.getElementById('tpv-titel').textContent = 'Mail versturen';
     document.getElementById('tpv-naar').textContent = preview.klantEmail || '—';
-    document.getElementById('tpv-onderwerp').textContent = preview.onderwerp;
+    document.getElementById('tpv-onderwerp').value = preview.onderwerp;
     document.getElementById('tpv-inhoud').innerHTML = preview.inhoud;
   } catch (err) {
     elFout.textContent = err.message;
   }
 }
 
+// Onderwerp en inhoud zijn in de voorvertoning zelf nog rechtstreeks bewerkbaar
+// (bv. om snel enkelvoud/meervoud recht te zetten) — wat daar op het moment van
+// versturen staat, wordt letterlijk verstuurd (i.p.v. de template opnieuw in te
+// vullen), en dat is ook wat er in Communicatie gelogd wordt.
 document.getElementById('btn-tpv-versturen').addEventListener('click', async () => {
   const elFout = document.getElementById('tpv-fout');
   elFout.textContent = '';
@@ -2688,7 +2692,11 @@ document.getElementById('btn-tpv-versturen').addEventListener('click', async () 
   try {
     await api(`/api/boekingen/${tpvDoel.boekingId}/verstuur-template`, {
       method: 'POST',
-      body: JSON.stringify({ templateId: tpvDoel.templateId }),
+      body: JSON.stringify({
+        templateId: tpvDoel.templateId,
+        onderwerp: document.getElementById('tpv-onderwerp').value,
+        inhoud: document.getElementById('tpv-inhoud').innerHTML,
+      }),
     });
     modalTemplatePreview.hidden = true;
     toonToast('Mail verstuurd');
@@ -4711,6 +4719,7 @@ async function laadInstellingen() {
   }
   await laadMailTemplates();
   renderMailTemplatesInstellingen();
+  await laadHandtekening();
 }
 
 // ============================================================
@@ -4854,6 +4863,68 @@ document.getElementById('form-nieuwe-template').addEventListener('submit', async
     document.getElementById('nieuwe-template-details').open = false;
     await laadMailTemplates();
     renderMailTemplatesInstellingen();
+  } catch (err) {
+    elFout.textContent = err.message;
+  }
+});
+
+// ============================================================
+// E-MAILHANDTEKENING (Instellingen) — één gedeelde handtekening, automatisch
+// onderaan elke template-mail geplakt (zie utils/mailTemplates.js/boekingen.js
+// server-side). Bewust GEEN Quill hier: Quill zou een geplakte (Outlook-)
+// handtekening herleiden tot enkel de opmaak die zijn eigen toolbar kent, en zo
+// net de bedoeling (exact dezelfde opmaak/logo) missen. In plaats daarvan een
+// kaal contenteditable-vak (native plak-gedrag van de browser blijft behouden)
+// met een "HTML-bron bewerken"-toggle voor wie de code zelf wil bijschaven.
+// ============================================================
+const handtekeningEditor = document.getElementById('handtekening-editor');
+const handtekeningBron = document.getElementById('handtekening-bron');
+const btnHandtekeningBronToggle = document.getElementById('btn-handtekening-bron-toggle');
+
+async function laadHandtekening() {
+  try {
+    const { html } = await api('/api/mail-templates/handtekening');
+    handtekeningEditor.innerHTML = html || '';
+    handtekeningBron.value = html || '';
+  } catch (err) {
+    // Stil falen (bv. nog niet ingelogd bij eerste laadbeurt) — Instellingen
+    // blijft verder gewoon bruikbaar, dit is een klein extraatje.
+  }
+}
+
+// Bron-modus toont de ruwe HTML in een textarea i.p.v. het visuele vak — bij
+// het wisselen wordt de inhoud van de ene naar de andere overgenomen, zodat
+// een aanpassing in de bron ook meteen zichtbaar is in het voorbeeld en omgekeerd.
+btnHandtekeningBronToggle.addEventListener('click', () => {
+  const naarBron = handtekeningBron.hidden;
+  if (naarBron) {
+    handtekeningBron.value = handtekeningEditor.innerHTML;
+    handtekeningEditor.hidden = true;
+    handtekeningBron.hidden = false;
+    btnHandtekeningBronToggle.textContent = '👁 Voorbeeld tonen';
+  } else {
+    handtekeningEditor.innerHTML = handtekeningBron.value;
+    handtekeningEditor.hidden = false;
+    handtekeningBron.hidden = true;
+    btnHandtekeningBronToggle.textContent = '</> HTML-bron bewerken';
+  }
+});
+
+document.getElementById('btn-handtekening-opslaan').addEventListener('click', async () => {
+  const elFout = document.getElementById('handtekening-fout');
+  const elResultaat = document.getElementById('handtekening-resultaat');
+  elFout.textContent = '';
+  elResultaat.hidden = true;
+  // Altijd opslaan wat er nu zichtbaar/actief staat (bron-textarea als die
+  // open staat, anders het visuele vak) — zodat een niet-toegepaste
+  // bronwijziging niet stilzwijgend verloren gaat.
+  const html = handtekeningBron.hidden ? handtekeningEditor.innerHTML : handtekeningBron.value;
+  try {
+    await api('/api/mail-templates/handtekening', { method: 'PUT', body: JSON.stringify({ html }) });
+    handtekeningEditor.innerHTML = html;
+    handtekeningBron.value = html;
+    elResultaat.hidden = false;
+    elResultaat.textContent = '✓ Handtekening opgeslagen.';
   } catch (err) {
     elFout.textContent = err.message;
   }

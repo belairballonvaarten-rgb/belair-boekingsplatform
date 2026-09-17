@@ -983,11 +983,31 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 }
 .dossier-snelknoppen button:disabled { opacity: 0.45; cursor: not-allowed; }
 
-/* Voorvertoning-modal ("ff controle") vóór een template effectief te versturen. */
+/* Voorvertoning-modal ("ff controle") vóór een template effectief te versturen —
+   onderwerp + inhoud zijn hier bewust rechtstreeks bewerkbaar (contenteditable),
+   voor een snelle laatste-moment-correctie (bv. enkelvoud/meervoud) zonder
+   terug naar Instellingen te moeten. */
 .modal-inhoud-breed { width: 680px; }
+.tpv-onderwerp-label { margin-bottom: 0.3rem; }
+.tpv-bewerk-hint { margin: 0 0 0.4rem; font-style: italic; }
 .tpv-voorvertoning {
   border: 1px solid var(--rand); border-radius: 8px; padding: 0.8rem 1rem;
-  max-height: 45vh; overflow-y: auto; margin: 0.6rem 0 1rem; background: var(--grijs-licht);
+  max-height: 45vh; overflow-y: auto; margin: 0 0 1rem; background: white;
+  cursor: text;
 }
+.tpv-voorvertoning:focus { outline: 2px solid var(--blauw); outline-offset: 1px; }
 .tpv-voorvertoning p:first-child { margin-top: 0; }
 .tpv-voorvertoning p:last-child { margin-bottom: 0; }
+
+/* E-mailhandtekening (Instellingen): een kaal contenteditable-vak i.p.v. Quill —
+   Quill zou een geplakte (Outlook-)handtekening herleiden tot enkel de opmaak
+   die zijn eigen toolbar ondersteunt, en zo net het doel missen (de bestaande
+   opmaak/logo exact behouden). "HTML-bron bewerken" toont/verbergt in plaats
+   daarvan de ruwe HTML in een textarea, voor wie de code zelf wil bijschaven. */
+.html-bron-editor {
+  border: 1px solid var(--rand); border-radius: 8px; padding: 0.8rem 1rem;
+  min-height: 6rem; max-height: 40vh; overflow-y: auto; margin-bottom: 0.6rem;
+  background: white; cursor: text;
+}
+.html-bron-editor:focus { outline: 2px solid var(--blauw); outline-offset: 1px; }
+.html-bron-textarea { width: 100%; font-family: monospace; font-size: 0.82rem; margin-bottom: 0.6rem; }

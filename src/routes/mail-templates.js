@@ -38,6 +38,21 @@ router.get('/', asyncHandler(async (req, res) => {
   res.json(rows);
 }));
 
+// Eén gedeelde e-mailhandtekening (ruwe HTML), automatisch onderaan elke
+// template-mail geplakt (zie haalIngevuldeTemplateOp() in routes/boekingen.js).
+// Let op: moet vóór PUT '/:id' hieronder staan, anders vangt die generieke
+// route 'handtekening' op als een (ongeldig) template-id.
+router.get('/handtekening', asyncHandler(async (req, res) => {
+  const { rows } = await db.query('SELECT email_handtekening FROM platform_instellingen WHERE id = true');
+  res.json({ html: rows[0]?.email_handtekening || '' });
+}));
+
+router.put('/handtekening', asyncHandler(async (req, res) => {
+  const html = typeof (req.body && req.body.html) === 'string' ? req.body.html : '';
+  await db.query('UPDATE platform_instellingen SET email_handtekening = $1, bijgewerkt_op = now() WHERE id = true', [html]);
+  res.json({ html });
+}));
+
 router.post('/', asyncHandler(async (req, res) => {
   const { naam, onderwerp, inhoud } = req.body || {};
   if (!naam || !onderwerp || !inhoud) {
