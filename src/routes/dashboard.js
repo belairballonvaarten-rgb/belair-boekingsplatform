@@ -8,11 +8,16 @@ const { berekenPrijstabel } = require('../utils/prijstabel');
 const router = express.Router();
 router.use(vereistIngelogd);
 
-// Statussen die "definitief genoeg" zijn om op het Dashboard als geplande
-// levering/afhaling te tonen — een kale aanvraag ('nieuw'/'in_behandeling')
-// hoort nog in de Aanvragen-inbox thuis, niet in de planning van vandaag.
+// Statussen die op het Dashboard als geplande levering/afhaling getoond
+// worden. 'nieuw' hoort er ook bij (op uitdrukkelijke vraag van Jonas: een
+// manueel of via de website binnengekomen aanvraag moet al meteen op de
+// juiste dag zichtbaar zijn, ook al is ze nog niet bevestigd) — de frontend
+// toont zo'n boeking dan wel duidelijk gemarkeerd als "nog niet definitief"
+// (zie WEERGAVE_NIET_DEFINITIEF in app.js). 'in_behandeling' hoort nog niet
+// hier thuis: dat is een aanvraag die Jonas nog moet bekijken/beoordelen in
+// de Aanvragen-inbox, niet iets om al in te plannen.
 const GEPLANDE_STATUSSEN = [
-  'geaccepteerd', 'ingepland', 'bevestigd', 'betaalverzoek_verstuurd',
+  'nieuw', 'geaccepteerd', 'ingepland', 'bevestigd', 'betaalverzoek_verstuurd',
   'betaald_deels', 'betaald_volledig', 'gefactureerd', 'voldaan_manueel',
 ];
 

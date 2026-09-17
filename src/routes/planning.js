@@ -24,10 +24,12 @@ async function haalMagazijnLocatieOp() {
 const router = express.Router();
 router.use(vereistIngelogd);
 
-// Zelfde statuslijst als het Dashboard en de leveringen-app-sync: enkel
-// "definitief genoeg" geplande boekingen zijn interessant om in te plannen.
+// Zelfde statuslijst als het Dashboard: 'nieuw' hoort er ook bij (zie de
+// uitleg in dashboard.js) zodat een verse aanvraag al op de juiste dag
+// verschijnt, wel duidelijk gemarkeerd als "nog niet definitief" in de
+// frontend. 'in_behandeling' hoort nog niet hier thuis (Aanvragen-inbox).
 const GEPLANDE_STATUSSEN = [
-  'geaccepteerd', 'ingepland', 'bevestigd', 'betaalverzoek_verstuurd',
+  'nieuw', 'geaccepteerd', 'ingepland', 'bevestigd', 'betaalverzoek_verstuurd',
   'betaald_deels', 'betaald_volledig', 'gefactureerd', 'voldaan_manueel',
 ];
 

@@ -17,6 +17,7 @@ const {
 // openstaande saldo kunnen tonen i.p.v. enkel de status (een status als
 // "Betaald (volledig)" garandeert niet dat het saldo ook echt op 0 staat).
 const { berekenPrijstabel } = require('../utils/prijstabel');
+const { genereerOndertekendDocumentPdf } = require('../utils/ondertekendDocument');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -41,6 +42,15 @@ const TOEGELATEN_OVERGANGEN = {
 // saldo automatisch als betaald geregistreerd, zodat hij niet ook nog apart
 // een betaling van het resterende bedrag moet ingeven.
 const STATUSSEN_MET_AUTOMATISCHE_VOLLEDIGE_BETALING = ['gefactureerd', 'voldaan_manueel'];
+
+// Zelfde patroon als TIJDSTIP_HHMM_PATROON in public/js/app.js: een concreet
+// gekozen kwartiertijdstip (bv. "10:00"), in tegenstelling tot "Geen
+// voorkeur" (leeg) of het vaste gratis tijdsblok ("Tussen 07:00 en 12:00 uur
+// (GRATIS)"). Enkel in dat geval is er één duidelijk tijdstip om meteen als
+// leveringstijd/afhaaltijd in de leveringen-tabel te zetten (wat Dashboard/
+// Planning effectief tonen) — bij een tijdsblok of "geen voorkeur" blijft
+// dat veld leeg, net als voorheen.
+const TIJDSTIP_HHMM_PATROON = /^([01]\d|2[0-3]):(00|15|30|45)$/;
 
 // Let op: deze route moet vóór '/:id' staan
 router.post('/beschikbaarheid-check', asyncHandler(async (req, res) => {
@@ -834,6 +844,56 @@ router.get('/:id/communicatie', asyncHandler(async (req, res) => {
   res.json(rows);
 }));
 
+// Het ondertekende leverings-/plaatsingsdocument (PDF) — enkel beschikbaar
+// zodra de klant effectief getekend heeft in de leveringen-app. Wordt inline
+// getoond (browser opent 'm meteen i.p.v. enkel te downloaden) zodat dit
+// gewoon als link/knop in het dossier kan staan.
+router.get('/:id/ondertekend-document.pdf', asyncHandler(async (req, res) => {
+  let resultaat;
+  try {
+    resultaat = await genereerOndertekendDocumentPdf(req.params.id);
+  } catch (err) {
+    return res.status(err.status || 500).json({ fout: err.message });
+  }
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${resultaat.bestandsnaam}"`);
+  res.send(resultaat.buffer);
+}));
+
+// Stuurt datzelfde document als bijlage naar het e-mailadres van de klant
+// (op aanvraag, via een knop in het dossier — niet automatisch) en logt dat
+// mee in Communicatie, net als de andere mail-acties op een dossier.
+router.post('/:id/verstuur-ondertekend-document', asyncHandler(async (req, res) => {
+  let resultaat;
+  try {
+    resultaat = await genereerOndertekendDocumentPdf(req.params.id);
+  } catch (err) {
+    return res.status(err.status || 500).json({ fout: err.message });
+  }
+  if (!resultaat.klantEmail) {
+    return res.status(400).json({ fout: 'Deze klant heeft geen e-mailadres bekend' });
+  }
+  const onderwerp = `Ondertekende leveringsbevestiging — Belair-Fun`;
+  const html = `<p>Beste ${resultaat.klantNaam},</p>
+<p>In bijlage de ondertekende bevestiging van de plaatsing van uw springkasteel, met de huurvoorwaarden.</p>
+<p>Met vriendelijke groeten,<br>Belair-Fun</p>`;
+  try {
+    await verstuurMail({
+      naar: resultaat.klantEmail,
+      onderwerp,
+      html,
+      bijlagen: [{ naam: resultaat.bestandsnaam, mimetype: 'application/pdf', dataBase64: resultaat.buffer.toString('base64') }],
+    });
+    await db.query(
+      `INSERT INTO communicatie (boeking_id, type, richting, onderwerp, inhoud) VALUES ($1, 'email', 'uitgaand', $2, $3)`,
+      [req.params.id, onderwerp, html]
+    );
+    res.json({ verstuurd: true });
+  } catch (err) {
+    res.status(502).json({ fout: `Versturen mislukt: ${err.message}` });
+  }
+}));
+
 router.post('/:id/communicatie', asyncHandler(async (req, res) => {
   const { type, richting, onderwerp, inhoud } = req.body;
   const { rows } = await db.query(
@@ -919,6 +979,26 @@ router.post('/', asyncHandler(async (req, res) => {
     await client.query(
       'INSERT INTO boeking_status_historiek (boeking_id, van_status, naar_status) VALUES ($1, NULL, $2)',
       [boeking.id, 'nieuw']
+    );
+
+    // Meteen een leveringen-record aanmaken (voorheen pas bij acceptatie), met
+    // het gekozen tijdstip erin indien het een concreet kwartiertijdstip is —
+    // anders blijven Dashboard/Planning het tijdstip van een manuele boeking
+    // nog tonen als leeg, tot iemand het daar nog eens apart instelt.
+    // Let op: hiervoor de originele "YYYY-MM-DD"-strings uit het verzoek
+    // gebruiken (gewenste_datum_start/datumEinde hierboven), NIET
+    // boeking.gewenste_datum_start/-einde — dat laatste komt terug uit de
+    // databank als een JS Date-object, dat hier fout zou samengeplakt worden.
+    const leveringstijd = TIJDSTIP_HHMM_PATROON.test(voorkeur_tijdstip_levering || '')
+      ? `${gewenste_datum_start} ${voorkeur_tijdstip_levering}`
+      : null;
+    const afhaaltijd = TIJDSTIP_HHMM_PATROON.test(voorkeur_tijdstip_afhaling || '')
+      ? `${datumEinde} ${voorkeur_tijdstip_afhaling}`
+      : null;
+    await client.query(
+      `INSERT INTO leveringen (boeking_id, leveringstijd, afhaaltijd) VALUES ($1, $2, $3)
+       ON CONFLICT (boeking_id) DO NOTHING`,
+      [boeking.id, leveringstijd, afhaaltijd]
     );
 
     await client.query('COMMIT');

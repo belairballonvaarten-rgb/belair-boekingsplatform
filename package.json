@@ -18,7 +18,8 @@
     "bcryptjs": "^2.4.3",
     "express-session": "^1.18.0",
     "connect-pg-simple": "^9.0.1",
-    "web-push": "^3.6.7"
+    "web-push": "^3.6.7",
+    "pdfkit": "^0.15.0"
   },
   "engines": {
     "node": ">=20"

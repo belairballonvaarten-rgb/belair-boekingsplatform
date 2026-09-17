@@ -895,16 +895,27 @@ function planningTijdSelectHtml(b, type) {
   return `<select class="planning-stop-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${datum}" title="Tijdstip">${genereerKwartierOpties(tijdWaarde)}</select>`;
 }
 
+// Boeking staat nog op status 'nieuw' (kale aanvraag, manueel of via de
+// website) — nu wel al zichtbaar in de Planning (op vraag van Jonas), maar
+// duidelijk gemarkeerd als nog niet bevestigd, i.p.v. te lijken op een
+// definitief ingeplande stop.
+function planningNieuwBadgeHtml(b) {
+  return b.status === 'nieuw'
+    ? '<span class="planning-stop-nieuw-badge" title="Nog maar een aanvraag — nog niet bevestigd/geaccepteerd">NIEUW</span> '
+    : '';
+}
+
 function planningStopHtml(b, type, groepNaam) {
   const adres = dashboardAdresTekst(b);
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   const voltooidVeld = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
+  const isNieuw = b.status === 'nieuw';
   return `
-    <div class="planning-stop planning-stop-sleepbaar${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}" draggable="true" data-boeking-id="${b.id}" data-klant="${b.klant_naam}" data-groep="${groepNaam}">
+    <div class="planning-stop planning-stop-sleepbaar${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}${isNieuw ? ' planning-stop-nieuw' : ''}" draggable="true" data-boeking-id="${b.id}" data-klant="${b.klant_naam}" data-groep="${groepNaam}">
       <span class="planning-stop-greep" title="Sleep om de volgorde te wijzigen">⠿</span>
       ${planningTijdSelectHtml(b, type)}
       <span class="planning-stop-info" title="${b.klant_naam}">
-        ${planningProductenHtml(b)} · ${adres}
+        ${planningNieuwBadgeHtml(b)}${planningProductenHtml(b)} · ${adres}
       </span>
       <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
     </div>
@@ -1251,10 +1262,10 @@ function planningBereikStopHtml(b, type) {
   const adres = dashboardAdresTekst(b);
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   return `
-    <div class="planning-stop" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
+    <div class="planning-stop${b.status === 'nieuw' ? ' planning-stop-nieuw' : ''}" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
       ${planningTijdSelectHtml(b, type)}
       <span class="planning-stop-info" title="${b.klant_naam}">
-        ${planningProductenHtml(b)} · ${adres}
+        ${planningNieuwBadgeHtml(b)}${planningProductenHtml(b)} · ${adres}
       </span>
       <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
     </div>
@@ -3038,7 +3049,7 @@ async function openDetail(boekingId) {
   // gebruiker net had opengeklapt (bv. om een communicatie-item te loggen) meteen
   // weer dichtklappen na het opslaan — net wanneer je het resultaat wil zien. Onthoud
   // daarom welke secties open stonden vóór de herrender, en herstel dat nadien.
-  const geopendeSecties = ['details-locatie-transport', 'details-fotos', 'details-communicatie', 'details-historiek']
+  const geopendeSecties = ['details-locatie-transport', 'details-fotos', 'details-ondertekend-document', 'details-communicatie', 'details-historiek']
     .filter((id) => document.getElementById(id)?.open);
 
   // Welke producten zijn nog vrij op de (huidige) periode van deze boeking, voor de
@@ -3307,6 +3318,18 @@ async function openDetail(boekingId) {
       <summary>Foto's${(b.fotos || []).length ? ` <span class="details-badge details-badge-neutraal">${b.fotos.length}</span>` : ''}</summary>
       <div class="paneel-inhoud">
         ${fotosHtml || '<p class="leeg-bericht">Nog geen foto\'s — die verschijnen hier automatisch zodra de chauffeur er één neemt in de crew-app.</p>'}
+      </div>
+    </details>
+
+    <details class="paneel" id="details-ondertekend-document" ${geopendeSecties.includes('details-ondertekend-document') ? 'open' : ''}>
+      <summary>Ondertekend document</summary>
+      <div class="paneel-inhoud">
+        ${(b.levering && b.levering.plaatsing_bevestigd && b.levering.plaatsing_handtekening) ? `
+          <p class="uitleg" style="margin-top:0">Adresgegevens, betaalstatus, de plaatsingschecklist, de handtekening van de klant en de huurvoorwaarden, samengebundeld in één document.</p>
+          <a class="linkbtn" href="/api/boekingen/${b.id}/ondertekend-document.pdf" target="_blank" rel="noopener">📄 Document bekijken/downloaden</a>
+          <button type="button" id="btn-ondertekend-versturen" class="linkbtn" ${b.klant_email ? '' : 'disabled title="Deze klant heeft geen e-mailadres bekend"'}>✉️ Versturen naar klant</button>
+          <p id="ondertekend-versturen-resultaat" class="melding" hidden></p>
+        ` : '<p class="leeg-bericht">Nog niet ondertekend door de klant — dit document verschijnt hier automatisch zodra de plaatsing bevestigd is in de leveringen-app.</p>'}
       </div>
     </details>
 
@@ -3752,6 +3775,23 @@ async function openDetail(boekingId) {
     if (!templateId) return;
     openTemplateVoorvertoning(boekingId, templateId);
   });
+
+  const btnOndertekendVersturen = document.getElementById('btn-ondertekend-versturen');
+  if (btnOndertekendVersturen) {
+    btnOndertekendVersturen.addEventListener('click', async () => {
+      const resultaatEl = document.getElementById('ondertekend-versturen-resultaat');
+      btnOndertekendVersturen.disabled = true;
+      try {
+        await api(`/api/boekingen/${boekingId}/verstuur-ondertekend-document`, { method: 'POST' });
+        toonToast('Document verstuurd naar de klant');
+        openDetail(boekingId);
+      } catch (err) {
+        resultaatEl.hidden = false;
+        resultaatEl.textContent = err.message;
+        btnOndertekendVersturen.disabled = false;
+      }
+    });
+  }
 
   // De 4 vaste sneltoetsen bovenaan het dossier (zie dossierSnelknopHtml) —
   // elke rol wijst naar precies één template (afgedwongen in de databank).

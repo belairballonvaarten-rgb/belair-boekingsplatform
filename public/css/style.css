@@ -870,6 +870,15 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
   padding: 0.3rem 0.5rem; margin-bottom: 0.3rem;
 }
 .planning-stop-voltooid { background: #f0f9f2; border-color: var(--groen); }
+/* Nog maar een aanvraag (status 'nieuw'), nog niet bevestigd/geaccepteerd —
+   zelfde roodtint als de status-pill elders in de app, plus een gestreepte
+   rand zodat dit visueel meteen afwijkt van een definitief ingeplande stop. */
+.planning-stop-nieuw { background: #fdecea; border-style: dashed; border-color: var(--rood); }
+.planning-stop-nieuw-badge {
+  display: inline-block; background: var(--rood); color: white;
+  font-size: 0.65rem; font-weight: 700; letter-spacing: 0.02em;
+  padding: 0.05rem 0.3rem; border-radius: 4px; flex-shrink: 0;
+}
 /* Sleepgreep i.p.v. de vroegere ▲/▼-knoppen — enkel zichtbaar/bruikbaar in
    dagmodus (zie planning-stop-sleepbaar), want de volgorde is altijd per dag. */
 .planning-stop-greep { flex-shrink: 0; cursor: grab; color: var(--grijs); font-size: 0.95rem; padding: 0 0.1rem; user-select: none; }
