@@ -370,6 +370,19 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .kalender-dag-bereik-toggle { display: flex; gap: 0.4rem; margin-top: 0.7rem; }
 .kal-modus-knop { flex: 1; border: 1px solid var(--rand); background: white; color: var(--grijs); border-radius: 6px; padding: 0.35rem 0.5rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; }
 .kal-modus-knop.actief { background: var(--blauw); border-color: var(--blauw); color: white; }
+
+/* Huidige bezetting (Crew-pagina): één inklapbaar blok per voertuig. */
+#bezetting-paneel { margin-bottom: 1.4rem; padding-bottom: 1.2rem; border-bottom: 1px solid var(--grijs-licht); }
+.bezetting-voertuig-blok { border: 1px solid var(--rand); border-radius: 8px; padding: 0; margin-bottom: 0.6rem; }
+.bezetting-voertuig-blok summary { list-style: none; cursor: pointer; padding: 0.7rem 0.9rem; font-weight: 700; color: var(--blauw-donker); }
+.bezetting-voertuig-blok summary::-webkit-details-marker { display: none; }
+.bezetting-voertuig-blok summary::before { content: '▸ '; color: var(--grijs); }
+.bezetting-voertuig-blok[open] summary::before { content: '▾ '; }
+.bezetting-voertuig-blok > .grid-2, .bezetting-voertuig-blok > button { margin: 0 0.9rem 0.8rem; }
+.bezetting-voertuig-blok > .grid-2 { margin-top: 0.4rem; }
+
+#crew-locatie-paneel { margin-bottom: 1.4rem; padding-bottom: 1.2rem; border-bottom: 1px solid var(--grijs-licht); }
+.crew-locatie-kaart { height: 320px; border-radius: 8px; border: 1px solid var(--rand); background: var(--grijs-licht); }
 .kalender-onderaan { margin-top: 0.7rem; padding-top: 0.6rem; border-top: 1px solid var(--grijs-licht); display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; flex-wrap: wrap; }
 .kalender-geselecteerd-tekst { margin: 0; font-size: 0.82rem; color: var(--grijs); font-weight: 600; }
 @media (max-width: 700px) {

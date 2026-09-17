@@ -428,6 +428,21 @@
       <h2>Crew</h2>
       <p class="uitleg">Crewleden die kunnen inloggen op de leveringen-app (het scherm dat de chauffeurs op hun telefoon gebruiken). Stuur hier ook een pushmelding naar iemands telefoon — dat werkt enkel als die persoon zelf al meldingen heeft aangezet in de crew-app.</p>
 
+      <div id="bezetting-paneel">
+        <h3>Huidige bezetting <span class="uitleg" style="font-weight:normal">— wie zit vandaag in welk voertuig (los per levering/afhaling)</span></h3>
+        <div class="kalender-dag-bereik-toggle" id="bezetting-fase-toggle" style="max-width:280px">
+          <button type="button" class="kal-modus-knop actief" data-fase="levering">Levering</button>
+          <button type="button" class="kal-modus-knop" data-fase="afhaling">Afhaling</button>
+        </div>
+        <div id="bezetting-voertuigen"></div>
+      </div>
+
+      <div id="crew-locatie-paneel">
+        <h3>Locatie crew <span class="uitleg" style="font-weight:normal">— enkel zichtbaar terwijl iemand de leveringen-app open heeft op z'n telefoon (geen achtergrond-tracking)</span></h3>
+        <div id="crew-locatie-kaart" class="crew-locatie-kaart"></div>
+        <div id="crew-locatie-lijst" class="uitleg" style="margin-top:8px">Laden...</div>
+      </div>
+
       <details id="nieuwe-crew-details">
         <summary>+ Nieuw crewlid toevoegen</summary>
         <form id="form-nieuwe-crew">

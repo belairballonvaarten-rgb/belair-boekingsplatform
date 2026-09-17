@@ -333,7 +333,7 @@ function wisselView(naam) {
   if (naam === 'statistieken') laadStatistieken();
   if (naam === 'gebruikers') laadGebruikersOverzicht();
   if (naam === 'instellingen') laadInstellingen();
-  if (naam === 'crew') laadCrewOverzicht();
+  if (naam === 'crew') { laadCrewOverzicht(); laadBezettingPaneel(); laadCrewLocaties(); }
   if (naam === 'voertuigen') laadVoertuigenBeheerOverzicht();
   if (naam === 'routeplanning') rpOpenen();
   if (naam === 'webinzendingen') laadWebinzendingen();
@@ -2501,6 +2501,120 @@ function openGebruikerBewerken(id, gebruiker) {
 function vulVoertuigSelect(select, geselecteerdId) {
   select.innerHTML = '<option value="">Geen — zelf kiezen in de app</option>'
     + VOERTUIGEN.map((v) => `<option value="${v.id}" ${String(v.id) === String(geselecteerdId || '') ? 'selected' : ''}>${(v.naam || '').replace(/"/g, '&quot;')}</option>`).join('');
+}
+
+// Huidige bezetting: wie zit vandaag in welk voertuig, apart per levering/
+// afhaling (zelfde voertuig_bemanning-tabel/logica als de leveringen-app,
+// hier rechtstreeks vanop het platform op te volgen/aan te passen — zie
+// GET/PUT /api/crew/bezetting in routes/crew.js).
+let bezettingFase = 'levering';
+async function laadBezettingPaneel() {
+  const container = document.getElementById('bezetting-voertuigen');
+  container.innerHTML = '<p class="uitleg">Bezig met laden...</p>';
+  try {
+    const [data, crew] = await Promise.all([
+      api(`/api/crew/bezetting?fase=${bezettingFase}`),
+      api('/api/crew'),
+    ]);
+    if (!data.voertuigen.length) {
+      container.innerHTML = '<p class="uitleg">Nog geen voertuigen ingesteld — zie de Voertuigen-pagina.</p>';
+      return;
+    }
+    container.innerHTML = data.voertuigen.map((v) => {
+      const leden = data.bemanning[v.id] || [];
+      const ledenNamen = leden.map((l) => l.naam).join(', ') || 'Nog niemand toegewezen';
+      return `
+        <details class="bezetting-voertuig-blok" data-voertuig-id="${v.id}">
+          <summary>${(v.naam || '').replace(/"/g, '&quot;')} <span class="uitleg" style="font-weight:normal">— ${ledenNamen}</span></summary>
+          <div class="grid-2">
+            ${crew.map((c) => `
+              <label class="checkbox">
+                <input type="checkbox" class="bezetting-cb" value="${c.id}" ${leden.some((l) => String(l.id) === String(c.id)) ? 'checked' : ''} />
+                ${(c.naam || c.username).replace(/"/g, '&quot;')}
+              </label>
+            `).join('')}
+          </div>
+          <button type="button" class="linkbtn bezetting-opslaan" data-voertuig-id="${v.id}">Bemanning opslaan</button>
+        </details>
+      `;
+    }).join('');
+    container.querySelectorAll('.bezetting-opslaan').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const details = btn.closest('.bezetting-voertuig-blok');
+        const gebruikerIds = Array.from(details.querySelectorAll('.bezetting-cb:checked')).map((cb) => parseInt(cb.value, 10));
+        try {
+          await api('/api/crew/bezetting', {
+            method: 'PUT',
+            body: JSON.stringify({ voertuigId: btn.dataset.voertuigId, fase: bezettingFase, gebruikerIds }),
+          });
+          toonToast('Bemanning opgeslagen');
+          laadBezettingPaneel();
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
+  } catch (err) {
+    container.innerHTML = `<p class="foutmelding">${err.message}</p>`;
+  }
+}
+document.getElementById('bezetting-fase-toggle').querySelectorAll('.kal-modus-knop').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    if (btn.dataset.fase === bezettingFase) return;
+    bezettingFase = btn.dataset.fase;
+    document.getElementById('bezetting-fase-toggle').querySelectorAll('.kal-modus-knop')
+      .forEach((b) => b.classList.toggle('actief', b === btn));
+    laadBezettingPaneel();
+  });
+});
+
+// Live locatie van crewleden — enkel gevuld terwijl iemand de leveringen-app
+// effectief open heeft (zie GET /api/crew/locaties). Zelfde kaart-aanpak als
+// bij Routeplanning (rp*): eenmalig initialiseren, daarna enkel markers
+// vervangen.
+let crewLocKaart = null;
+let crewLocMarkers = [];
+function crewLocTijdGeleden(iso) {
+  const diffMin = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  if (diffMin < 1) return 'net nu';
+  if (diffMin < 60) return diffMin + ' min geleden';
+  return Math.round(diffMin / 60) + ' u geleden';
+}
+async function laadCrewLocaties() {
+  const lijstEl = document.getElementById('crew-locatie-lijst');
+  const kaartEl = document.getElementById('crew-locatie-kaart');
+  let locs;
+  try {
+    locs = await api('/api/crew/locaties');
+  } catch (err) {
+    lijstEl.textContent = err.message;
+    return;
+  }
+
+  if (!crewLocKaart) {
+    crewLocKaart = L.map('crew-locatie-kaart').setView([51.05, 3.85], 9);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>-bijdragers',
+      maxZoom: 19,
+    }).addTo(crewLocKaart);
+  }
+  crewLocMarkers.forEach((m) => crewLocKaart.removeLayer(m));
+  crewLocMarkers = [];
+
+  if (!locs.length) {
+    lijstEl.textContent = 'Nog niemand heeft de leveringen-app recent open gehad.';
+  } else {
+    lijstEl.innerHTML = locs.map((l) => `<div>📍 ${l.naam} — ${crewLocTijdGeleden(l.updated_at)}</div>`).join('');
+    const bounds = [];
+    locs.forEach((l) => {
+      const marker = L.marker([l.lat, l.lng]).addTo(crewLocKaart)
+        .bindPopup(`<strong>${l.naam}</strong><br>${crewLocTijdGeleden(l.updated_at)}`);
+      crewLocMarkers.push(marker);
+      bounds.push([l.lat, l.lng]);
+    });
+    crewLocKaart.fitBounds(bounds, { padding: [30, 30], maxZoom: 14 });
+  }
+  setTimeout(() => crewLocKaart && crewLocKaart.invalidateSize(), 100);
 }
 
 async function laadCrewOverzicht() {
