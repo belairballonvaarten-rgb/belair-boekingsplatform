@@ -1,6 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { verstuurOndertekendDocumentPerMail } = require('../utils/ondertekendDocument');
 
 const router = express.Router();
 
@@ -44,6 +45,34 @@ router.post('/leveringen-app/status-update', asyncHandler(async (req, res) => {
     );
   }
   res.json({ ok: true });
+}));
+
+// Wordt aangeroepen door de knop "Verstuur getekende aflevering" in de
+// leveringen-app zelf, zodat een chauffeur meteen na de handtekening het
+// ondertekende document (als betalingsbewijs) naar de klant kan mailen,
+// zonder dat hij hiervoor eerst naar het platform moet gaan. Zelfde
+// gedeelde sleutel als hierboven — geen ingelogde sessie beschikbaar
+// vanuit de leveringen-app.
+router.post('/leveringen-app/verstuur-ondertekend-document', asyncHandler(async (req, res) => {
+  const sleutel = process.env.LEVERINGEN_APP_SYNC_SECRET;
+  if (!sleutel) {
+    return res.status(501).json({ fout: 'Koppeling met de leveringen-app is nog niet geconfigureerd (LEVERINGEN_APP_SYNC_SECRET ontbreekt bij Render).' });
+  }
+  if (req.headers['x-belair-sync-key'] !== sleutel) {
+    return res.status(401).json({ fout: 'Ongeldige sleutel' });
+  }
+
+  const { boekingsnummer } = req.body;
+  if (!boekingsnummer) {
+    return res.status(400).json({ fout: 'boekingsnummer is verplicht' });
+  }
+
+  try {
+    await verstuurOndertekendDocumentPerMail(boekingsnummer);
+    res.json({ ok: true });
+  } catch (err) {
+    res.status(err.status || 502).json({ fout: err.message });
+  }
 }));
 
 module.exports = router;

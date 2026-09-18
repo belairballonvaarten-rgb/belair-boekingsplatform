@@ -17,7 +17,7 @@ const {
 // openstaande saldo kunnen tonen i.p.v. enkel de status (een status als
 // "Betaald (volledig)" garandeert niet dat het saldo ook echt op 0 staat).
 const { berekenPrijstabel } = require('../utils/prijstabel');
-const { genereerOndertekendDocumentPdf } = require('../utils/ondertekendDocument');
+const { genereerOndertekendDocumentPdf, verstuurOndertekendDocumentPerMail } = require('../utils/ondertekendDocument');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -664,6 +664,40 @@ router.put('/:id', asyncHandler(async (req, res) => {
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
 
+  // Als het tijdstip (of de datum, want die bepaalt mee de volledige
+  // leveringstijd) net gewijzigd is, moet leveringen.leveringstijd/afhaaltijd
+  // — waar Dashboard en Planning effectief op werken, niet op
+  // voorkeur_tijdstip_* — mee opschuiven. Dit was voorheen enkel voorzien bij
+  // het aanmaken van een manuele boeking, niet bij een latere correctie via
+  // dit dossier-formulier (vandaar dat een aanpassing hier niet doorkwam op
+  // de Planning-pagina). We herberekenen op basis van de nu geldende waarden
+  // (rows[0]) — of enkel het tijdstip, of enkel de datum, of allebei net
+  // gewijzigd is, het resultaat klopt in alle gevallen.
+  const TIJDSTIP_RELEVANTE_VELDEN = ['voorkeur_tijdstip_levering', 'voorkeur_tijdstip_afhaling', 'gewenste_datum_start', 'gewenste_datum_einde'];
+  if (TIJDSTIP_RELEVANTE_VELDEN.some((veld) => req.body[veld] !== undefined)) {
+    // Datums via to_char() ophalen i.p.v. rows[0].gewenste_datum_start te
+    // gebruiken: dat laatste komt terug als JS Date-object (tijdzone-risico
+    // bij samenplakken tot tekst) — zelfde valkuil als bij het aanmaken.
+    const { rows: datumRows } = await db.query(
+      `SELECT to_char(gewenste_datum_start, 'YYYY-MM-DD') AS datum_start,
+              to_char(gewenste_datum_einde, 'YYYY-MM-DD') AS datum_einde
+       FROM boekingen WHERE id = $1`,
+      [req.params.id]
+    );
+    const { datum_start, datum_einde } = datumRows[0];
+    const nieuweLeveringstijd = TIJDSTIP_HHMM_PATROON.test(rows[0].voorkeur_tijdstip_levering || '')
+      ? `${datum_start} ${rows[0].voorkeur_tijdstip_levering}`
+      : null;
+    const nieuweAfhaaltijd = TIJDSTIP_HHMM_PATROON.test(rows[0].voorkeur_tijdstip_afhaling || '')
+      ? `${datum_einde} ${rows[0].voorkeur_tijdstip_afhaling}`
+      : null;
+    await db.query(
+      `INSERT INTO leveringen (boeking_id, leveringstijd, afhaaltijd) VALUES ($1, $2, $3)
+       ON CONFLICT (boeking_id) DO UPDATE SET leveringstijd = $2, afhaaltijd = $3`,
+      [req.params.id, nieuweLeveringstijd, nieuweAfhaaltijd]
+    );
+  }
+
   // Wanneer de periode wijzigde: de prijzen van de reeds toegevoegde producten
   // automatisch herberekenen o.b.v. het nieuwe aantal dagen (dagprijs/weekendprijs-
   // formule) — Jonas controleert dit nadien en stuurt het manueel bij waar nodig.
@@ -864,32 +898,11 @@ router.get('/:id/ondertekend-document.pdf', asyncHandler(async (req, res) => {
 // (op aanvraag, via een knop in het dossier — niet automatisch) en logt dat
 // mee in Communicatie, net als de andere mail-acties op een dossier.
 router.post('/:id/verstuur-ondertekend-document', asyncHandler(async (req, res) => {
-  let resultaat;
   try {
-    resultaat = await genereerOndertekendDocumentPdf(req.params.id);
-  } catch (err) {
-    return res.status(err.status || 500).json({ fout: err.message });
-  }
-  if (!resultaat.klantEmail) {
-    return res.status(400).json({ fout: 'Deze klant heeft geen e-mailadres bekend' });
-  }
-  const onderwerp = `Ondertekende leveringsbevestiging — Belair-Fun`;
-  const html = `<p>Beste ${resultaat.klantNaam},</p>
-<p>In bijlage de ondertekende bevestiging van de plaatsing van uw springkasteel, met de huurvoorwaarden.</p>
-<p>Met vriendelijke groeten,<br>Belair-Fun</p>`;
-  try {
-    await verstuurMail({
-      naar: resultaat.klantEmail,
-      onderwerp,
-      html,
-      bijlagen: [{ naam: resultaat.bestandsnaam, mimetype: 'application/pdf', dataBase64: resultaat.buffer.toString('base64') }],
-    });
-    await db.query(
-      `INSERT INTO communicatie (boeking_id, type, richting, onderwerp, inhoud) VALUES ($1, 'email', 'uitgaand', $2, $3)`,
-      [req.params.id, onderwerp, html]
-    );
+    await verstuurOndertekendDocumentPerMail(req.params.id);
     res.json({ verstuurd: true });
   } catch (err) {
+    if (err.status) return res.status(err.status).json({ fout: err.message });
     res.status(502).json({ fout: `Versturen mislukt: ${err.message}` });
   }
 }));
