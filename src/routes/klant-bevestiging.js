@@ -34,7 +34,7 @@ function escapeHtml(tekst) {
     .replace(/>/g, '&gt;');
 }
 
-function paginaHtml(titel, boodschap, kleur) {
+function paginaHtml(titel, boodschap, kleur, extraHtml) {
   return `<!DOCTYPE html>
 <html lang="nl">
 <head>
@@ -46,12 +46,15 @@ function paginaHtml(titel, boodschap, kleur) {
   .kaart{max-width:440px;background:#fff;border:1px solid #e2e2e6;border-radius:14px;padding:32px 28px;text-align:center;}
   h1{font-size:1.3rem;margin:0 0 12px;color:${kleur || '#e8631e'};}
   p{color:#444;line-height:1.5;margin:0;}
+  button.bevestig-knop{margin-top:22px;background:#e8631e;color:#fff;border:none;padding:14px 30px;border-radius:8px;font-weight:600;font-size:16px;cursor:pointer;}
+  button.bevestig-knop:active{opacity:0.85;}
 </style>
 </head>
 <body>
   <div class="kaart">
     <h1>${escapeHtml(titel)}</h1>
     <p>${escapeHtml(boodschap)}</p>
+    ${extraHtml || ''}
   </div>
 </body>
 </html>`;
@@ -61,6 +64,28 @@ const PAGINA_LINK_ONGELDIG = paginaHtml('Link niet gevonden', 'Deze bevestigings
 const PAGINA_AL_BEVESTIGD = paginaHtml('Al bevestigd', 'Deze aanvraag was al bevestigd — er is niets meer nodig van uw kant. Belair-Fun neemt contact op voor de verdere afhandeling.');
 const PAGINA_NIET_MEER_OPEN = paginaHtml('Kan niet meer bevestigd worden', 'Deze aanvraag staat niet meer open voor bevestiging via deze link. Neem contact op met Belair-Fun als u vragen heeft.', '#c23f38');
 const PAGINA_ONVERWACHTE_FOUT = paginaHtml('Even iets misgegaan', 'Er ging iets mis bij het verwerken van uw bevestiging. Neem gerust contact op met Belair-Fun — of probeer de link straks nog eens.', '#c23f38');
+
+// Waarom de link zelf (GET) NIET meteen bevestigt, en pas de knop hieronder
+// (via een POST) dat effectief doet: veel mailproviders/bedrijfs-mailfilters
+// (Microsoft Defender "Safe Links", Proofpoint, Mimecast, ...) openen elke
+// link in een binnenkomende e-mail automatisch zelf even, om die vooraf op
+// phishing/malware te scannen — nog vóór de klant de mail überhaupt geopend
+// heeft. Deed de GET zelf al de bevestiging (zoals voorheen), dan verbruikte
+// zo'n scanner de link stilletjes vóór de klant er ooit op klikte: de klant
+// zag dan enkel nog de "Al bevestigd"-pagina zonder zelf iets aangeklikt te
+// hebben, wat voor hen aanvoelt/lijkt alsof de knop "niet werkt". Een gewone
+// GET (zoals een scanner doet) heeft nu geen effect meer — enkel het klikken
+// op de knop hieronder (een echte, door de klant zelf ingediende POST) telt.
+function paginaMetKnop(actieUrl) {
+  return paginaHtml(
+    'Bevestig uw reservatie',
+    'Klik op de knop hieronder om uw aanvraag te bevestigen.',
+    null,
+    `<form method="POST" action="${actieUrl}">
+      <button type="submit" class="bevestig-knop">✓ Ik bevestig mijn reservatie</button>
+    </form>`
+  );
+}
 
 // Stuurt automatisch de (in Instellingen aan de rol 'klant_zelfbevestiging'
 // gekoppelde) e-mailtemplate naar de klant, en logt dat net als een manuele
@@ -112,42 +137,71 @@ async function stuurSeintjeNaarJonas(boeking) {
   }
 }
 
-router.get('/:boekingId/:token', asyncHandler(async (req, res) => {
-  // Vroeg een duidelijke 404 tonen bij een geknoeide/onvolledige URL i.p.v.
-  // een rechtstreekse (en voor een niet-ingelogde bezoeker onbegrijpelijke)
-  // Postgres-fout ("invalid input syntax for type uuid") door te laten sijpelen.
+// Zoekt de boeking op en levert de standaardpagina op als de link zelf al
+// niet (meer) geldig/bruikbaar is (foute UUID, foute token, al bevestigd, of
+// de status staat het niet meer toe) — gedeeld door zowel GET (enkel tonen)
+// als POST (effectief bevestigen) hieronder, want beide moeten exact dezelfde
+// checks doen.
+async function haalBevestigbareBoekingOp(req) {
   if (!UUID_REGEX.test(req.params.boekingId) || !UUID_REGEX.test(req.params.token)) {
-    return res.status(404).send(PAGINA_LINK_ONGELDIG);
+    return { fout: PAGINA_LINK_ONGELDIG, status: 404 };
   }
+  const { rows } = await db.query(
+    `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email
+     FROM boekingen b JOIN klanten k ON k.id = b.klant_id
+     WHERE b.id = $1`,
+    [req.params.boekingId]
+  );
+  const boeking = rows[0];
+  if (!boeking || boeking.klant_bevestigings_token !== req.params.token) {
+    return { fout: PAGINA_LINK_ONGELDIG, status: 404 };
+  }
+  if (boeking.klant_bevestigd_op) {
+    return { fout: PAGINA_AL_BEVESTIGD, status: 200 };
+  }
+  if (!BEVESTIGBARE_STATUSSEN.includes(boeking.status)) {
+    return { fout: PAGINA_NIET_MEER_OPEN, status: 200 };
+  }
+  return { boeking };
+}
 
+// Enkel TONEN — doet zelf niets aan de boeking. Bewust geen enkele
+// databank-wijziging op een GET: mailproviders/bedrijfs-mailfilters
+// (Microsoft Defender "Safe Links", Proofpoint, Mimecast, ...) openen elke
+// link in een binnenkomende e-mail automatisch zelf al even om die vooraf op
+// phishing/malware te scannen, nog vóór de klant de mail überhaupt geopend
+// heeft. Bevestigde de GET zelf al (zoals voorheen), dan verbruikte zo'n
+// scanner de link stilletjes vóór de klant er ooit op klikte — de klant zag
+// dan enkel nog "Al bevestigd" zonder zelf iets aangeklikt te hebben, wat
+// voor hen aanvoelde alsof de knop niet werkte. Nu heeft een scanner (of het
+// gewoon openen van de mail) geen enkel effect meer; enkel het klikken op de
+// knop hieronder (een POST, ingediend door de klant zelf) telt.
+router.get('/:boekingId/:token', asyncHandler(async (req, res) => {
   try {
-    const { rows } = await db.query(
-      `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email
-       FROM boekingen b JOIN klanten k ON k.id = b.klant_id
-       WHERE b.id = $1`,
-      [req.params.boekingId]
-    );
-    const boeking = rows[0];
+    const { fout, status } = await haalBevestigbareBoekingOp(req);
+    if (fout) return res.status(status).send(fout);
+    res.send(paginaMetKnop(`/api/klant-bevestiging/${req.params.boekingId}/${req.params.token}`));
+  } catch (err) {
+    console.error('Onverwachte fout bij klant-zelfbevestiging (GET):', err);
+    res.status(500).send(PAGINA_ONVERWACHTE_FOUT);
+  }
+}));
 
-    if (!boeking || boeking.klant_bevestigings_token !== req.params.token) {
-      return res.status(404).send(PAGINA_LINK_ONGELDIG);
-    }
-    if (boeking.klant_bevestigd_op) {
-      return res.send(PAGINA_AL_BEVESTIGD);
-    }
-    if (!BEVESTIGBARE_STATUSSEN.includes(boeking.status)) {
-      return res.send(PAGINA_NIET_MEER_OPEN);
-    }
+// Effectieve bevestiging — enkel bereikbaar via de knop (een POST) op de
+// pagina hierboven, nooit door de link zelf te openen.
+router.post('/:boekingId/:token', asyncHandler(async (req, res) => {
+  try {
+    const { fout, status, boeking } = await haalBevestigbareBoekingOp(req);
+    if (fout) return res.status(status).send(fout);
 
     // De WHERE hieronder herhaalt bewust dezelfde voorwaarden als de checks
     // hierboven: dat is de eigenlijke bescherming tegen een dubbele/gelijktijdige
-    // klik (bv. een e-mail-"safe links"-scanner die deze URL net vóór de klant
-    // zelf opent, of een dubbele tik) — zonder deze WHERE zouden twee
-    // gelijktijdige requests allebei de eerdere (niet-atomaire) checks kunnen
-    // doorstaan en dus allebei de mails versturen / de historiek dubbel loggen.
-    // rowCount 0 betekent: een ANDERE request (of Jonas zelf, bv. "Weigeren")
-    // was ons net vóór — dan gewoon netjes "niet meer open" tonen i.p.v. alsnog
-    // de mails te versturen.
+    // klik (bv. twee tabbladen, of een dubbele tik op de knop) — zonder deze
+    // WHERE zouden twee gelijktijdige requests allebei de eerdere
+    // (niet-atomaire) checks kunnen doorstaan en dus allebei de mails
+    // versturen / de historiek dubbel loggen. rowCount 0 betekent: een ANDERE
+    // request (of Jonas zelf, bv. "Weigeren") was ons net vóór — dan gewoon
+    // netjes "niet meer open" tonen i.p.v. alsnog de mails te versturen.
     const client = await db.getClient();
     let bijgewerkt;
     try {
@@ -206,7 +260,7 @@ router.get('/:boekingId/:token', asyncHandler(async (req, res) => {
     // Postgres-interne details) aan een niet-ingelogde bezoeker tonen — vandaar
     // deze vangnet i.p.v. door te laten vallen naar de centrale foutafhandeling
     // in server.js.
-    console.error('Onverwachte fout bij klant-zelfbevestiging:', err);
+    console.error('Onverwachte fout bij klant-zelfbevestiging (POST):', err);
     res.status(500).send(PAGINA_ONVERWACHTE_FOUT);
   }
 }));
