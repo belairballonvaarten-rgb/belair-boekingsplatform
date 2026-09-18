@@ -269,10 +269,12 @@ function toonApp() {
   // standaard-pagina bij het openen van de app) — dus apart en meteen ophalen,
   // en daarna periodiek verversen zolang de app openstaat.
   verversAanvragenBadge();
+  verversOnlineBevestigdBadge();
   verversDagoverzichtSter();
   if (!navIndicatorenTimer) {
     navIndicatorenTimer = setInterval(() => {
       verversAanvragenBadge();
+      verversOnlineBevestigdBadge();
       verversDagoverzichtSter();
     }, 5 * 60 * 1000);
   }
@@ -302,7 +304,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'boekingen', 'geweigerd', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail'];
+const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'online-bevestigd', 'boekingen', 'geweigerd', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -324,6 +326,7 @@ function wisselView(naam) {
   if (naam === 'planning') laadPlanning();
   if (naam === 'dagoverzicht') laadDagoverzicht();
   if (naam === 'aanvragen') laadAanvragen();
+  if (naam === 'online-bevestigd') laadOnlineBevestigd();
   if (naam === 'boekingen') laadBoekingenOverzicht();
   if (naam === 'geweigerd') laadGeweigerd();
   if (naam === 'klanten') laadKlantenOverzicht();
@@ -1831,6 +1834,64 @@ async function laadAanvragen() {
   }
 }
 
+// ============================================================
+// ONLINE BEVESTIGD — aanvragen die de klant zelf bevestigde via de knop in de
+// e-mail (klant_bevestigd_op gezet), en nog op status 'geaccepteerd' staan
+// (dus nog niet verder afgewerkt met betaalverzoek/inplannen/factuur). Zelfde
+// opzet als de Aanvragen-inbox hierboven, maar dan puur ter info + doorklik —
+// de eigenlijke vervolgstappen gebeuren in het dossier zelf.
+// ============================================================
+function zetOnlineBevestigdBadge(aantal) {
+  const badge = document.getElementById('badge-online-bevestigd');
+  const ster = document.getElementById('ster-online-bevestigd');
+  if (aantal > 0) {
+    badge.hidden = false;
+    badge.textContent = aantal;
+    ster.hidden = false;
+  } else {
+    badge.hidden = true;
+    ster.hidden = true;
+  }
+}
+async function verversOnlineBevestigdBadge() {
+  try {
+    const bevestigd = await api('/api/boekingen?status=geaccepteerd&klant_bevestigd=1');
+    zetOnlineBevestigdBadge(bevestigd.length);
+  } catch (e) { /* stil falen */ }
+}
+async function laadOnlineBevestigd() {
+  const container = document.getElementById('lijst-online-bevestigd');
+  container.innerHTML = '<p class="leeg-bericht">Laden...</p>';
+  const bevestigd = await api('/api/boekingen?status=geaccepteerd&klant_bevestigd=1&sortering=laatst_toegevoegd');
+
+  zetOnlineBevestigdBadge(bevestigd.length);
+
+  if (!bevestigd.length) {
+    container.innerHTML = '<p class="leeg-bericht">Geen openstaande online bevestigingen.</p>';
+    return;
+  }
+
+  container.innerHTML = '';
+  for (const b of bevestigd) {
+    const kaart = document.createElement('div');
+    kaart.className = 'kaart';
+    kaart.innerHTML = `
+      <div class="kaart-info">
+        <h3>${b.klant_naam} ${statusPillHtml(b.status)}</h3>
+        <p>✅ Zelf bevestigd op ${fmtDatumTijd(b.klant_bevestigd_op)}</p>
+        <p>📅 ${fmtDatum(b.gewenste_datum_start)}${b.gewenste_datum_start !== b.gewenste_datum_einde ? ' – ' + fmtDatum(b.gewenste_datum_einde) : ''}</p>
+        <p>🎪 ${b.producten_namen || '—'}</p>
+        <p>📍 ${b.leveringsadres || '—'}</p>
+        <p>📞 ${b.klant_telefoon || '—'}</p>
+      </div>
+      <div class="kaart-acties"></div>
+    `;
+    const acties = kaart.querySelector('.kaart-acties');
+    acties.appendChild(maakActieKnop('Bekijk', '', () => openDetail(b.id)));
+    container.appendChild(kaart);
+  }
+}
+
 function maakActieKnop(label, klasse, onClick) {
   const btn = document.createElement('button');
   btn.textContent = label;
@@ -1846,8 +1907,10 @@ async function wijzigStatus(boekingId, nieuweStatus, opmerking) {
       body: JSON.stringify({ status: nieuweStatus, opmerking }),
     });
     laadAanvragen();
+    verversOnlineBevestigdBadge();
     if (!document.getElementById('view-boekingen').hidden) laadBoekingenOverzicht();
     if (!document.getElementById('view-geweigerd').hidden) laadGeweigerd();
+    if (!document.getElementById('view-online-bevestigd').hidden) laadOnlineBevestigd();
     // Bij een statuswijziging vanuit het dossier zelf (snelknoppen of de vrije "Andere
     // status instellen"-lijst) blijven we in het dossier — enkel de inhoud herladen,
     // zodat Jonas meteen de bijgewerkte statusbalk/kleur ziet in plaats van uit het
@@ -3268,7 +3331,18 @@ async function openDetail(boekingId) {
               ? `<div class="prijstabel-rij prijstabel-sub"><span></span><span>= ${fmtEuro(p.toeslag_korting)}</span></div>`
               : ''}
             <button type="button" id="btn-toeslag-opslaan" class="secundair">Toeslag/korting opslaan</button>
-            <div class="prijstabel-rij prijstabel-totaal"><span>Totaal</span><span>${fmtEuro(p.totaal)}</span></div>
+            ${p.vaste_totaalprijs != null
+              ? `<div class="prijstabel-rij prijstabel-sub"><span>Berekend totaal (zonder vaste prijs)</span><span>${fmtEuro(p.berekend_totaal)}</span></div>`
+              : ''}
+            <div class="prijstabel-rij">
+              <span>Vaste totaalprijs<span class="uitleg" style="display:block;font-weight:normal">i.p.v. het berekende totaal — bv. bij een vaste prijsafspraak</span></span>
+              <span class="toeslag-invoer">
+                <input type="number" id="dd-vaste-totaalprijs" step="0.01" min="0" value="${b.vaste_totaalprijs != null ? b.vaste_totaalprijs : ''}" placeholder="berekend" />
+                <button type="button" id="btn-vaste-totaalprijs-wissen" class="linkbtn gevaar" title="Vaste totaalprijs wissen — terug naar berekend totaal">✕</button>
+              </span>
+            </div>
+            <button type="button" id="btn-vaste-totaalprijs-opslaan" class="secundair">Vaste totaalprijs opslaan</button>
+            <div class="prijstabel-rij prijstabel-totaal"><span>Totaal${p.vaste_totaalprijs != null ? ' <span class="details-badge">vaste prijs</span>' : ''}</span><span>${fmtEuro(p.totaal)}</span></div>
             <div class="prijstabel-rij prijstabel-sub"><span>Incl. BTW (${p.btw_percentage}%)</span><span>${fmtEuro(p.btw_bedrag)}</span></div>
             <div class="prijstabel-rij"><span>Reeds betaald</span><span>${fmtEuro(p.betaald_bedrag)}</span></div>
             <div class="prijstabel-rij prijstabel-saldo ${p.saldo_openstaand <= 0 ? 'voldaan' : ''}"><span>Openstaand saldo</span><span>${fmtEuro(p.saldo_openstaand)}</span></div>
@@ -3498,6 +3572,25 @@ async function openDetail(boekingId) {
         toeslag_korting: toeslagKorting !== '' ? parseFloat(toeslagKorting) : null,
         toeslag_korting_type: toeslagKortingType,
       }),
+    });
+    openDetail(boekingId);
+    laadBoekingenOverzicht();
+  });
+
+  document.getElementById('btn-vaste-totaalprijs-opslaan').addEventListener('click', async () => {
+    const vasteTotaalprijs = document.getElementById('dd-vaste-totaalprijs').value;
+    await api(`/api/boekingen/${boekingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ vaste_totaalprijs: vasteTotaalprijs !== '' ? parseFloat(vasteTotaalprijs) : null }),
+    });
+    openDetail(boekingId);
+    laadBoekingenOverzicht();
+  });
+
+  document.getElementById('btn-vaste-totaalprijs-wissen').addEventListener('click', async () => {
+    await api(`/api/boekingen/${boekingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ vaste_totaalprijs: null }),
     });
     openDetail(boekingId);
     laadBoekingenOverzicht();

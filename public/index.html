@@ -36,6 +36,7 @@
       <nav class="sidebar-nav">
         <div class="sidebar-groep">
           <button class="navbtn" data-view="aanvragen"><span class="navbtn-icoon">📥</span> Aanvragen-inbox <span id="ster-aanvragen" class="navbtn-ster" hidden title="Nieuwe aanvragen">⭐</span> <span id="badge-aanvragen" class="badge" hidden>0</span></button>
+          <button class="navbtn" data-view="online-bevestigd"><span class="navbtn-icoon">✅</span> Online bevestigd <span id="ster-online-bevestigd" class="navbtn-ster" hidden title="Klant heeft zelf bevestigd">⭐</span> <span id="badge-online-bevestigd" class="badge" hidden>0</span></button>
         </div>
         <div class="sidebar-groep">
           <p class="sidebar-groep-titel">Overzicht</p>
@@ -217,6 +218,13 @@
       <h2>Aanvragen-inbox</h2>
       <p class="uitleg">Nieuwe aanvragen en aanvragen in behandeling — accepteer of weiger hier.</p>
       <div id="lijst-aanvragen" class="kaarten-lijst"></div>
+    </section>
+
+    <!-- ONLINE BEVESTIGD -->
+    <section id="view-online-bevestigd" class="pagina" hidden>
+      <h2>Online bevestigd</h2>
+      <p class="uitleg">Aanvragen die de klant zelf bevestigd heeft via de knop in de e-mail — nog af te werken met betaalverzoek/factuur. Verdwijnt hier automatisch zodra je de status verder zet.</p>
+      <div id="lijst-online-bevestigd" class="kaarten-lijst"></div>
     </section>
 
     <!-- BOEKINGENOVERZICHT -->

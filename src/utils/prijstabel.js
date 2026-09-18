@@ -11,7 +11,7 @@ const BTW_PERCENTAGE = 21; // prijzen worden verondersteld inclusief BTW te zijn
 
 async function berekenPrijstabel(boekingId) {
   const { rows: boekingRows } = await db.query(
-    'SELECT transportkost, toeslag_korting, toeslag_korting_type FROM boekingen WHERE id = $1',
+    'SELECT transportkost, toeslag_korting, toeslag_korting_type, vaste_totaalprijs FROM boekingen WHERE id = $1',
     [boekingId]
   );
   const boeking = boekingRows[0] || {};
@@ -29,7 +29,14 @@ async function berekenPrijstabel(boekingId) {
   const toeslagKorting = toeslagKortingType === 'percentage'
     ? Math.round(subtotaalProducten * (toeslagKortingWaarde / 100) * 100) / 100
     : toeslagKortingWaarde;
-  const totaal = subtotaalProducten + transportkost + toeslagKorting;
+  const berekendTotaal = subtotaalProducten + transportkost + toeslagKorting;
+  // Vaste (afgesproken) totaalprijs overrult het berekende totaal volledig —
+  // bv. wanneer Jonas telefonisch/ter plaatse een vaste prijs afspreekt met de
+  // klant die niet noodzakelijk overeenkomt met de som van de productenprijzen.
+  // De itemlijst/subtotalen hierboven blijven gewoon getoond ter referentie,
+  // enkel het TOTAAL (en alles wat daarvan afgeleid is: BTW, saldo) verandert.
+  const vasteTotaalprijs = boeking.vaste_totaalprijs != null ? Number(boeking.vaste_totaalprijs) : null;
+  const totaal = vasteTotaalprijs != null ? vasteTotaalprijs : berekendTotaal;
   const btwBedrag = Math.round(((totaal * BTW_PERCENTAGE) / (100 + BTW_PERCENTAGE)) * 100) / 100;
 
   const { rows: betaaldRows } = await db.query(
@@ -45,6 +52,8 @@ async function berekenPrijstabel(boekingId) {
     toeslag_korting: toeslagKorting,
     toeslag_korting_waarde: toeslagKortingWaarde,
     toeslag_korting_type: toeslagKortingType,
+    berekend_totaal: berekendTotaal,
+    vaste_totaalprijs: vasteTotaalprijs,
     totaal,
     btw_percentage: BTW_PERCENTAGE,
     btw_bedrag: btwBedrag,

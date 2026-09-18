@@ -294,7 +294,7 @@ router.post('/:id/eenvoudigfactureren', asyncHandler(async (req, res) => {
 // gebruikt door zowel de lijst (JSON) als de export (CSV), zodat die twee altijd
 // exact dezelfde selectie tonen.
 function bouwBoekingenFilter(query) {
-  const { status, vanaf, tot, klant_id, open_saldo, zoek, product_id } = query;
+  const { status, vanaf, tot, klant_id, open_saldo, zoek, product_id, klant_bevestigd } = query;
   const condities = [];
   const params = [];
   if (status) {
@@ -342,6 +342,13 @@ function bouwBoekingenFilter(query) {
   // wat hier te duur zou zijn voor een overzichtslijst.
   if (open_saldo) {
     condities.push(`COALESCE(bp_totaal.waarde, 0) - COALESCE(bet.betaald_bedrag, 0) > 0.01`);
+  }
+  // Voor de "Online bevestigd"-inbox: enkel aanvragen die de klant ZELF via de
+  // knop in de e-mail bevestigd heeft (zie routes/klant-bevestiging.js) i.p.v.
+  // aanvragen die Jonas manueel accepteerde — beide belanden op status
+  // 'geaccepteerd', klant_bevestigd_op is het enige onderscheid.
+  if (klant_bevestigd) {
+    condities.push(`b.klant_bevestigd_op IS NOT NULL`);
   }
   const where = condities.length ? `WHERE ${condities.join(' AND ')}` : '';
   return { where, params };
@@ -610,7 +617,7 @@ router.post('/:id/herbereken-afstand', asyncHandler(async (req, res) => {
 // wissen: geef gewoon `null` mee voor dat veld.
 router.put('/:id', asyncHandler(async (req, res) => {
   const velden = [
-    'notities', 'transportkost', 'toeslag_korting', 'toeslag_korting_type', 'afstand_km',
+    'notities', 'transportkost', 'toeslag_korting', 'toeslag_korting_type', 'vaste_totaalprijs', 'afstand_km',
     'leveringsadres', 'type_ondergrond', 'toegankelijkheid', 'leveringswijze',
     'voorkeur_tijdstip_levering', 'voorkeur_tijdstip_afhaling',
     'speciaal_verzoek', 'speciaal_verzoek_notitie',
