@@ -81,6 +81,94 @@ async function berekenProductenPerCategorie(vanaf, tot) {
   return perCategorie;
 }
 
+// ---------- Kort overzicht (Dashboard) ----------
+// Compact "Boekingen"/"Waarde"-blokje bovenaan het Dashboard — Vandaag/Deze
+// week/Deze maand/Dit jaar, telkens met de wijziging t.o.v. hetzelfde moment
+// vorig jaar (net als de rest van dit bestand: o.b.v. AANMAAKDATUM, niet de
+// leverdatum — dit meet "hoeveel boekingen kwamen er binnen", vergelijkbaar
+// met wat het vorige platform (Booking Online) toonde, niet "wat staat er
+// gepland" — dat laatste zie je al in de kolommen eronder op het Dashboard.
+// Geweigerde aanvragen tellen niet mee, zelfde conventie als de rest van
+// deze pagina.
+function naarDatumString(d) {
+  return d.toISOString().slice(0, 10);
+}
+// Precies 364 dagen (52 volle weken) terug i.p.v. "1 jaar terug" — zo blijft
+// de dag-van-de-week gelijk (bv. een vrijdag vergelijkt met de vrijdag van
+// vorig jaar), wat voor "Deze week" het enige zinvolle referentiepunt is.
+function weekTerug(d) {
+  const r = new Date(d);
+  r.setUTCDate(r.getUTCDate() - 364);
+  return r;
+}
+function jaarTerug(d) {
+  const r = new Date(d);
+  r.setUTCFullYear(r.getUTCFullYear() - 1);
+  return r;
+}
+function maandagVanDeWeek(d) {
+  const r = new Date(d);
+  const dagNr = r.getUTCDay() || 7; // zondag=0 -> 7, zodat maandag altijd dag 1 is
+  r.setUTCDate(r.getUTCDate() - (dagNr - 1));
+  return r;
+}
+
+async function berekenBoekingenInPeriode(van, tot) {
+  const { rows } = await db.query(
+    `
+    SELECT
+      COUNT(*)::int AS aantal,
+      COALESCE(SUM(bp_totaal.waarde), 0) AS waarde
+    FROM boekingen b
+    LEFT JOIN (
+      SELECT boeking_id, SUM(aantal * prijs) AS waarde
+      FROM boeking_producten
+      GROUP BY boeking_id
+    ) bp_totaal ON bp_totaal.boeking_id = b.id
+    WHERE b.aangemaakt_op::date BETWEEN $1 AND $2 AND b.status != 'geweigerd'
+    `,
+    [van, tot]
+  );
+  return { aantal: rows[0].aantal, waarde: Number(rows[0].waarde) };
+}
+
+// Rond af op 1 decimaal; geeft null (i.p.v. bv. Infinity of een misleidende
+// "+100%") als er vorig jaar niets was om mee te vergelijken.
+function wijzigingPct(huidig, vorig) {
+  if (!vorig) return null;
+  return Math.round(((huidig - vorig) / vorig) * 1000) / 10;
+}
+
+async function berekenPeriodeMetVergelijking(van, tot, vanVorig, totVorig) {
+  const [huidig, vorig] = await Promise.all([
+    berekenBoekingenInPeriode(van, tot),
+    berekenBoekingenInPeriode(vanVorig, totVorig),
+  ]);
+  return {
+    aantal: huidig.aantal,
+    waarde: huidig.waarde,
+    aantal_wijziging_pct: wijzigingPct(huidig.aantal, vorig.aantal),
+    waarde_wijziging_pct: wijzigingPct(huidig.waarde, vorig.waarde),
+  };
+}
+
+router.get('/kort-overzicht', asyncHandler(async (req, res) => {
+  const vandaag = new Date();
+  const vandaagStr = naarDatumString(vandaag);
+  const maandagStr = naarDatumString(maandagVanDeWeek(vandaag));
+  const eersteVanMaandStr = `${vandaag.getUTCFullYear()}-${String(vandaag.getUTCMonth() + 1).padStart(2, '0')}-01`;
+  const eersteVanJaarStr = `${vandaag.getUTCFullYear()}-01-01`;
+
+  const [vandaagData, weekData, maandData, jaarData] = await Promise.all([
+    berekenPeriodeMetVergelijking(vandaagStr, vandaagStr, naarDatumString(weekTerug(vandaag)), naarDatumString(weekTerug(vandaag))),
+    berekenPeriodeMetVergelijking(maandagStr, vandaagStr, naarDatumString(weekTerug(maandagVanDeWeek(vandaag))), naarDatumString(weekTerug(vandaag))),
+    berekenPeriodeMetVergelijking(eersteVanMaandStr, vandaagStr, naarDatumString(jaarTerug(new Date(eersteVanMaandStr))), naarDatumString(jaarTerug(vandaag))),
+    berekenPeriodeMetVergelijking(eersteVanJaarStr, vandaagStr, naarDatumString(jaarTerug(new Date(eersteVanJaarStr))), naarDatumString(jaarTerug(vandaag))),
+  ]);
+
+  res.json({ vandaag: vandaagData, week: weekData, maand: maandData, jaar: jaarData });
+}));
+
 // Losse route zodat de periode voor de producten-uitsplitsing onafhankelijk
 // van de jaar-selector (die de rest van de pagina stuurt) ververst kan worden.
 router.get('/producten', asyncHandler(async (req, res) => {

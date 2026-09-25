@@ -72,6 +72,20 @@ async function zorgVoorKlant(db, klant) {
     country_code: 'BE',
     tax_code: klant.btw_nummer || undefined,
   };
+  // EenvoudigFactureren geeft bij een te lang postal_code enkel de kale melding
+  // "postal_code too long" terug (zonder te zeggen om welke klant/waarde het
+  // gaat) — geen enkel land heeft een postcode van meer dan 12 tekens, dus dit
+  // is hoe dan ook een fout ingevuld veld (bv. per ongeluk het volledige adres
+  // in het postcodeveld, soms zo binnengekomen via een import). Dit hier al
+  // opvangen met een duidelijke, bruikbare melding i.p.v. Jonas de kale
+  // API-fout te laten uitpluizen.
+  if (payload.postal_code && payload.postal_code.length > 12) {
+    throw new Error(
+      `Postcode van klant "${klant.naam}" is te lang voor EenvoudigFactureren `
+      + `("${payload.postal_code}", ${payload.postal_code.length} tekens). `
+      + `Corrigeer het postcodeveld (of facturatie-postcode) bij deze klant en probeer opnieuw.`
+    );
+  }
   const resultaat = await efRequest('POST', '/clients', payload);
   const klantId = String(resultaat.client_id || resultaat.id || (resultaat.client && resultaat.client.id) || '');
   if (!klantId) throw new Error('EenvoudigFactureren gaf geen klant-id terug bij het aanmaken van de klant');

@@ -370,7 +370,44 @@ function dashboardVandaagIso() {
   return nu.toISOString().slice(0, 10);
 }
 
+// "Kort overzicht" bovenaan het Dashboard — Boekingen/Waarde per
+// Vandaag/Deze week/Deze maand/Dit jaar, telkens met wijziging t.o.v.
+// dezelfde periode vorig jaar (o.b.v. wanneer de aanvraag binnenkwam, niet
+// de leverdatum — zie routes/statistieken.js -> GET /kort-overzicht). Staat
+// los van de datum/periode die hierboven in de datumkiezer gekozen is: dit
+// blokje toont altijd "nu", dus enkel laden bij het openen van het Dashboard.
+async function laadKortOverzicht() {
+  const wrap = document.getElementById('kort-overzicht');
+  if (!wrap) return;
+  try {
+    const data = await api('/api/statistieken/kort-overzicht');
+    ['vandaag', 'week', 'maand', 'jaar'].forEach((periode) => {
+      const tegel = wrap.querySelector(`[data-ko="${periode}"]`);
+      if (!tegel || !data[periode]) return;
+      const p = data[periode];
+      tegel.querySelector('[data-ko-aantal]').textContent = p.aantal;
+      tegel.querySelector('[data-ko-waarde]').textContent = fmtEuro(p.waarde);
+      koZetWijziging(tegel.querySelector('[data-ko-aantal-wijziging]'), p.aantal_wijziging_pct);
+      koZetWijziging(tegel.querySelector('[data-ko-waarde-wijziging]'), p.waarde_wijziging_pct);
+    });
+  } catch (err) {
+    wrap.querySelectorAll('[data-ko-aantal], [data-ko-waarde]').forEach((el) => { el.textContent = '—'; });
+  }
+}
+
+// pct is null als er vorig jaar niets was om mee te vergelijken (dan tonen
+// we niets i.p.v. een misleidende "+100%" of "0%").
+function koZetWijziging(el, pct) {
+  if (!el) return;
+  if (pct === null || pct === undefined) { el.textContent = ''; el.className = 'ko-wijziging'; return; }
+  const teken = pct > 0 ? '+' : '';
+  el.textContent = `${teken}${pct}%`;
+  el.title = 't.o.v. dezelfde periode vorig jaar';
+  el.className = 'ko-wijziging ' + (pct > 0 ? 'ko-positief' : pct < 0 ? 'ko-negatief' : 'ko-neutraal');
+}
+
 async function laadDashboard() {
+  laadKortOverzicht();
   const leveringenEl = document.getElementById('dashboard-leveringen-lijst');
   const ophalingenEl = document.getElementById('dashboard-ophalingen-lijst');
   leveringenEl.innerHTML = '<p class="leeg-bericht">Laden...</p>';
@@ -495,7 +532,13 @@ function renderDashboardKolom(container, items, type, opties = {}) {
     // (een andere dag dan de gekozen lege dag) als bij een bereik met meerdere
     // dagen door elkaar, zonder aparte gevallen.
     const kaartDatum = (b[datumVeld] || '').slice(0, 10);
-    const tijdWaarde = b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(11, 16) : '';
+    // Zolang Jonas' team nog geen tijdstip expliciet instelde, terugvallen op
+    // wat de klant zelf al bij de aanvraag opgaf (voorkeur_tijdstip_*) i.p.v.
+    // meteen op de vaste standaardwaarde hieronder — enkel als dat een concreet
+    // kwartier is (niet leeg en niet de vrije "tussen 07:00 en 12:00"-optie).
+    const tijdWaarde = b[tijdVeld]
+      ? new Date(b[tijdVeld]).toISOString().slice(11, 16)
+      : (TIJDSTIP_HHMM_PATROON.test(b[voorkeurVeld] || '') ? b[voorkeurVeld] : '');
     const kaartLink = b.leveringswijze !== 'afhaling'
       ? `<a href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(adres)}" target="_blank" rel="noopener" class="dashboard-icoonbtn dashboard-kaart-routelink" title="Route naar ${adres}">📍</a>`
       : '';
@@ -517,7 +560,8 @@ function renderDashboardKolom(container, items, type, opties = {}) {
     const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
     const huidigVoertuig = b[voertuigVeld];
     const voertuigOpties = voertuigSelectOpties(huidigVoertuig);
-    // Standaard 08:00 bij levering, 20:00 bij afhaling zodat het veld nooit
+    // Allerlaatste terugval (geen expliciet tijdstip, geen bruikbare klant-
+    // voorkeur): 08:00 bij levering, 20:00 bij afhaling, zodat het veld nooit
     // leeg oogt — pas effectief opgeslagen zodra iemand het veld ook echt wijzigt.
     const standaardTijd = type === 'levering' ? '08:00' : '20:00';
     // Rij 1 blijft beperkt tot de compacte bedieningselementen (tijd, voertuig,
@@ -791,17 +835,24 @@ function planningVandaagIso() {
   return nu.toISOString().slice(0, 10);
 }
 
-// Effectief tijdstip voor weergave én sortering: zolang niemand het tijdstip
-// expliciet instelde (zie Dashboard) blijft leveringstijd/afhaaltijd leeg —
-// zonder terugval hierop toonde Planning dan "--:--" en werkte de gevraagde
-// "initieel op tijd sorteren" niet. Zelfde standaardwaarden als Dashboard
-// (08:00 bij levering, 20:00 bij afhaling).
+// Effectief tijdstip voor weergave én sortering, met 3 niveaus terugval:
+// 1) het tijdstip dat Jonas' team expliciet instelde op Dashboard/Planning
+//    (leveringstijd/afhaaltijd) — weegt het zwaarst, want dat is bewust
+//    aangepast; 2) ontbreekt dat nog, dan het tijdstip dat de klant zelf al
+//    bij de aanvraag opgaf (voorkeur_tijdstip_levering/afhaling) — vroeger
+//    werd dit hier genegeerd, waardoor een reservatie met bv. "14:00"
+//    toch als 08:00/20:00 in Planning verscheen; 3) pas als geen van beide
+//    een bruikbaar concreet kwartier is (leeg, of de vrije "tussen 07:00 en
+//    12:00"-optie), de vaste standaardwaarden.
 function planningStandaardTijd(type) {
   return type === 'levering' ? '08:00' : '20:00';
 }
 function planningEffectieveTijdWaarde(b, type) {
   const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
-  return b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(11, 16) : planningStandaardTijd(type);
+  if (b[tijdVeld]) return new Date(b[tijdVeld]).toISOString().slice(11, 16);
+  const voorkeurVeld = type === 'levering' ? 'voorkeur_tijdstip_levering' : 'voorkeur_tijdstip_afhaling';
+  if (TIJDSTIP_HHMM_PATROON.test(b[voorkeurVeld] || '')) return b[voorkeurVeld];
+  return planningStandaardTijd(type);
 }
 function planningTijdNaarMinuten(hhmm) {
   const [u, m] = String(hhmm).split(':').map(Number);
@@ -917,7 +968,7 @@ function planningStopHtml(b, type, groepNaam) {
     <div class="planning-stop planning-stop-sleepbaar${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}${isNieuw ? ' planning-stop-nieuw' : ''}" draggable="true" data-boeking-id="${b.id}" data-klant="${b.klant_naam}" data-groep="${groepNaam}">
       <span class="planning-stop-greep" title="Sleep om de volgorde te wijzigen">⠿</span>
       ${planningTijdSelectHtml(b, type)}
-      <span class="planning-stop-info" title="${b.klant_naam}">
+      <span class="planning-stop-info" title="${b.klant_naam} — dubbelklik voor het dossier">
         ${planningNieuwBadgeHtml(b)}${planningProductenHtml(b)} · ${adres}
       </span>
       <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
@@ -960,6 +1011,21 @@ function planningKoppelTijdInput(container) {
       } catch (err) {
         alert(err.message);
       }
+    });
+  });
+}
+
+// Dubbelklikken op de info (product + adres) van een planning-stop -> recht-
+// streeks naar het boekingdossier, om de gegevens te controleren — op vraag
+// van Jonas. Bewust op ".planning-stop-info" i.p.v. de hele kaart: zo blijven
+// slepen (dragstart op de kaart zelf) en de tijd-/voertuig-selects gewoon
+// werken zonder interferentie. Gebruikt in zowel de dagweergave als het
+// periode-overzicht (zie planningRenderKolom/planningRenderBereikKolom).
+function planningKoppelDubbelklik(container) {
+  container.querySelectorAll('.planning-stop-info').forEach((info) => {
+    info.addEventListener('dblclick', () => {
+      const stop = info.closest('.planning-stop');
+      if (stop) openDetail(stop.dataset.boekingId);
     });
   });
 }
@@ -1051,6 +1117,7 @@ function planningRenderKolom(container, items, type) {
   planningKoppelTijdInput(container);
   planningKoppelDragDrop(container, type);
   planningKoppelRouteInschatting(container);
+  planningKoppelDubbelklik(container);
 }
 
 // ============================================================
@@ -1267,7 +1334,7 @@ function planningBereikStopHtml(b, type) {
   return `
     <div class="planning-stop${b.status === 'nieuw' ? ' planning-stop-nieuw' : ''}" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
       ${planningTijdSelectHtml(b, type)}
-      <span class="planning-stop-info" title="${b.klant_naam}">
+      <span class="planning-stop-info" title="${b.klant_naam} — dubbelklik voor het dossier">
         ${planningNieuwBadgeHtml(b)}${planningProductenHtml(b)} · ${adres}
       </span>
       <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
@@ -1317,6 +1384,7 @@ function planningRenderBereikKolom(container, items, type) {
 
   planningKoppelProductToggle(container);
   planningKoppelTijdInput(container);
+  planningKoppelDubbelklik(container);
 }
 
 // Toont/verbergt de dagkiezer, voertuigbeheer en PDF-knoppen t.o.v. de
@@ -1346,6 +1414,19 @@ function planningGaNaarDag(iso) {
   document.getElementById('planning-datum').value = iso;
   planningToonModusUI(iso === planningVandaagIso() ? 'vandaag' : null);
   laadPlanning();
+}
+
+// Vanuit een boekingdossier rechtstreeks naar Planning voor een specifieke
+// dag van die boeking (leverdatum of afhaaldatum) — op vraag van Jonas, als
+// omgekeerde van de dubbelklik-navigatie hieronder (dossier -> Planning).
+// wisselView('planning') zorgt zelf al voor een eerste laadPlanning()-aanroep,
+// maar planningGaNaarDag() erna is nodig om planningModus zeker op 'dag' te
+// zetten (anders zou een eerder geopende periode-weergave blijven hangen) en
+// om effectief naar de juiste datum te springen.
+function planningGaNaarPlanningVoorDag(datumIso) {
+  if (!datumIso) return;
+  wisselView('planning');
+  planningGaNaarDag(String(datumIso).slice(0, 10));
 }
 
 function planningGaNaarBereik(vanaf, tot, sleutel) {
@@ -3309,6 +3390,10 @@ async function openDetail(boekingId) {
           <h4>Periode</h4>
           <div id="kalender-dossier-periode" class="kalender-widget kalender-widget-compact"></div>
           <p id="periode-fout" class="foutmelding"></p>
+          <button type="button" id="btn-periode-naar-planning" class="secundair">📅 Ga naar Planning (${fmtDatum(b.gewenste_datum_start)})</button>
+          ${b.gewenste_datum_einde && b.gewenste_datum_einde !== b.gewenste_datum_start
+            ? `<button type="button" id="btn-periode-naar-planning-afhaling" class="linkbtn">Planning afhaaldag (${fmtDatum(b.gewenste_datum_einde)})</button>`
+            : ''}
         </div>
 
         <div class="detail-kolom-prijstabel paneel">
@@ -3455,6 +3540,12 @@ async function openDetail(boekingId) {
   bouwTijdstipOpties(document.getElementById('kg-tijdstip-afhaling'), b.voorkeur_tijdstip_afhaling || undefined);
 
   document.getElementById('btn-naar-klantfiche').addEventListener('click', () => openKlantDetail(b.klant_id));
+
+  document.getElementById('btn-periode-naar-planning').addEventListener('click', () => planningGaNaarPlanningVoorDag(b.gewenste_datum_start));
+  const btnPeriodeNaarPlanningAfhaling = document.getElementById('btn-periode-naar-planning-afhaling');
+  if (btnPeriodeNaarPlanningAfhaling) {
+    btnPeriodeNaarPlanningAfhaling.addEventListener('click', () => planningGaNaarPlanningVoorDag(b.gewenste_datum_einde));
+  }
 
   document.getElementById('btn-klantgegevens-bewerken').addEventListener('click', () => {
     document.getElementById('klantgegevens-weergave').hidden = true;

@@ -256,6 +256,32 @@ main { padding: 1.5rem 2rem; max-width: 1440px; margin: 0 auto; }
   .statsbalk { grid-template-columns: repeat(2, 1fr); }
 }
 
+/* KORT OVERZICHT (Dashboard) — Boekingen/Waarde per Vandaag/Week/Maand/Jaar,
+   met wijziging t.o.v. dezelfde periode vorig jaar. */
+.kort-overzicht {
+  display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.8rem; margin-bottom: 0.4rem;
+}
+.ko-tegel {
+  background: white; border: 1px solid var(--rand); border-radius: 8px; padding: 0.8rem 1rem;
+}
+.ko-tegel-titel {
+  font-size: 0.78rem; color: var(--grijs); font-weight: 600; text-transform: uppercase;
+  letter-spacing: 0.02em; margin-bottom: 0.5rem;
+}
+.ko-tegel-rij {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 0.4rem; padding: 0.15rem 0;
+}
+.ko-label { font-size: 0.85rem; color: var(--grijs); flex: 1; }
+.ko-waarde { font-size: 1.1rem; font-weight: 700; color: var(--blauw-donker); }
+.ko-wijziging { font-size: 0.78rem; font-weight: 600; min-width: 3.2em; text-align: right; }
+.ko-wijziging.ko-positief { color: var(--groen); }
+.ko-wijziging.ko-negatief { color: var(--rood); }
+.ko-wijziging.ko-neutraal { color: var(--grijs); }
+.ko-uitleg { margin-top: 0; margin-bottom: 1rem; }
+@media (max-width: 900px) {
+  .kort-overzicht { grid-template-columns: repeat(2, 1fr); }
+}
+
 /* FILTERS & TABEL */
 .filterbalk { display: flex; gap: 1rem; align-items: flex-end; margin-bottom: 1rem; flex-wrap: wrap; }
 .filterbalk label { margin-bottom: 0; }
@@ -889,7 +915,7 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 /* Zelfde tijdstip-dropdown als op het Dashboard (genereerKwartierOpties) — nu
    ook rechtstreeks aanpasbaar vanop Planning i.p.v. enkel ter info. */
 .planning-stop-tijd-input { padding: 0.05rem 0.2rem; font-size: 0.78rem; width: 4.4rem; flex-shrink: 0; }
-.planning-stop-info { font-size: 0.84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
+.planning-stop-info { font-size: 0.84rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; cursor: pointer; }
 .planning-stop-voertuig { font-size: 0.78rem; width: 8.5rem; flex-shrink: 0; }
 /* Volledige productlijst uitklappen bij meerdere producten in één boeking —
    zie planningKoppelProductToggle in app.js. */

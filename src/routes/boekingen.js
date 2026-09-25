@@ -17,6 +17,10 @@ const {
 // openstaande saldo kunnen tonen i.p.v. enkel de status (een status als
 // "Betaald (volledig)" garandeert niet dat het saldo ook echt op 0 staat).
 const { berekenPrijstabel } = require('../utils/prijstabel');
+// Automatische koppeling met de website-beschikbaarheid (WordPress) — zie
+// utils/wordpressSync.js voor de uitleg. "Vuur-en-vergeet": nooit met await
+// aanroepen, mag de eigenlijke actie hieronder nooit blokkeren/laten falen.
+const { plandWebsiteSync } = require('../utils/wordpressSync');
 const { genereerOndertekendDocumentPdf, verstuurOndertekendDocumentPerMail } = require('../utils/ondertekendDocument');
 
 const router = express.Router();
@@ -131,7 +135,8 @@ async function haalIngevuldeTemplateOp(boekingId, templateId, adminId) {
   if (!template) return { fout: 'Template niet gevonden', status: 404 };
 
   const { rows: boekingRows } = await db.query(
-    `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email
+    `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email, k.telefoon AS klant_telefoon,
+            k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente
      FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
     [boekingId]
   );
@@ -139,7 +144,8 @@ async function haalIngevuldeTemplateOp(boekingId, templateId, adminId) {
   if (!boeking) return { fout: 'Boeking niet gevonden', status: 404 };
 
   const { rows: producten } = await db.query(
-    `SELECT p.naam, bp.aantal FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1 ORDER BY p.naam`,
+    `SELECT p.naam, p.afbeeldingen, bp.aantal, bp.prijs
+     FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1 ORDER BY p.naam`,
     [boekingId]
   );
   const prijstabel = await berekenPrijstabel(boekingId);
@@ -723,6 +729,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
   }
 
   const prijstabel = await berekenPrijstabel(req.params.id);
+  plandWebsiteSync();
   res.json({ ...rows[0], prijstabel, voorgestelde_transportkost: berekenVoorgesteldeTransportkost(rows[0]) });
 }));
 
@@ -748,6 +755,7 @@ router.put('/:id/producten/:regelId', asyncHandler(async (req, res) => {
     [req.params.id]
   );
   const prijstabel = await berekenPrijstabel(req.params.id);
+  plandWebsiteSync();
   res.json({ producten, prijstabel });
 }));
 
@@ -787,6 +795,7 @@ router.post('/:id/producten', asyncHandler(async (req, res) => {
     [req.params.id]
   );
   const prijstabel = await berekenPrijstabel(req.params.id);
+  plandWebsiteSync();
   res.status(201).json({ producten, prijstabel });
 }));
 
@@ -804,6 +813,7 @@ router.delete('/:id/producten/:regelId', asyncHandler(async (req, res) => {
     [req.params.id]
   );
   const prijstabel = await berekenPrijstabel(req.params.id);
+  plandWebsiteSync();
   res.json({ producten, prijstabel });
 }));
 
@@ -813,6 +823,7 @@ router.delete('/:id/producten/:regelId', asyncHandler(async (req, res) => {
 router.delete('/:id', asyncHandler(async (req, res) => {
   const { rows } = await db.query('DELETE FROM boekingen WHERE id = $1 RETURNING id', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
+  plandWebsiteSync();
   res.status(204).end();
 }));
 
@@ -1095,6 +1106,7 @@ router.post('/:id/status', asyncHandler(async (req, res) => {
     }
 
     await client.query('COMMIT');
+    plandWebsiteSync();
     const { rows: updated } = await db.query('SELECT * FROM boekingen WHERE id = $1', [req.params.id]);
     res.json(updated[0]);
   } catch (err) {

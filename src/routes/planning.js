@@ -47,6 +47,7 @@ const DATUMKOLOM = { levering: 'gewenste_datum_start', afhaling: 'gewenste_datum
 const PLANNING_SELECT = (kolom, voorwaarde) => `
   SELECT b.id, b.status, b.leveringswijze, b.leveringsadres,
          b.gewenste_datum_start, b.gewenste_datum_einde,
+         b.voorkeur_tijdstip_levering, b.voorkeur_tijdstip_afhaling,
          k.naam AS klant_naam, k.telefoon AS klant_telefoon,
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
          l.leveringstijd, l.afhaaltijd,

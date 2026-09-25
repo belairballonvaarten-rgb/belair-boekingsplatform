@@ -16,6 +16,7 @@ const { asyncHandler } = require('../utils/asyncHandler');
 const { verstuurMail } = require('../utils/mailer');
 const { berekenPrijstabel } = require('../utils/prijstabel');
 const boekingenRouter = require('./boekingen');
+const { plandWebsiteSync } = require('../utils/wordpressSync');
 
 const router = express.Router();
 
@@ -239,6 +240,10 @@ router.post('/:boekingId/:token', asyncHandler(async (req, res) => {
       // status net op dat moment) — geen mails, gewoon de gepaste pagina.
       return res.send(PAGINA_NIET_MEER_OPEN);
     }
+
+    // Status ging net naar 'geaccepteerd' -> telt vanaf nu mee in de
+    // website-beschikbaarheid (zie utils/wordpressSync.js).
+    plandWebsiteSync();
 
     // De bevestiging zelf staat nu vast (hierboven al gecommit) — lukt de
     // automatische mail niet, dan blijft de bevestiging toch gewoon gelden;
