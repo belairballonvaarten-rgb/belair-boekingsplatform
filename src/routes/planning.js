@@ -35,12 +35,13 @@ async function haalMagazijnLocatieOp() {
 const router = express.Router();
 router.use(vereistIngelogd);
 
-// Zelfde statuslijst als het Dashboard: 'nieuw' hoort er ook bij (zie de
-// uitleg in dashboard.js) zodat een verse aanvraag al op de juiste dag
-// verschijnt, wel duidelijk gemarkeerd als "nog niet definitief" in de
-// frontend. 'in_behandeling' hoort nog niet hier thuis (Aanvragen-inbox).
+// Zelfde statuslijst als het Dashboard. 'nieuw' en 'in_behandeling' horen
+// hier bewust NIET meer bij (op uitdrukkelijke vraag van Jonas, herzien
+// t.o.v. de eerdere opzet): een verse of nog niet beoordeelde aanvraag mag
+// pas in de Planning verschijnen zodra hij ze goedkeurt/accepteert. Tot dan
+// staat zo'n aanvraag enkel in de Aanvragen-inbox.
 const GEPLANDE_STATUSSEN = [
-  'nieuw', 'geaccepteerd', 'ingepland', 'bevestigd', 'betaalverzoek_verstuurd',
+  'geaccepteerd', 'ingepland', 'bevestigd', 'betaalverzoek_verstuurd',
   'betaald_deels', 'betaald_volledig', 'gefactureerd', 'voldaan_manueel',
 ];
 

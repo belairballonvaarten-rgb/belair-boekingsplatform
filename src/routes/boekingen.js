@@ -310,7 +310,11 @@ function bouwBoekingenFilter(query) {
     // Geen expliciete status gekozen ("Alle") -> geweigerde aanvragen horen daar
     // niet meer tussen te staan (op vraag van Jonas), die krijgen een eigen menu
     // ("Geweigerd" in de zijbalk, dat wél expliciet ?status=geweigerd opvraagt).
-    condities.push(`b.status <> 'geweigerd'`);
+    // Zelfde principe voor 'nieuw'/'in_behandeling': een nog niet beoordeelde
+    // aanvraag hoort pas in dit overzicht te staan zodra Jonas ze goedkeurt/
+    // accepteert — tot dan enkel zichtbaar in de Aanvragen-inbox, die wél
+    // expliciet ?status=nieuw / ?status=in_behandeling opvraagt.
+    condities.push(`b.status NOT IN ('geweigerd', 'nieuw', 'in_behandeling')`);
   }
   if (product_id) {
     params.push(product_id);

@@ -10,15 +10,14 @@ const router = express.Router();
 router.use(vereistIngelogd);
 
 // Statussen die op het Dashboard als geplande levering/afhaling getoond
-// worden. 'nieuw' hoort er ook bij (op uitdrukkelijke vraag van Jonas: een
-// manueel of via de website binnengekomen aanvraag moet al meteen op de
-// juiste dag zichtbaar zijn, ook al is ze nog niet bevestigd) — de frontend
-// toont zo'n boeking dan wel duidelijk gemarkeerd als "nog niet definitief"
-// (zie WEERGAVE_NIET_DEFINITIEF in app.js). 'in_behandeling' hoort nog niet
-// hier thuis: dat is een aanvraag die Jonas nog moet bekijken/beoordelen in
-// de Aanvragen-inbox, niet iets om al in te plannen.
+// worden. 'nieuw' en 'in_behandeling' horen hier bewust NIET bij: dat zijn
+// aanvragen die Jonas nog moet bekijken/beoordelen in de Aanvragen-inbox, en
+// mogen pas elders (Dashboard, Planning, Boekingenoverzicht) verschijnen
+// zodra hij ze goedkeurt/accepteert. Dit is een expliciete herziening van een
+// eerdere opzet waarbij 'nieuw' hier ook al in stond — op uitdrukkelijke
+// vraag van Jonas teruggedraaid.
 const GEPLANDE_STATUSSEN = [
-  'nieuw', 'geaccepteerd', 'ingepland', 'bevestigd', 'betaalverzoek_verstuurd',
+  'geaccepteerd', 'ingepland', 'bevestigd', 'betaalverzoek_verstuurd',
   'betaald_deels', 'betaald_volledig', 'gefactureerd', 'voldaan_manueel',
 ];
 

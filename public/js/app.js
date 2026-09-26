@@ -949,16 +949,6 @@ function planningTijdSelectHtml(b, type) {
   return `<select class="planning-stop-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${datum}" title="Tijdstip">${genereerKwartierOpties(tijdWaarde)}</select>`;
 }
 
-// Boeking staat nog op status 'nieuw' (kale aanvraag, manueel of via de
-// website) — nu wel al zichtbaar in de Planning (op vraag van Jonas), maar
-// duidelijk gemarkeerd als nog niet bevestigd, i.p.v. te lijken op een
-// definitief ingeplande stop.
-function planningNieuwBadgeHtml(b) {
-  return b.status === 'nieuw'
-    ? '<span class="planning-stop-nieuw-badge" title="Nog maar een aanvraag — nog niet bevestigd/geaccepteerd">NIEUW</span> '
-    : '';
-}
-
 // "Zeker afhalen"-icoontje — enkel bij afhalingen (b.zeker_afhalen komt van de
 // server, zie utils/zekerAfhalen.js op het boekingsplatform): dit product
 // wordt morgen alweer bij een andere klant verhuurd, dus deze afhaling mag
@@ -975,13 +965,12 @@ function planningStopHtml(b, type, groepNaam) {
   const adres = dashboardAdresTekst(b);
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   const voltooidVeld = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
-  const isNieuw = b.status === 'nieuw';
   return `
-    <div class="planning-stop planning-stop-sleepbaar${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}${isNieuw ? ' planning-stop-nieuw' : ''}" draggable="true" data-boeking-id="${b.id}" data-klant="${b.klant_naam}" data-groep="${groepNaam}">
+    <div class="planning-stop planning-stop-sleepbaar${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}" draggable="true" data-boeking-id="${b.id}" data-klant="${b.klant_naam}" data-groep="${groepNaam}">
       <span class="planning-stop-greep" title="Sleep om de volgorde te wijzigen">⠿</span>
       ${planningTijdSelectHtml(b, type)}
       <span class="planning-stop-info" title="${b.klant_naam} — dubbelklik voor het dossier">
-        ${planningNieuwBadgeHtml(b)}${planningProductenHtml(b)}${zekerAfhalenIconHtml(b, type)} · ${adres}
+        ${planningProductenHtml(b)}${zekerAfhalenIconHtml(b, type)} · ${adres}
       </span>
       <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
     </div>
@@ -1344,10 +1333,10 @@ function planningBereikStopHtml(b, type) {
   const adres = dashboardAdresTekst(b);
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   return `
-    <div class="planning-stop${b.status === 'nieuw' ? ' planning-stop-nieuw' : ''}" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
+    <div class="planning-stop" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
       ${planningTijdSelectHtml(b, type)}
       <span class="planning-stop-info" title="${b.klant_naam} — dubbelklik voor het dossier">
-        ${planningNieuwBadgeHtml(b)}${planningProductenHtml(b)}${zekerAfhalenIconHtml(b, type)} · ${adres}
+        ${planningProductenHtml(b)}${zekerAfhalenIconHtml(b, type)} · ${adres}
       </span>
       <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
     </div>
