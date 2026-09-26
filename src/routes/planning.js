@@ -4,6 +4,17 @@ const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { geocodeAdres, ONS_MAGAZIJN_ADRES } = require('../utils/afstand');
 const { berekenRoute } = require('../utils/osrm');
+const { bepaalZekerAfhalenBoekingIds } = require('../utils/zekerAfhalen');
+
+// "Zeker afhalen"-vlag op elke afhaling: automatische berekening (zie
+// utils/zekerAfhalen.js) OF de manuele vlag die Jonas zelf in het
+// boekingdossier aanzet (afhaling_moet_zeker, al meegeselecteerd via
+// PLANNING_SELECT) — allebei even zwaar.
+async function zorgVoorZekerAfhalen(rijen) {
+  const zekerSet = await bepaalZekerAfhalenBoekingIds(rijen.map((r) => r.id));
+  rijen.forEach((r) => { r.zeker_afhalen = zekerSet.has(r.id) || !!r.afhaling_moet_zeker; });
+  return rijen;
+}
 
 // Vaste tijd per stop (parkeren, aanbellen, kort gesprek, terug naar het
 // voertuig) — komt bovenop de eventuele opsteltijd van de producten zelf.
@@ -51,6 +62,7 @@ const PLANNING_SELECT = (kolom, voorwaarde) => `
          k.naam AS klant_naam, k.telefoon AS klant_telefoon,
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
          l.leveringstijd, l.afhaaltijd,
+         COALESCE(l.afhaling_moet_zeker, false) AS afhaling_moet_zeker,
          l.voertuig_levering, l.voertuig_afhaling,
          l.volgorde_levering, l.volgorde_afhaling,
          l.lat, l.lng, l.geocode_adres,
@@ -105,6 +117,7 @@ router.get('/', asyncHandler(async (req, res) => {
       db.query(queryVoorKolomBereik('gewenste_datum_start'), [GEPLANDE_STATUSSEN, vanaf, tot]),
       db.query(queryVoorKolomBereik('gewenste_datum_einde'), [GEPLANDE_STATUSSEN, vanaf, tot]),
     ]);
+    await zorgVoorZekerAfhalen(ophalingen);
     return res.json({ vanaf, tot, leveringen, ophalingen });
   }
 
@@ -118,6 +131,7 @@ router.get('/', asyncHandler(async (req, res) => {
     db.query(queryVoorKolom('gewenste_datum_start'), [GEPLANDE_STATUSSEN, datum]),
     db.query(queryVoorKolom('gewenste_datum_einde'), [GEPLANDE_STATUSSEN, datum]),
   ]);
+  await zorgVoorZekerAfhalen(ophalingen);
 
   res.json({ datum, leveringen, ophalingen });
 }));

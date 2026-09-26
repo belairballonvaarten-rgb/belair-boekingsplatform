@@ -584,7 +584,7 @@ function renderDashboardKolom(container, items, type, opties = {}) {
           </span>
         </div>
         <div class="dashboard-kaart-rij2" title="${b.klant_naam}${b[voorkeurVeld] ? ` — voorkeur klant: ${b[voorkeurVeld]}` : ''}">
-          <strong class="dashboard-kaart-product" title="${b.producten_namen || ''}">${productHeadline}</strong> · <span class="dashboard-kaart-adres">${adres}</span>
+          <strong class="dashboard-kaart-product" title="${b.producten_namen || ''}">${productHeadline}</strong>${zekerAfhalenIconHtml(b, type)} · <span class="dashboard-kaart-adres">${adres}</span>
         </div>
       </div>
     `;
@@ -959,6 +959,18 @@ function planningNieuwBadgeHtml(b) {
     : '';
 }
 
+// "Zeker afhalen"-icoontje — enkel bij afhalingen (b.zeker_afhalen komt van de
+// server, zie utils/zekerAfhalen.js op het boekingsplatform): dit product
+// wordt morgen alweer bij een andere klant verhuurd, dus deze afhaling mag
+// niet uitgesteld worden. Bewust klein/subtiel (gewoon een icoontje met
+// tooltip, geen opvallende badge) — op vraag van Jonas, dit mag niet aanvoelen
+// als een alarm, gewoon een hint bij het product zelf.
+function zekerAfhalenIconHtml(b, type) {
+  return (type === 'afhaling' && b.zeker_afhalen)
+    ? '<span class="zeker-afhalen-icoon" title="Zeker afhalen — dit product wordt morgen alweer verhuurd">⏰</span>'
+    : '';
+}
+
 function planningStopHtml(b, type, groepNaam) {
   const adres = dashboardAdresTekst(b);
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
@@ -969,7 +981,7 @@ function planningStopHtml(b, type, groepNaam) {
       <span class="planning-stop-greep" title="Sleep om de volgorde te wijzigen">⠿</span>
       ${planningTijdSelectHtml(b, type)}
       <span class="planning-stop-info" title="${b.klant_naam} — dubbelklik voor het dossier">
-        ${planningNieuwBadgeHtml(b)}${planningProductenHtml(b)} · ${adres}
+        ${planningNieuwBadgeHtml(b)}${planningProductenHtml(b)}${zekerAfhalenIconHtml(b, type)} · ${adres}
       </span>
       <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
     </div>
@@ -1335,7 +1347,7 @@ function planningBereikStopHtml(b, type) {
     <div class="planning-stop${b.status === 'nieuw' ? ' planning-stop-nieuw' : ''}" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
       ${planningTijdSelectHtml(b, type)}
       <span class="planning-stop-info" title="${b.klant_naam} — dubbelklik voor het dossier">
-        ${planningNieuwBadgeHtml(b)}${planningProductenHtml(b)} · ${adres}
+        ${planningNieuwBadgeHtml(b)}${planningProductenHtml(b)}${zekerAfhalenIconHtml(b, type)} · ${adres}
       </span>
       <select class="planning-stop-voertuig" data-boeking-id="${b.id}" data-type="${type}" title="Voertuig">${voertuigSelectOpties(b[voertuigVeld])}</select>
     </div>
@@ -3394,6 +3406,10 @@ async function openDetail(boekingId) {
           ${b.gewenste_datum_einde && b.gewenste_datum_einde !== b.gewenste_datum_start
             ? `<button type="button" id="btn-periode-naar-planning-afhaling" class="linkbtn">Planning afhaaldag (${fmtDatum(b.gewenste_datum_einde)})</button>`
             : ''}
+          <label class="moet-zeker-afhalen-toggle" title="Zet dit manueel aan als deze afhaling om een andere reden dan voorraad niet mag uitgesteld worden — verschijnt dan met hetzelfde ⏰-icoontje op Dashboard, Planning en in de leveringen-app als de automatische melding.">
+            <input type="checkbox" id="dd-moet-zeker-afhalen" ${(b.levering && b.levering.afhaling_moet_zeker) ? 'checked' : ''} />
+            ⏰ Moet zeker afgehaald worden
+          </label>
         </div>
 
         <div class="detail-kolom-prijstabel paneel">
@@ -3546,6 +3562,23 @@ async function openDetail(boekingId) {
   if (btnPeriodeNaarPlanningAfhaling) {
     btnPeriodeNaarPlanningAfhaling.addEventListener('click', () => planningGaNaarPlanningVoorDag(b.gewenste_datum_einde));
   }
+
+  // Manuele "zeker afhalen"-vlag — los van de automatische berekening o.b.v.
+  // voorraad, verschijnt met hetzelfde ⏰-icoontje zodra deze aanstaat (zie
+  // routes/dashboard.js -> PUT /:boekingId/moet-zeker-afhalen).
+  document.getElementById('dd-moet-zeker-afhalen').addEventListener('change', async (e) => {
+    const checkbox = e.target;
+    try {
+      await api(`/api/dashboard/${b.id}/moet-zeker-afhalen`, {
+        method: 'PUT',
+        body: JSON.stringify({ waarde: checkbox.checked }),
+      });
+      toonToast(checkbox.checked ? '⏰ Zeker afhalen: aangezet' : 'Zeker afhalen: uitgezet');
+    } catch (err) {
+      checkbox.checked = !checkbox.checked;
+      alert(err.message);
+    }
+  });
 
   document.getElementById('btn-klantgegevens-bewerken').addEventListener('click', () => {
     document.getElementById('klantgegevens-weergave').hidden = true;

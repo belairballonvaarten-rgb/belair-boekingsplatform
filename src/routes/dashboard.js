@@ -4,6 +4,7 @@ const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { geocodeAdres, ONS_MAGAZIJN_ADRES } = require('../utils/afstand');
 const { berekenPrijstabel } = require('../utils/prijstabel');
+const { bepaalZekerAfhalenBoekingIds } = require('../utils/zekerAfhalen');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -29,6 +30,7 @@ const DASHBOARD_SELECT = `
          k.id AS klant_id, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
          l.leveringstijd, l.afhaaltijd, l.lat, l.lng, l.geocode_adres,
+         COALESCE(l.afhaling_moet_zeker, false) AS afhaling_moet_zeker,
          l.voertuig_levering, l.voertuig_afhaling, l.volgorde_levering, l.volgorde_afhaling,
          COALESCE(l.levering_voltooid, false) AS levering_voltooid,
          COALESCE(l.afhaling_voltooid, false) AS afhaling_voltooid,
@@ -104,6 +106,17 @@ async function zorgVoorSaldo(rijen) {
   return rijen;
 }
 
+// "Zeker afhalen"-vlag op elke afhaling — enkel zinvol voor de ophalingen-
+// kolom (leveringen hebben dit niet nodig). Combinatie van de automatische
+// berekening (zie utils/zekerAfhalen.js) EN de manuele vlag die Jonas zelf in
+// het boekingdossier kan aanzetten (afhaling_moet_zeker, al meegeselecteerd
+// via DASHBOARD_SELECT) — allebei even zwaar, dus gewoon een OF.
+async function zorgVoorZekerAfhalen(rijen) {
+  const zekerSet = await bepaalZekerAfhalenBoekingIds(rijen.map((r) => r.id));
+  rijen.forEach((r) => { r.zeker_afhalen = zekerSet.has(r.id) || !!r.afhaling_moet_zeker; });
+  return rijen;
+}
+
 // In-memory cache voor de locatie van ons eigen magazijn — verandert nooit
 // binnen een lopende serverinstantie, dus geen reden om dit telkens opnieuw
 // op te vragen bij Google.
@@ -173,6 +186,7 @@ router.get('/', asyncHandler(async (req, res) => {
     await Promise.all([
       zorgVoorGeocodering(levering.items), zorgVoorGeocodering(afhaling.items),
       zorgVoorSaldo(levering.items), zorgVoorSaldo(afhaling.items),
+      zorgVoorZekerAfhalen(afhaling.items),
     ]);
     return res.json({
       vanaf,
@@ -199,6 +213,7 @@ router.get('/', asyncHandler(async (req, res) => {
   await Promise.all([
     zorgVoorGeocodering(levering.items), zorgVoorGeocodering(afhaling.items),
     zorgVoorSaldo(levering.items), zorgVoorSaldo(afhaling.items),
+    zorgVoorZekerAfhalen(afhaling.items),
   ]);
 
   res.json({
@@ -307,6 +322,28 @@ router.put('/:boekingId/voertuig', asyncHandler(async (req, res) => {
   const { rows: nieuw } = await db.query(
     `INSERT INTO leveringen (boeking_id, ${kolom}) VALUES ($1, $2) RETURNING *`,
     [req.params.boekingId, waarde]
+  );
+  res.status(201).json(nieuw[0]);
+}));
+
+// Manuele "moet zeker afgehaald worden"-vlag, instelbaar vanuit het
+// boekingdossier zelf (Periode-blok) — los van de automatische berekening
+// o.b.v. voorraad (zie utils/zekerAfhalen.js). Zelfde upsert-patroon als
+// hierboven (tijdstip/voertuig): UPDATE, en enkel als er nog geen
+// leveringen-rij bestaat alsnog INSERT.
+router.put('/:boekingId/moet-zeker-afhalen', asyncHandler(async (req, res) => {
+  if (typeof req.body.waarde !== 'boolean') {
+    return res.status(400).json({ fout: 'waarde (true/false) is verplicht' });
+  }
+  const { rows } = await db.query(
+    'UPDATE leveringen SET afhaling_moet_zeker = $1 WHERE boeking_id = $2 RETURNING *',
+    [req.body.waarde, req.params.boekingId]
+  );
+  if (rows[0]) return res.json(rows[0]);
+
+  const { rows: nieuw } = await db.query(
+    'INSERT INTO leveringen (boeking_id, afhaling_moet_zeker) VALUES ($1, $2) RETURNING *',
+    [req.params.boekingId, req.body.waarde]
   );
   res.status(201).json(nieuw[0]);
 }));
