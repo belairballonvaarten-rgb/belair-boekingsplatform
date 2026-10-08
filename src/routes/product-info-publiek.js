@@ -16,6 +16,7 @@
 const express = require('express');
 const db = require('../db');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { genereerProductRapportPdf } = require('../utils/productRapport');
 
 const router = express.Router();
 
@@ -43,6 +44,20 @@ router.get('/:id/certificaat', asyncHandler(async (req, res) => {
   res.set('Content-Type', rows[0].certificaat_mimetype || 'application/octet-stream');
   res.set('Content-Disposition', `inline; filename="${(rows[0].certificaat_bestandsnaam || 'certificaat').replace(/"/g, '')}"`);
   res.send(rows[0].certificaat_bestand);
+}));
+
+// Publieke downloadlink voor het logboek (= het vroegere "rapport", zie
+// utils/productRapport.js) van een product — zelfde opzet als infofiche/
+// certificaat hierboven, maar dan een gegenereerd document i.p.v. een
+// geüpload bestand. Gelinkt vanuit een sjabloon-mail via {{logboek_links}}
+// (rol 'informatie_verzenden', zie utils/mailTemplates.js) i.p.v. een apart
+// verstuur-knopje per product in het dossier.
+router.get('/:id/logboek', asyncHandler(async (req, res) => {
+  const resultaat = await genereerProductRapportPdf(req.params.id, { volledig: req.query.volledig === '1' });
+  if (!resultaat) return res.status(404).send('Product niet gevonden.');
+  res.set('Content-Type', 'application/pdf');
+  res.set('Content-Disposition', `inline; filename="${resultaat.bestandsnaam}"`);
+  res.send(resultaat.buffer);
 }));
 
 module.exports = router;

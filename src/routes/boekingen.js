@@ -978,6 +978,15 @@ router.post('/', asyncHandler(async (req, res) => {
     }
   }
 
+  // Op vraag van Jonas: een boeking die HIJ hier zelf ingeeft (bron 'manueel',
+  // via het "Nieuwe boeking"-scherm) is al door hem beoordeeld/gewild — die
+  // hoeft niet nog eens via de Aanvragen-inbox "geaccepteerd" te worden zoals
+  // een binnenkomende website-aanvraag (bron 'website', zie webinzendingen.js,
+  // die WEL op de tafel-status 'nieuw' blijft staan). Enkel 'manueel' hier:
+  // zo meteen al in het Boekingenoverzicht/"reservatie overzicht" i.p.v. nog
+  // een nodeloze extra klik in de inbox.
+  const beginStatus = (bron || 'manueel') === 'manueel' ? 'geaccepteerd' : 'nieuw';
+
   const client = await db.getClient();
   try {
     await client.query('BEGIN');
@@ -987,16 +996,16 @@ router.post('/', asyncHandler(async (req, res) => {
          leveringswijze, leveringsadres, type_ondergrond, toegankelijkheid,
          voorkeur_tijdstip_levering, voorkeur_tijdstip_afhaling,
          huurvoorwaarden_geaccepteerd, huurvoorwaarden_geaccepteerd_op,
-         notities, bron
+         notities, bron, status
        )
-       VALUES ($1, $2, $3, COALESCE($4, 'levering'), $5, $6, $7, $8, $9, $10, CASE WHEN $10 THEN now() ELSE NULL END, $11, COALESCE($12, 'manueel'))
+       VALUES ($1, $2, $3, COALESCE($4, 'levering'), $5, $6, $7, $8, $9, $10, CASE WHEN $10 THEN now() ELSE NULL END, $11, COALESCE($12, 'manueel'), $13)
        RETURNING *`,
       [
         klant_id, gewenste_datum_start, datumEinde,
         leveringswijze, uiteindelijkAdres, type_ondergrond, toegankelijkheid,
         voorkeur_tijdstip_levering, voorkeur_tijdstip_afhaling,
         huurvoorwaarden_geaccepteerd || false,
-        notities, bron,
+        notities, bron, beginStatus,
       ]
     );
     const boeking = boekingRows[0];
@@ -1015,7 +1024,7 @@ router.post('/', asyncHandler(async (req, res) => {
 
     await client.query(
       'INSERT INTO boeking_status_historiek (boeking_id, van_status, naar_status) VALUES ($1, NULL, $2)',
-      [boeking.id, 'nieuw']
+      [boeking.id, beginStatus]
     );
 
     // Meteen een leveringen-record aanmaken (voorheen pas bij acceptatie), met

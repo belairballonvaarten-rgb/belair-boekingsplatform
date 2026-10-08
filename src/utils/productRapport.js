@@ -25,6 +25,14 @@ const { BEDRIJF, KL, fmtDatum, fmtDatumTijd, tekenKaart } = require('./onderteke
 // route, geen gedeelde module ervoor opzetten voor één getal.
 const MIN_CONTROLES_PER_JAAR = 5;
 
+// Op vraag van Jonas: het standaard (korte) logboek-rapport toont enkel de
+// laatste 5 onderhouds- en inspectie-regels i.p.v. de volledige historiek —
+// die blijft wel altijd volledig bewaard in de databank (product_logboek
+// wordt nooit ingekort) en kan via het "volledig" rapport (?volledig=1, zie
+// GET /:id/logboek.pdf en GET /api/product-info/:id/logboek) alsnog in zijn
+// geheel opgevraagd worden, bv. als een FOD-controleur dat ter plaatse vraagt.
+const AANTAL_REGELS_KORT = 5;
+
 const LOGBOEK_TYPE_LABELS = { controle: 'Controle/nazicht', reiniging: 'Reiniging', herstelling: 'Herstelling' };
 
 // ---- Zorgt dat er nog minstens 'benodigd' ruimte is tot de ondermarge;
@@ -56,13 +64,24 @@ function tekenSectieTitel(doc, x, w, margin, titel, inleiding) {
   doc.fillColor('#000000');
 }
 
-// ---- Statusbanner (groen/rood) voor de 5x/jaar-verplichting ----
-function tekenStatusBanner(doc, x, w, margin, tekst, ok) {
+// ---- Statusbanner voor de 5x/jaar-verplichting. 'variant' i.p.v. een simpele
+// ok/niet-ok-boolean: op vraag van Jonas mag een onvolledig jaar (bv. in
+// februari, met nog maar 1 controle) niet als "voldoet niet aan de
+// verplichting" in het rapport staan — dat oogt als een overtreding bij een
+// FOD-controle terwijl het jaar gewoon nog niet voorbij is. Enkel 'groen'
+// (effectief voldaan) is een expliciet oordeel; 'grijs' toont de stand van
+// zaken neutraal, zonder conclusie. ----
+function tekenStatusBanner(doc, x, w, margin, tekst, variant) {
+  const KLEUREN = {
+    groen: { bg: KL.groenBg, rand: KL.groenRand, tekst: KL.groenTekst },
+    grijs: { bg: KL.chipGrijsBg, rand: KL.chipGrijsRand, tekst: KL.grijs },
+  };
+  const kl = KLEUREN[variant] || KLEUREN.grijs;
   const h = 22;
   zorgRuimte(doc, margin, h + 10);
   const y = doc.y;
-  doc.roundedRect(x, y, w, h, 5).fillAndStroke(ok ? KL.groenBg : KL.roodBg, ok ? KL.groenRand : KL.roodRand);
-  doc.font('Helvetica-Bold').fontSize(9).fillColor(ok ? KL.groenTekst : KL.roodTekst)
+  doc.roundedRect(x, y, w, h, 5).fillAndStroke(kl.bg, kl.rand);
+  doc.font('Helvetica-Bold').fontSize(9).fillColor(kl.tekst)
     .text(tekst, x + 10, y + h / 2 - 5, { width: w - 20 });
   doc.fillColor('#000000');
   doc.y = y + h + 10;
@@ -139,8 +158,10 @@ function tekenTabel(doc, x, w, margin, titel, kolommen, rijen, legeTekst) {
 async function haalProductRapportData(productId) {
   const { rows } = await db.query(
     `SELECT id, naam, categorieen, afmetingen, leeftijdscategorie, gewicht_kg, aankoopdatum,
+            serienummer, bouwjaar,
             certificaat_bestandsnaam, certificaat_upload_op,
-            infofiche_bestandsnaam, infofiche_upload_op
+            infofiche_bestandsnaam, infofiche_upload_op,
+            logboek_origineel_bestand, logboek_origineel_bestandsnaam, logboek_origineel_mimetype
      FROM producten WHERE id = $1`,
     [productId]
   );
@@ -151,13 +172,63 @@ async function haalProductRapportData(productId) {
     'SELECT type_keuring, vervaldatum FROM keuringen WHERE product_id = $1 ORDER BY vervaldatum', [productId]
   );
   const { rows: logboek } = await db.query(
-    'SELECT type, datum, notitie FROM product_logboek WHERE product_id = $1 ORDER BY datum', [productId]
+    'SELECT type, datum, notitie, uitgevoerd_door FROM product_logboek WHERE product_id = $1 ORDER BY datum', [productId]
   );
   return { product, keuringen, logboek };
 }
 
+// Voegt — indien aanwezig — het originele logboek van de fabrikant (zie
+// migratie 045, logboek_origineel_*) als extra pagina('s) ACHTERAAN het door
+// ons gegenereerde PDF toe, zodat Jonas één samengevoegd document heeft i.p.v.
+// twee losse. PDF → pagina's rechtstreeks overnemen; JPG/PNG → als nieuwe
+// pagina ingepast op A4. Faalt het samenvoegen om één of andere reden (bv.
+// een beschadigd/onverwacht bestand), dan geven we gewoon ons eigen rapport
+// terug i.p.v. de hele aanvraag te laten crashen — beter een onvolledig
+// document dan géén document bij een controle.
+async function voegOrigineelLogboekToe(eigenBuffer, origineelBuffer, origineelMimetype) {
+  try {
+    // Lazy (i.p.v. bovenaan dit bestand) ingeladen: zo blijft het gewone,
+    // veruit meest gebruikte pad — een logboek-PDF zonder geüpload origineel
+    // — volledig werken zelfs als 'pdf-lib' om wat voor reden dan ook niet
+    // beschikbaar is, i.p.v. dat dan de hele PDF-generatie (ook zonder
+    // samenvoegen) zou crashen op een module die enkel voor dit ene extraatje
+    // nodig is.
+    const { PDFDocument: PDFLibDocument } = require('pdf-lib');
+    const finaalDoc = await PDFLibDocument.load(eigenBuffer);
+    if (origineelMimetype === 'application/pdf') {
+      const origineelDoc = await PDFLibDocument.load(origineelBuffer, { ignoreEncryption: true });
+      const paginas = await finaalDoc.copyPages(origineelDoc, origineelDoc.getPageIndices());
+      paginas.forEach((pagina) => finaalDoc.addPage(pagina));
+    } else {
+      const afbeelding = origineelMimetype === 'image/png'
+        ? await finaalDoc.embedPng(origineelBuffer)
+        : await finaalDoc.embedJpg(origineelBuffer);
+      const paginaB = [595.28, 841.89]; // A4 in punten, zelfde formaat als de rest van het rapport
+      const schaal = Math.min(paginaB[0] / afbeelding.width, paginaB[1] / afbeelding.height, 1);
+      const breedte = afbeelding.width * schaal;
+      const hoogte = afbeelding.height * schaal;
+      const pagina = finaalDoc.addPage(paginaB);
+      pagina.drawImage(afbeelding, {
+        x: (paginaB[0] - breedte) / 2,
+        y: (paginaB[1] - hoogte) / 2,
+        width: breedte,
+        height: hoogte,
+      });
+    }
+    const bytes = await finaalDoc.save();
+    return Buffer.from(bytes);
+  } catch (err) {
+    console.error('Kon origineel logboek niet samenvoegen bij het rapport:', err.message);
+    return eigenBuffer;
+  }
+}
+
 // Geeft { buffer, bestandsnaam } terug, of null als het product niet bestaat.
-async function genereerProductRapportPdf(productId) {
+// opties.volledig: false (standaard) toont enkel de laatste 5 onderhouds-/
+// inspectieregels (zie AANTAL_REGELS_KORT hierboven), true toont de volledige
+// historiek — de databank zelf bevat in beide gevallen alle regels.
+async function genereerProductRapportPdf(productId, opties = {}) {
+  const volledig = !!opties.volledig;
   const data = await haalProductRapportData(productId);
   if (!data) return null;
   const { product, keuringen, logboek } = data;
@@ -179,7 +250,7 @@ async function genereerProductRapportPdf(productId) {
     .text(`Tel ${BEDRIJF.tel} · Gsm ${BEDRIJF.gsm} · ${BEDRIJF.email}`, MARGIN, MARGIN + 36, { width: 300 });
 
   doc.fontSize(13).font('Helvetica-Bold').fillColor('#000000')
-    .text('Logboek & rapport springkasteel', MARGIN, MARGIN + 2, { width: CONTENT_W, align: 'right' });
+    .text('Logboek springkasteel', MARGIN, MARGIN + 2, { width: CONTENT_W, align: 'right' });
   doc.fontSize(8.5).font('Helvetica').fillColor(KL.grijs)
     .text(`${product.naam} — afgedrukt op ${fmtDatumTijd(new Date())}`, MARGIN, MARGIN + 19, { width: CONTENT_W, align: 'right' });
   doc.fillColor('#000000');
@@ -197,6 +268,8 @@ async function genereerProductRapportPdf(productId) {
 
   const productRegels = [
     { label: 'Categorie', waarde: (product.categorieen || []).join(', ') },
+    { label: 'Serienummer', waarde: product.serienummer },
+    { label: 'Bouwjaar', waarde: product.bouwjaar != null ? String(product.bouwjaar) : null },
     { label: 'Afmetingen', waarde: product.afmetingen },
     { label: 'Leeftijd', waarde: product.leeftijdscategorie },
     { label: 'Gewicht', waarde: product.gewicht_kg != null ? `${product.gewicht_kg} kg` : null },
@@ -234,34 +307,56 @@ async function genereerProductRapportPdf(productId) {
   doc.y = Math.max(leftY, rightY) + 18;
 
   // ---- Onderhoud (reiniging/herstelling) ----
-  const onderhoudRijen = logboek
-    .filter((l) => l.type === 'reiniging' || l.type === 'herstelling')
-    .map((l) => [fmtDatum(l.datum), LOGBOEK_TYPE_LABELS[l.type] || l.type, l.notitie || '']);
-  tekenSectieTitel(doc, MARGIN, CONTENT_W, MARGIN, 'Onderhoud');
+  // logboek is opgehaald ORDER BY datum (oplopend) — slice(-N) geeft dus de
+  // N meest recente regels, in chronologische volgorde. ditJaar/voldoet
+  // hieronder wordt bewust op de VOLLEDIGE lijst berekend, nooit op de
+  // ingekorte weergave — anders zou het korte rapport de nalevingstelling
+  // zelf kunnen vertekenen.
+  const alleOnderhoudRijen = logboek.filter((l) => l.type === 'reiniging' || l.type === 'herstelling');
+  const onderhoudWeergave = volledig ? alleOnderhoudRijen : alleOnderhoudRijen.slice(-AANTAL_REGELS_KORT);
+  const onderhoudRijen = onderhoudWeergave
+    .map((l) => [fmtDatum(l.datum), LOGBOEK_TYPE_LABELS[l.type] || l.type, l.uitgevoerd_door || '', l.notitie || '']);
+  tekenSectieTitel(
+    doc, MARGIN, CONTENT_W, MARGIN, 'Onderhoud',
+    volledig || alleOnderhoudRijen.length <= AANTAL_REGELS_KORT
+      ? undefined
+      : `Laatste ${AANTAL_REGELS_KORT} van ${alleOnderhoudRijen.length} getoond — volledige historiek op aanvraag (zie "volledig logboek").`
+  );
   tekenTabel(
     doc, MARGIN, CONTENT_W, MARGIN, 'Reiniging & herstelling',
-    [{ titel: 'Datum', breedte: 0.2 }, { titel: 'Type', breedte: 0.25 }, { titel: 'Opmerking', breedte: 0.55 }],
+    [{ titel: 'Datum', breedte: 0.16 }, { titel: 'Type', breedte: 0.2 }, { titel: 'Door', breedte: 0.22 }, { titel: 'Opmerking', breedte: 0.42 }],
     onderhoudRijen,
     'Nog geen reiniging/herstelling genoteerd.'
   );
 
   // ---- Inspecties (controle) ----
-  const controleRijen = logboek.filter((l) => l.type === 'controle');
-  const ditJaar = controleRijen.filter((l) => new Date(l.datum).getFullYear() === new Date().getFullYear()).length;
+  const alleControleRijen = logboek.filter((l) => l.type === 'controle');
+  const controleWeergave = volledig ? alleControleRijen : alleControleRijen.slice(-AANTAL_REGELS_KORT);
+  const ditJaar = alleControleRijen.filter((l) => new Date(l.datum).getFullYear() === new Date().getFullYear()).length;
   const voldoet = ditJaar >= MIN_CONTROLES_PER_JAAR;
   tekenSectieTitel(
     doc, MARGIN, CONTENT_W, MARGIN, 'Inspecties',
     `Minstens ${MIN_CONTROLES_PER_JAAR}x per jaar een controle/nazicht (FOD-verplichting).`
   );
+  // Enkel bij effectief behaald (>=5) een groen "voldoet"-oordeel — anders
+  // gewoon de stand van zaken neutraal tonen (zie tekenStatusBanner hierboven).
   tekenStatusBanner(
     doc, MARGIN, CONTENT_W, MARGIN,
-    `${ditJaar} / ${MIN_CONTROLES_PER_JAAR} controles in ${new Date().getFullYear()} — ${voldoet ? 'voldoet aan de verplichting' : 'voldoet nog niet aan de verplichting'}`,
     voldoet
+      ? `${ditJaar} / ${MIN_CONTROLES_PER_JAAR} controles in ${new Date().getFullYear()} — voldoet aan de verplichting`
+      : `${ditJaar} / ${MIN_CONTROLES_PER_JAAR} controles in ${new Date().getFullYear()} tot nu toe`,
+    voldoet ? 'groen' : 'grijs'
   );
+  if (!volledig && alleControleRijen.length > AANTAL_REGELS_KORT) {
+    doc.fontSize(8).font('Helvetica-Oblique').fillColor(KL.grijs)
+      .text(`Laatste ${AANTAL_REGELS_KORT} van ${alleControleRijen.length} getoond — volledige historiek op aanvraag (zie "volledig logboek").`, MARGIN, doc.y, { width: CONTENT_W });
+    doc.moveDown(0.3);
+    doc.fillColor('#000000');
+  }
   tekenTabel(
     doc, MARGIN, CONTENT_W, MARGIN, 'Controles/nazichten',
-    [{ titel: 'Datum', breedte: 0.2 }, { titel: 'Opmerking', breedte: 0.8 }],
-    controleRijen.map((l) => [fmtDatum(l.datum), l.notitie || '']),
+    [{ titel: 'Datum', breedte: 0.16 }, { titel: 'Door', breedte: 0.24 }, { titel: 'Opmerking', breedte: 0.6 }],
+    controleWeergave.map((l) => [fmtDatum(l.datum), l.uitgevoerd_door || '', l.notitie || '']),
     'Nog geen controle/nazicht genoteerd.'
   );
 
@@ -285,9 +380,17 @@ async function genereerProductRapportPdf(productId) {
   );
 
   doc.end();
-  const buffer = await klaar;
+  let buffer = await klaar;
+
+  // Origineel logboek van de fabrikant (indien geüpload, zie migratie 045) —
+  // ACHTERAAN dit document samenvoegen tot één PDF (zie voegOrigineelLogboekToe
+  // hierboven).
+  if (product.logboek_origineel_bestand) {
+    buffer = await voegOrigineelLogboekToe(buffer, product.logboek_origineel_bestand, product.logboek_origineel_mimetype);
+  }
+
   const veiligeNaam = (product.naam || 'product').normalize('NFKD').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
-  const bestandsnaam = `Rapport-${veiligeNaam}-${fmtDatum(new Date()).replace(/\//g, '-')}.pdf`;
+  const bestandsnaam = `Logboek-${volledig ? 'volledig-' : ''}${veiligeNaam}-${fmtDatum(new Date()).replace(/\//g, '-')}.pdf`;
   return { buffer, bestandsnaam };
 }
 

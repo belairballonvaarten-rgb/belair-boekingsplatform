@@ -521,6 +521,15 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .form-keuring-toevoegen { display: flex; gap: 0.6rem; align-items: end; flex-wrap: wrap; margin-bottom: 1rem; }
 .form-keuring-toevoegen label { margin-bottom: 0; }
 
+/* Meerdere types tegelijk kunnen aanvinken bij een logboek-invoer (bv.
+   "gereinigd" EN "gecontroleerd" op dezelfde dag) — rij van .checkbox's
+   (zie die klasse hierboven) die als één label-brede flex-child past
+   tussen de andere velden van .form-keuring-toevoegen. */
+.logboek-type-keuze { display: flex; flex-direction: column; gap: 0.2rem; }
+.logboek-type-keuze > span { font-weight: 500; font-size: 0.85rem; }
+.logboek-type-keuze-rij { display: flex; gap: 0.8rem; flex-wrap: wrap; }
+.logboek-type-keuze-rij .checkbox { font-weight: 400; font-size: 0.9rem; }
+
 /* MODAL */
 .modal {
   position: fixed; inset: 0; background: rgba(0,0,0,0.4);

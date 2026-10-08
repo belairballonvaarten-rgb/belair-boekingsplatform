@@ -17,6 +17,7 @@ const PRODUCT_KOLOMMEN_ZONDER_BESTAND = `
   max_boekingen_per_dag, availability_buffer_dagen, overnachting_mogelijk,
   overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid,
   afbeeldingen, afmetingen, leeftijdscategorie, kostprijs, aankoopdatum, staat, staat_bijgewerkt_op,
+  serienummer, bouwjaar,
   motor_type, gewicht_kg, aantal_valmatten, aantal_piketten, aantal_zandzakken,
   aantal_motors, verlengkabel_standaard, verlengkabel_dubbel, overige_benodigdheden,
   materiaal_opmerking, gemiddelde_opsteltijd_minuten,
@@ -24,6 +25,8 @@ const PRODUCT_KOLOMMEN_ZONDER_BESTAND = `
   (certificaat_bestandsnaam IS NOT NULL) AS heeft_certificaat,
   infofiche_bestandsnaam, infofiche_mimetype, infofiche_upload_op,
   (infofiche_bestandsnaam IS NOT NULL) AS heeft_infofiche,
+  logboek_origineel_bestandsnaam, logboek_origineel_mimetype, logboek_origineel_upload_op,
+  (logboek_origineel_bestandsnaam IS NOT NULL) AS heeft_logboek_origineel,
   aangemaakt_op, bijgewerkt_op
 `;
 
@@ -144,49 +147,27 @@ router.get('/:id', asyncHandler(async (req, res) => {
   res.json({ ...rows[0], keuringen, logboek });
 }));
 
-// "Rapport per kasteel" (PDF) — op vraag van Jonas na een FOD Economie-
-// controle: alle gegevens die al bijgehouden worden (keuringen, certificaat,
-// logboek, infofiche) gebundeld in één document, klaar om te tonen/af te
-// drukken bij een volgende controle. Zie utils/productRapport.js voor de
-// opbouw. Inline getoond, zelfde patroon als ondertekend-document.pdf.
-router.get('/:id/rapport.pdf', asyncHandler(async (req, res) => {
-  const resultaat = await genereerProductRapportPdf(req.params.id);
+// "Logboek per kasteel" (PDF, vroeger "rapport" genoemd) — op vraag van Jonas
+// na een FOD Economie-controle: alle gegevens die al bijgehouden worden
+// (keuringen, certificaat, logboek, infofiche) gebundeld in één document,
+// klaar om te tonen/af te drukken bij een volgende controle. Zie
+// utils/productRapport.js voor de opbouw. Inline getoond, zelfde patroon als
+// ondertekend-document.pdf.
+// Let op: er is BEWUST geen "/verstuur"-route (meer) hier — op vraag van
+// Jonas gebeurt het versturen naar een klant niet langer via een apart
+// knopje per product in het dossier, maar via een publieke downloadlink
+// ({{logboek_links}}) in een sjabloon-mail (rol 'informatie_verzenden', zie
+// utils/mailTemplates.js + routes/product-info-publiek.js) — zelfde opzet als
+// de certificaat/handleiding-links.
+// ?volledig=1 geeft de volledige historiek i.p.v. enkel de laatste 5 regels
+// per tabel (zie AANTAL_REGELS_KORT in productRapport.js) — bv. als een
+// FOD-controleur ter plaatse om het volledige logboek vraagt.
+router.get('/:id/logboek.pdf', asyncHandler(async (req, res) => {
+  const resultaat = await genereerProductRapportPdf(req.params.id, { volledig: req.query.volledig === '1' });
   if (!resultaat) return res.status(404).json({ fout: 'Product niet gevonden' });
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `inline; filename="${resultaat.bestandsnaam}"`);
   res.send(resultaat.buffer);
-}));
-
-// Stuurt hetzelfde rapport als bijlage naar een klant — zelfde opzet als
-// /certificaat/verstuur en /infofiche/verstuur hierboven. Op vraag van Jonas:
-// vanuit een boeking-dossier naar de klant van die boeking, als die er om
-// vraagt (zie de knop "Rapport" naast "Certificaat" in het dossier).
-router.post('/:id/rapport/verstuur', asyncHandler(async (req, res) => {
-  const email = (req.body.email || '').trim();
-  if (!email) return res.status(400).json({ fout: 'E-mailadres is verplicht' });
-  if (!mailIsGeconfigureerd()) {
-    return res.status(501).json({
-      fout: 'De koppeling met Microsoft 365 is nog niet ingesteld (zie SETUP-MICROSOFT365.md) — versturen van e-mail is daardoor nog niet mogelijk.',
-    });
-  }
-
-  const resultaat = await genereerProductRapportPdf(req.params.id);
-  if (!resultaat) return res.status(404).json({ fout: 'Product niet gevonden' });
-
-  const { rows } = await db.query('SELECT naam FROM producten WHERE id = $1', [req.params.id]);
-  const naam = rows[0] ? rows[0].naam : 'het springkasteel';
-
-  await verstuurMail({
-    naar: email,
-    onderwerp: `Logboek & rapport — ${naam}`,
-    html: `Beste,<br><br>In bijlage het logboek/rapport van "${naam}".<br><br>Met vriendelijke groeten,<br>Belair-Fun`,
-    bijlagen: [{
-      naam: resultaat.bestandsnaam,
-      mimetype: 'application/pdf',
-      dataBase64: resultaat.buffer.toString('base64'),
-    }],
-  });
-  res.json({ verstuurd: true, naar: email });
 }));
 
 router.post('/', asyncHandler(async (req, res) => {
@@ -346,6 +327,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
     'max_boekingen_per_dag', 'availability_buffer_dagen', 'overnachting_mogelijk',
     'overnachting_toeslag', 'parent_id', 'korting_toegelaten', 'zichtbaarheid',
     'afbeeldingen', 'afmetingen', 'leeftijdscategorie', 'kostprijs', 'aankoopdatum', 'staat',
+    'serienummer', 'bouwjaar',
     'motor_type', 'gewicht_kg', 'aantal_valmatten', 'aantal_piketten', 'aantal_zandzakken',
     'aantal_motors', 'verlengkabel_standaard', 'verlengkabel_dubbel', 'overige_benodigdheden',
     'materiaal_opmerking', 'gemiddelde_opsteltijd_minuten',
@@ -409,16 +391,28 @@ router.post('/:id/keuringen', asyncHandler(async (req, res) => {
 // ============================================================
 const LOGBOEK_TYPES = ['controle', 'reiniging', 'herstelling'];
 
+// Op vraag van Jonas: in één bezoek vaak meerdere dingen tegelijk (bv.
+// "gereinigd EN gecontroleerd") — 'types' (array) naast het oude 'type'
+// (string, achterwaarts compatibel) toegelaten. Voor elk gekozen type komt
+// er een eigen logboekregel met dezelfde datum/notitie, zodat de bestaande
+// tellingen (5x/jaar-controle, laatste reiniging/herstelling) gewoon blijven
+// werken zonder dat daar iets aan hoeft te veranderen.
 router.post('/:id/logboek', asyncHandler(async (req, res) => {
-  const { type, datum, notitie } = req.body;
-  if (!LOGBOEK_TYPES.includes(type) || !datum) {
-    return res.status(400).json({ fout: `type (${LOGBOEK_TYPES.join('/')}) en datum zijn verplicht` });
+  const { type, types, datum, notitie, uitgevoerd_door } = req.body;
+  const gekozenTypes = Array.isArray(types) ? types : (type ? [type] : []);
+  const ongeldig = gekozenTypes.some((t) => !LOGBOEK_TYPES.includes(t));
+  if (!gekozenTypes.length || ongeldig || !datum) {
+    return res.status(400).json({ fout: `Minstens één geldig type (${LOGBOEK_TYPES.join('/')}) en een datum zijn verplicht` });
   }
-  const { rows } = await db.query(
-    'INSERT INTO product_logboek (product_id, type, datum, notitie) VALUES ($1, $2, $3, $4) RETURNING *',
-    [req.params.id, type, datum, notitie || null]
-  );
-  res.status(201).json(rows[0]);
+  const aangemaakt = [];
+  for (const t of gekozenTypes) {
+    const { rows } = await db.query(
+      'INSERT INTO product_logboek (product_id, type, datum, notitie, uitgevoerd_door) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [req.params.id, t, datum, notitie || null, uitgevoerd_door || null]
+    );
+    aangemaakt.push(rows[0]);
+  }
+  res.status(201).json(gekozenTypes.length === 1 ? aangemaakt[0] : aangemaakt);
 }));
 
 // Let op: eigen pad (niet onder /:id) omdat het logboek-item zelf de sleutel is.
@@ -609,6 +603,64 @@ router.post('/:id/infofiche/verstuur', asyncHandler(async (req, res) => {
     }],
   });
   res.json({ verstuurd: true, naar: email });
+}));
+
+// ============================================================
+// ORIGINEEL LOGBOEK VAN DE FABRIKANT (zie migratie 045) — het derde document
+// naast certificaat en infofiche/handleiding hierboven, zelfde opslagpatroon.
+// Op vraag van Jonas: GEEN eigen downloadlink/verstuur-knop (dit bestand
+// staat nooit op zich) — het wordt bij het genereren van het logboek-PDF
+// (genereerProductRapportPdf, zie utils/productRapport.js en
+// GET /:id/logboek.pdf hierboven) automatisch ACHTERAAN ons eigen
+// gegenereerde rapport samengevoegd, zodat Jonas één PDF heeft i.p.v. twee
+// losse documenten te moeten combineren bij een controle.
+// ============================================================
+const LOGBOEK_ORIGINEEL_MAX_BYTES = 8 * 1024 * 1024;
+const LOGBOEK_ORIGINEEL_TOEGESTANE_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
+
+router.put('/:id/logboek-origineel', asyncHandler(async (req, res) => {
+  const { bestandsnaam, mimetype, dataBase64 } = req.body;
+  if (!bestandsnaam || !mimetype || !dataBase64) {
+    return res.status(400).json({ fout: 'bestandsnaam, mimetype en dataBase64 zijn verplicht' });
+  }
+  if (!LOGBOEK_ORIGINEEL_TOEGESTANE_TYPES.includes(mimetype)) {
+    return res.status(400).json({ fout: 'Enkel PDF, JPG of PNG toegelaten voor het originele logboek' });
+  }
+  const buffer = Buffer.from(dataBase64, 'base64');
+  if (buffer.length > LOGBOEK_ORIGINEEL_MAX_BYTES) {
+    return res.status(413).json({ fout: `Bestand is te groot (max. ${LOGBOEK_ORIGINEEL_MAX_BYTES / 1024 / 1024}MB)` });
+  }
+
+  const { rows } = await db.query(
+    `UPDATE producten SET logboek_origineel_bestand = $1, logboek_origineel_bestandsnaam = $2, logboek_origineel_mimetype = $3,
+       logboek_origineel_upload_op = now(), bijgewerkt_op = now()
+     WHERE id = $4 RETURNING ${PRODUCT_KOLOMMEN_ZONDER_BESTAND}`,
+    [buffer, bestandsnaam, mimetype, req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
+  res.json(rows[0]);
+}));
+
+router.get('/:id/logboek-origineel', asyncHandler(async (req, res) => {
+  const { rows } = await db.query(
+    'SELECT logboek_origineel_bestand, logboek_origineel_bestandsnaam, logboek_origineel_mimetype FROM producten WHERE id = $1',
+    [req.params.id]
+  );
+  if (!rows[0] || !rows[0].logboek_origineel_bestand) return res.status(404).json({ fout: 'Geen origineel logboek gevonden voor dit product' });
+  res.set('Content-Type', rows[0].logboek_origineel_mimetype || 'application/octet-stream');
+  res.set('Content-Disposition', `inline; filename="${(rows[0].logboek_origineel_bestandsnaam || 'logboek-origineel').replace(/"/g, '')}"`);
+  res.send(rows[0].logboek_origineel_bestand);
+}));
+
+router.delete('/:id/logboek-origineel', asyncHandler(async (req, res) => {
+  const { rows } = await db.query(
+    `UPDATE producten SET logboek_origineel_bestand = NULL, logboek_origineel_bestandsnaam = NULL, logboek_origineel_mimetype = NULL,
+       logboek_origineel_upload_op = NULL, bijgewerkt_op = now()
+     WHERE id = $1 RETURNING ${PRODUCT_KOLOMMEN_ZONDER_BESTAND}`,
+    [req.params.id]
+  );
+  if (!rows[0]) return res.status(404).json({ fout: 'Product niet gevonden' });
+  res.json(rows[0]);
 }));
 
 module.exports = router;

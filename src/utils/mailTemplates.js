@@ -135,6 +135,21 @@ function tekenCertificaatLinks(producten) {
   return `<p style="margin:16px 0;font-size:14px;color:#333">${regels}</p>`;
 }
 
+// Zelfde opzet, maar voor het logboek (vroeger "rapport" genoemd) — op vraag
+// van Jonas: niet langer een apart knopje per product in het dossier, maar
+// een link in een sjabloon-mail (rol 'informatie_verzenden') zodat de klant
+// zelf steeds de meest actuele versie kan ophalen. Een logboek-PDF kan altijd
+// gegenereerd worden (zie productRapport.js) — geen "heeft_logboek"-check
+// nodig zoals bij certificaat/handleiding (dat zijn geüploade bestanden).
+function tekenLogboekLinks(producten) {
+  const metId = (producten || []).filter((p) => p.id);
+  if (!metId.length) return '';
+  const regels = metId
+    .map((p) => `<a href="${PLATFORM_URL}/api/product-info/${p.id}/logboek" style="color:${KL.navy};font-weight:600">${escapeHtml(p.naam)} — logboek downloaden</a>`)
+    .join('<br>');
+  return `<p style="margin:16px 0;font-size:14px;color:#333">${regels}</p>`;
+}
+
 // Prijssamenvatting onderaan — zelfde opbouw als de prijstabel in het dossier
 // zelf (subtotaal producten, transport, toeslag/korting indien aanwezig,
 // totaal, BTW), in een opvallend huisstijl-kader.
@@ -218,6 +233,7 @@ function bouwTemplateContext(boeking, producten, prijstabel) {
   inhoudContext.prijsblok = tekenPrijsblok(prijstabel);
   inhoudContext.handleiding_links = tekenHandleidingLinks(producten);
   inhoudContext.certificaat_links = tekenCertificaatLinks(producten);
+  inhoudContext.logboek_links = tekenLogboekLinks(producten);
   return { onderwerpContext: basis, inhoudContext };
 }
 
@@ -229,7 +245,7 @@ function bouwTemplateContext(boeking, producten, prijstabel) {
 // mail dan bv. een <table> genest in een <p> krijgen (ongeldige HTML, kan in
 // sommige mailclients de opmaak breken) — daarom die omwikkelende <p>/<div>
 // hier weer wegnemen vóór de effectieve vervanging.
-const BLOK_PLAATSHOUDERS = ['header_afbeelding', 'gegevensblok', 'producten_kaarten', 'prijsblok', 'bevestig_knop', 'handleiding_links', 'certificaat_links'];
+const BLOK_PLAATSHOUDERS = ['header_afbeelding', 'gegevensblok', 'producten_kaarten', 'prijsblok', 'bevestig_knop', 'handleiding_links', 'certificaat_links', 'logboek_links'];
 
 function ontwikkelBlokPlaatshouders(tekst) {
   let resultaat = tekst;

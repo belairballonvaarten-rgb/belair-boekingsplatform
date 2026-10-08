@@ -3227,11 +3227,7 @@ async function openDetail(boekingId) {
       const certificaatKnop = p.product_heeft_certificaat
         ? `<button type="button" class="linkbtn btn-stuur-certificaat" data-product-id="${p.product_id}" title="Stuur het certificaat van ${p.product_naam} naar ${b.klant_email || 'de klant'}">📄 Certificaat</button>`
         : '';
-      // Rapport (logboek/onderhoud) kan altijd verstuurd worden — in
-      // tegenstelling tot het certificaat is dit geen geüpload bestand maar
-      // een gegenereerd document, dus geen "heeft_rapport"-check nodig.
-      const rapportKnop = `<button type="button" class="linkbtn btn-stuur-rapport" data-product-id="${p.product_id}" title="Stuur het onderhoudsrapport van ${p.product_naam} naar ${b.klant_email || 'de klant'}">📋 Rapport</button>`;
-      return `<div class="detail-rij product-regel"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}</span><span>${certificaatKnop}${rapportKnop}${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
+      return `<div class="detail-rij product-regel"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}</span><span>${certificaatKnop}${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
     })
     .join('');
 
@@ -3510,6 +3506,8 @@ async function openDetail(boekingId) {
     <details class="paneel" id="details-communicatie" ${geopendeSecties.includes('details-communicatie') ? 'open' : ''}>
       <summary>Communicatie</summary>
       <div class="paneel-inhoud">
+        <div class="dossier-snelknoppen">${dossierSnelknopHtml('informatie_verzenden', 'ℹ️ Informatie verzenden', b)}</div>
+        <p class="uitleg" style="margin:0 0 0.6rem;">Stuurt een e-mail met links naar het logboek en de certificaten van alle producten in deze boeking.</p>
         <div class="template-verstuur-blok">
           <select id="template-select">${mailTemplateOptiesHtml()}</select>
           <button type="button" id="btn-template-versturen" class="linkbtn" data-boeking-id="${b.id}">📧 Template versturen</button>
@@ -3893,21 +3891,6 @@ async function openDetail(boekingId) {
           body: JSON.stringify({ email: b.klant_email }),
         });
         toonToast('Certificaat verstuurd naar ' + b.klant_email);
-      } catch (err) {
-        alert(err.message);
-      }
-    });
-  });
-  inhoud.querySelectorAll('.btn-stuur-rapport').forEach((btn) => {
-    btn.addEventListener('click', async () => {
-      if (!b.klant_email) return alert('Deze klant heeft geen e-mailadres gekend — voeg dat eerst toe bij de klant.');
-      if (!confirm(`Onderhoudsrapport versturen naar ${b.klant_email}?`)) return;
-      try {
-        await api(`/api/producten/${btn.dataset.productId}/rapport/verstuur`, {
-          method: 'POST',
-          body: JSON.stringify({ email: b.klant_email }),
-        });
-        toonToast('Rapport verstuurd naar ' + b.klant_email);
       } catch (err) {
         alert(err.message);
       }
@@ -4781,6 +4764,25 @@ const LOGBOEK_MINIMUM_CONTROLES = 5;
 // Op module-niveau i.p.v. lokaal in openProductDetail() — ook nodig in
 // openLogboekDetail() hieronder.
 const LOGBOEK_TYPE_LABELS = { controle: 'Controle/nazicht', reiniging: 'Reiniging', herstelling: 'Herstelling' };
+const LOGBOEK_TYPES = Object.keys(LOGBOEK_TYPE_LABELS);
+
+// Op vraag van Jonas: bij een logboek-invoer moet je meerdere types tegelijk
+// kunnen aanvinken (bv. "gereinigd" EN "gecontroleerd" op dezelfde dag) i.p.v.
+// een <select> met maar één keuze. Deze twee helpers worden op alle 3 de
+// plekken waar een logboek-type gekozen wordt hergebruikt: #ls-type (Snel
+// invoeren, index.html), #lbd-type (openLogboekDetail) en #lb-type
+// (openProductDetail). "prefix" bepaalt enkel de id's (bv. "ls" → checkbox-
+// id's "ls-type-controle" enz.), zodat de 3 plekken elkaars DOM niet raken.
+function logboekTypeCheckboxenHtml(prefix) {
+  const vakjes = LOGBOEK_TYPES.map((t) => `
+    <label class="checkbox"><input type="checkbox" id="${prefix}-type-${t}" value="${t}" /> ${LOGBOEK_TYPE_LABELS[t]}</label>
+  `).join('');
+  return `<div class="logboek-type-keuze"><span>Type</span><div class="logboek-type-keuze-rij">${vakjes}</div></div>`;
+}
+
+function leesGekozenLogboekTypes(prefix) {
+  return LOGBOEK_TYPES.filter((t) => document.getElementById(`${prefix}-type-${t}`).checked);
+}
 
 function groepeerPerCategorie(producten) {
   const groepen = new Map();
@@ -5159,6 +5161,62 @@ function koppelInfoficheBlok(productId) {
   }
 }
 
+// Origineel logboek van de fabrikant (zie migratie 045) — zelfde
+// upload/verwijder-opzet als certificaat/infofiche hierboven, maar bewust
+// GEEN apart "verstuur"-formulier: dit bestand staat nooit op zich, het
+// wordt automatisch samengevoegd bij het genereren van het logboek-PDF
+// (zie genereerProductRapportPdf in utils/productRapport.js).
+function logboekOrigineelBlokHtml(p) {
+  if (!p.heeft_logboek_origineel) {
+    return `
+      <form id="form-logboek-origineel-upload" class="form-certificaat">
+        <input type="file" id="lo-bestand" accept="application/pdf,image/jpeg,image/png" required />
+        <button type="submit">Upload origineel logboek</button>
+      </form>
+      <p class="uitleg">PDF, JPG of PNG, max. 8MB.</p>
+    `;
+  }
+  return `
+    <div class="certificaat-huidig">
+      <span>📄 ${p.logboek_origineel_bestandsnaam}</span>
+      <a href="/api/producten/${p.id}/logboek-origineel" target="_blank" rel="noopener" class="linkbtn">Bekijken/downloaden</a>
+      <button type="button" id="btn-logboek-origineel-verwijderen" class="linkbtn gevaar">Verwijderen</button>
+    </div>
+  `;
+}
+
+function koppelLogboekOrigineelBlok(productId) {
+  const uploadForm = document.getElementById('form-logboek-origineel-upload');
+  if (uploadForm) {
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const bestand = document.getElementById('lo-bestand').files[0];
+      if (!bestand) return;
+      try {
+        const dataBase64 = await leesBestandAlsBase64(bestand);
+        await api(`/api/producten/${productId}/logboek-origineel`, {
+          method: 'PUT',
+          body: JSON.stringify({ bestandsnaam: bestand.name, mimetype: bestand.type, dataBase64 }),
+        });
+        toonToast('Origineel logboek geüpload');
+        openProductDetail(productId);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+
+  const verwijderBtn = document.getElementById('btn-logboek-origineel-verwijderen');
+  if (verwijderBtn) {
+    verwijderBtn.addEventListener('click', async () => {
+      if (!confirm('Origineel logboek verwijderen?')) return;
+      await api(`/api/producten/${productId}/logboek-origineel`, { method: 'DELETE' });
+      toonToast('Origineel logboek verwijderd');
+      openProductDetail(productId);
+    });
+  }
+}
+
 async function openProductDetail(productId) {
   const p = await api(`/api/producten/${productId}`);
   const inhoud = document.getElementById('modal-product-inhoud');
@@ -5169,14 +5227,17 @@ async function openProductDetail(productId) {
 
   const logboekHtml = (p.logboek || [])
     .map((l) => `<div class="keuring-item">
-        <span>${LOGBOEK_TYPE_LABELS[l.type] || l.type} — ${fmtDatum(l.datum)}${l.notitie ? ` (${l.notitie})` : ''}</span>
+        <span>${LOGBOEK_TYPE_LABELS[l.type] || l.type} — ${fmtDatum(l.datum)}${l.uitgevoerd_door ? ` — door ${l.uitgevoerd_door}` : ''}${l.notitie ? ` (${l.notitie})` : ''}</span>
         <button type="button" class="linkbtn gevaar btn-logboek-verwijderen" data-logboek-id="${l.id}" title="Verwijderen">✕</button>
       </div>`)
     .join('') || '<p class="leeg-bericht">Nog geen logboek-items toegevoegd.</p>';
 
   inhoud.innerHTML = `
     <h3>${p.naam}</h3>
-    <p><a href="/api/producten/${p.id}/rapport.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Rapport afdrukken (voor FOD-controle)</a></p>
+    <p>
+      <a href="/api/producten/${p.id}/logboek.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Logboek afdrukken (laatste 5, voor FOD-controle)</a>
+      <a href="/api/producten/${p.id}/logboek.pdf?volledig=1" target="_blank" rel="noopener" class="linkbtn">📄 Volledig logboek (alle regels)</a>
+    </p>
     <form id="form-product-bewerken">
       <div class="grid-2">
         <label>Naam<input type="text" id="pb-naam" value="${p.naam}" /></label>
@@ -5191,6 +5252,8 @@ async function openProductDetail(productId) {
         <label>Afbeelding (URL)<input type="text" id="pb-afbeelding" value="${(p.afbeeldingen && p.afbeeldingen[0]) || ''}" /></label>
         <label>Kostprijs (€, aankoop)<input type="number" id="pb-kostprijs" step="0.01" min="0" value="${p.kostprijs != null ? p.kostprijs : ''}" placeholder="optioneel, voor terugverdiend-overzicht" /></label>
         <label>Aankoopdatum<input type="date" id="pb-aankoopdatum" value="${p.aankoopdatum ? String(p.aankoopdatum).slice(0, 10) : ''}" /></label>
+        <label>Serienummer<input type="text" id="pb-serienummer" value="${p.serienummer || ''}" /></label>
+        <label>Bouwjaar<input type="number" id="pb-bouwjaar" min="1990" max="2100" value="${p.bouwjaar != null ? p.bouwjaar : ''}" /></label>
         <label>Max. boekingen per dag<input type="number" id="pb-max-per-dag" min="1" value="${p.max_boekingen_per_dag}" /></label>
         <label>Buffer-dagen tussen boekingen<input type="number" id="pb-buffer-dagen" min="0" value="${p.availability_buffer_dagen}" /></label>
         <label>Zichtbaarheid
@@ -5243,17 +5306,16 @@ async function openProductDetail(productId) {
     <p class="uitleg">Verplicht minstens ${LOGBOEK_MINIMUM_CONTROLES}x per jaar een controle/nazicht noteren (FOD-verplichting) — zie ook het overzicht onder "Logboek" in het menu.</p>
     <div class="keuringen-lijst">${logboekHtml}</div>
     <form id="form-logboek-toevoegen" class="form-keuring-toevoegen">
-      <label>Type
-        <select id="lb-type">
-          <option value="controle">Controle/nazicht</option>
-          <option value="reiniging">Reiniging</option>
-          <option value="herstelling">Herstelling</option>
-        </select>
-      </label>
+      ${logboekTypeCheckboxenHtml('lb')}
       <label>Datum<input type="date" id="lb-datum" value="${new Date().toISOString().slice(0, 10)}" /></label>
+      <label>Uitgevoerd door<input type="text" id="lb-door" placeholder="naam" /></label>
       <label>Notitie<input type="text" id="lb-notitie" placeholder="optioneel" /></label>
       <button type="submit">+ Toevoegen</button>
     </form>
+
+    <h4>Origineel logboek (fabrikant)</h4>
+    <p class="uitleg">Het papieren/PDF-logboek dat je bij aankoop kreeg — wordt automatisch ACHTERAAN het hierboven afgedrukte logboek-PDF toegevoegd, zodat je één samengevoegd document hebt bij een controle.</p>
+    <div id="logboek-origineel-blok">${logboekOrigineelBlokHtml(p)}</div>
 
     <h4>Infofiche / handleiding</h4>
     <div id="infofiche-blok">${infoficheBlokHtml(p)}</div>
@@ -5280,6 +5342,8 @@ async function openProductDetail(productId) {
           afbeeldingen: afbeelding ? [afbeelding] : [],
           kostprijs: document.getElementById('pb-kostprijs').value !== '' ? parseFloat(document.getElementById('pb-kostprijs').value) : null,
           aankoopdatum: document.getElementById('pb-aankoopdatum').value || null,
+          serienummer: document.getElementById('pb-serienummer').value.trim() || null,
+          bouwjaar: document.getElementById('pb-bouwjaar').value !== '' ? parseInt(document.getElementById('pb-bouwjaar').value, 10) : null,
           max_boekingen_per_dag: parseInt(document.getElementById('pb-max-per-dag').value, 10) || 1,
           availability_buffer_dagen: parseInt(document.getElementById('pb-buffer-dagen').value, 10) || 0,
           zichtbaarheid: document.getElementById('pb-zichtbaarheid').value,
@@ -5332,13 +5396,14 @@ async function openProductDetail(productId) {
 
   document.getElementById('form-logboek-toevoegen').addEventListener('submit', async (e) => {
     e.preventDefault();
-    const type = document.getElementById('lb-type').value;
+    const types = leesGekozenLogboekTypes('lb');
     const datum = document.getElementById('lb-datum').value;
-    if (!datum) return;
+    if (!types.length || !datum) return;
     const notitie = document.getElementById('lb-notitie').value.trim();
+    const uitgevoerdDoor = document.getElementById('lb-door').value.trim();
     await api(`/api/producten/${productId}/logboek`, {
       method: 'POST',
-      body: JSON.stringify({ type, datum, notitie: notitie || null }),
+      body: JSON.stringify({ types, datum, notitie: notitie || null, uitgevoerd_door: uitgevoerdDoor || null }),
     });
     openProductDetail(productId); // herladen zodat het nieuwe logboek-item meteen zichtbaar is
   });
@@ -5353,6 +5418,7 @@ async function openProductDetail(productId) {
 
   koppelCertificaatBlok(productId);
   koppelInfoficheBlok(productId);
+  koppelLogboekOrigineelBlok(productId);
 
   modalProduct.hidden = false;
 }
@@ -5413,22 +5479,29 @@ async function laadLogboekOverzicht() {
 // binden telkens laadLogboekOverzicht() draait, anders stapelen de
 // listeners op).
 document.getElementById('ls-datum').value = new Date().toISOString().slice(0, 10);
+// #ls-type-keuze is een statische, lege <div> in index.html — de checkbox-
+// groep wordt hier één keer opgebouwd (zelfde reden als de listener
+// hieronder maar één keer geregistreerd wordt: dit formulier wordt nooit
+// opnieuw via innerHTML vervangen).
+document.getElementById('ls-type-keuze').innerHTML = logboekTypeCheckboxenHtml('ls');
 document.getElementById('form-logboek-snel').addEventListener('submit', async (e) => {
   e.preventDefault();
   const elFout = document.getElementById('logboek-snel-fout');
   elFout.textContent = '';
   const productId = document.getElementById('ls-product').value;
-  const type = document.getElementById('ls-type').value;
+  const types = leesGekozenLogboekTypes('ls');
   const datum = document.getElementById('ls-datum').value;
   const notitieEl = document.getElementById('ls-notitie');
-  if (!productId || !datum) { elFout.textContent = 'Kies een product en een datum.'; return; }
+  const uitgevoerdDoor = document.getElementById('ls-door').value.trim();
+  if (!productId || !types.length || !datum) { elFout.textContent = 'Kies een product, minstens één type en een datum.'; return; }
   try {
     await api(`/api/producten/${productId}/logboek`, {
       method: 'POST',
-      body: JSON.stringify({ type, datum, notitie: notitieEl.value.trim() || null }),
+      body: JSON.stringify({ types, datum, notitie: notitieEl.value.trim() || null, uitgevoerd_door: uitgevoerdDoor || null }),
     });
     toonToast('Toegevoegd aan logboek');
     notitieEl.value = '';
+    LOGBOEK_TYPES.forEach((t) => { document.getElementById(`ls-type-${t}`).checked = false; });
     await laadLogboekOverzicht();
   } catch (err) {
     elFout.textContent = err.message;
@@ -5436,7 +5509,7 @@ document.getElementById('form-logboek-snel').addEventListener('submit', async (e
 });
 
 // Focust de logboek-detailweergave van één product — status (certificaat/
-// handleiding/staat), rapport afdrukken, en de volledige historiek met een
+// handleiding/staat), logboek afdrukken, en de volledige historiek met een
 // invoerformulier erboven. Bewust NIET de volledige productfiche (prijzen/
 // materiaal/motor) — dat blijft via "Volledige productfiche bewerken →" of
 // de Producten-pagina zelf.
@@ -5447,7 +5520,7 @@ async function openLogboekDetail(productId) {
   const staat = p.staat || 'proper';
   const logboekHtml = (p.logboek || [])
     .map((l) => `<div class="keuring-item">
-        <span>${LOGBOEK_TYPE_LABELS[l.type] || l.type} — ${fmtDatum(l.datum)}${l.notitie ? ` (${l.notitie})` : ''}</span>
+        <span>${LOGBOEK_TYPE_LABELS[l.type] || l.type} — ${fmtDatum(l.datum)}${l.uitgevoerd_door ? ` — door ${l.uitgevoerd_door}` : ''}${l.notitie ? ` (${l.notitie})` : ''}</span>
         <button type="button" class="linkbtn gevaar btn-logboek-verwijderen" data-logboek-id="${l.id}" title="Verwijderen">✕</button>
       </div>`)
     .join('') || '<p class="leeg-bericht">Nog geen logboek-items toegevoegd.</p>';
@@ -5460,20 +5533,16 @@ async function openLogboekDetail(productId) {
       · Staat: <span class="staat-badge ${staat}">${staat === 'proper' ? 'Proper' : 'Nat/vuil'}</span>
     </p>
     <p>
-      <a href="/api/producten/${p.id}/rapport.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Rapport afdrukken (voor FOD-controle)</a>
+      <a href="/api/producten/${p.id}/logboek.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Logboek afdrukken (laatste 5, voor FOD-controle)</a>
+      <a href="/api/producten/${p.id}/logboek.pdf?volledig=1" target="_blank" rel="noopener" class="linkbtn">📄 Volledig logboek (alle regels)</a>
       <button type="button" class="linkbtn" id="btn-logboek-detail-volledig">Volledige productfiche bewerken →</button>
     </p>
 
     <h4>Nieuwe invoer</h4>
     <form id="form-logboek-toevoegen-detail" class="form-keuring-toevoegen">
-      <label>Type
-        <select id="lbd-type">
-          <option value="controle">Controle/nazicht</option>
-          <option value="reiniging">Reiniging</option>
-          <option value="herstelling">Herstelling</option>
-        </select>
-      </label>
+      ${logboekTypeCheckboxenHtml('lbd')}
       <label>Datum<input type="date" id="lbd-datum" value="${new Date().toISOString().slice(0, 10)}" /></label>
+      <label>Uitgevoerd door<input type="text" id="lbd-door" placeholder="naam" /></label>
       <label>Notitie<input type="text" id="lbd-notitie" placeholder="optioneel" /></label>
       <button type="submit">+ Toevoegen</button>
     </form>
@@ -5491,14 +5560,15 @@ async function openLogboekDetail(productId) {
     e.preventDefault();
     const elFout = document.getElementById('logboek-detail-fout');
     elFout.textContent = '';
-    const type = document.getElementById('lbd-type').value;
+    const types = leesGekozenLogboekTypes('lbd');
     const datum = document.getElementById('lbd-datum').value;
     const notitie = document.getElementById('lbd-notitie').value.trim();
-    if (!datum) { elFout.textContent = 'Kies een datum.'; return; }
+    const uitgevoerdDoor = document.getElementById('lbd-door').value.trim();
+    if (!types.length || !datum) { elFout.textContent = 'Kies minstens één type en een datum.'; return; }
     try {
       await api(`/api/producten/${productId}/logboek`, {
         method: 'POST',
-        body: JSON.stringify({ type, datum, notitie: notitie || null }),
+        body: JSON.stringify({ types, datum, notitie: notitie || null, uitgevoerd_door: uitgevoerdDoor || null }),
       });
       toonToast('Toegevoegd aan logboek');
       await openLogboekDetail(productId);
@@ -5595,6 +5665,7 @@ const ROL_LABELS = {
   betaalverzoek: 'Knop 2 — Betaalverzoek',
   reservatie_bevestiging: 'Knop 3 — Reservatiebevestiging',
   review_verzoek: 'Knop 4 — Review-verzoek',
+  informatie_verzenden: 'Knop 5 — Informatie verzenden (logboek + certificaten)',
   weigering: 'Weigeringsmail (bij "Weigeren" van een aanvraag)',
   klant_zelfbevestiging: 'Automatische mail (als de klant zelf bevestigt via de knop in de e-mail)',
 };
