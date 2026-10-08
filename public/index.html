@@ -403,7 +403,7 @@
       <div class="instellingen-blok instellingen-blok-breed">
         <h3>E-mailtemplates</h3>
         <p class="uitleg">Sjablonen die je met opmaak (vet, lijsten, links, ...) kan instellen en die je vanuit een boekingdossier naar de klant stuurt, via je eigen Microsoft 365-account. De 4 knoppen bovenaan een dossier (Aanvraagbevestiging / Betaalverzoek / Reservatiebevestiging / Review-verzoek) sturen telkens de template die je hieronder die rol geeft — overige templates blijven bereikbaar via de vrije lijst bij "Communicatie" in het dossier zelf.</p>
-        <p class="uitleg">Plaatshouders die automatisch ingevuld worden met de gegevens van die ene boeking: <code>{{klant_naam}}</code>, <code>{{producten}}</code>, <code>{{periode}}</code>, <code>{{datum_start}}</code>, <code>{{datum_einde}}</code>, <code>{{prijs}}</code>, <code>{{transportkost}}</code>, <code>{{totaal}}</code>, <code>{{betaald}}</code>, <code>{{saldo}}</code>, <code>{{boeking_nummer}}</code>, <code>{{bevestig_knop}}</code>, <code>{{bevestig_link}}</code>.</p>
+        <p class="uitleg">Plaatshouders die automatisch ingevuld worden met de gegevens van die ene boeking: <code>{{klant_naam}}</code>, <code>{{producten}}</code>, <code>{{periode}}</code>, <code>{{datum_start}}</code>, <code>{{datum_einde}}</code>, <code>{{prijs}}</code>, <code>{{transportkost}}</code>, <code>{{totaal}}</code>, <code>{{betaald}}</code>, <code>{{saldo}}</code>, <code>{{boeking_nummer}}</code>, <code>{{bevestig_knop}}</code>, <code>{{bevestig_link}}</code>, <code>{{handleiding_links}}</code> (downloadlink per product met een handleiding), <code>{{certificaat_links}}</code> (downloadlink per product met een certificaat — zo ontvangt de klant bij meerdere producten in één keer alle certificaten). Enkel zichtbaar in de mail als er voor die boeking ook effectief iets is om te tonen.</p>
         <p class="uitleg"><code>{{bevestig_knop}}</code> zet een kant-en-klare "Ik bevestig mijn reservatie"-knop in de mail — zet die in de template met rol "Aanvraagbevestiging". Klikt de klant erop, dan wordt de aanvraag automatisch op "Geaccepteerd" gezet (geen antwoordmail meer nodig), en gaat automatisch de template met rol "Automatische mail (als de klant zelf bevestigt...)" naar de klant (jij krijgt daarnaast ook zelf een seintje). <code>{{bevestig_link}}</code> is dezelfde link maar dan als kale URL, voor als je liever zelf een link/tekst opmaakt i.p.v. de kant-en-klare knop.</p>
         <div id="lijst-mail-templates"></div>
         <details id="nieuwe-template-details">
@@ -744,7 +744,29 @@
     <!-- LOGBOEK (verplichte nazichten FOD) + terugverdiend-overzicht -->
     <section id="view-logboek" class="pagina" hidden>
       <h2>Logboek</h2>
-      <p class="uitleg">Verplicht logboek per springkasteel (controle/reiniging/herstelling) — minstens <span id="logboek-minimum">5</span>x per jaar een nazicht per product, zodat alles meteen voorgelegd kan worden bij een controle. Klik op een product om een nazicht toe te voegen (zie ook het product zelf, onder "Producten").</p>
+      <p class="uitleg">Verplicht logboek per springkasteel (controle/reiniging/herstelling) — minstens <span id="logboek-minimum">5</span>x per jaar een nazicht per product, zodat alles meteen voorgelegd kan worden bij een controle.</p>
+
+      <h3>Snel invoeren</h3>
+      <p class="uitleg">Bv. vandaag 3 kastelen gereinigd? Kies telkens het product en klik op Toevoegen — het formulier blijft staan zodat je snel na elkaar kan invoeren.</p>
+      <form id="form-logboek-snel" class="form-keuring-toevoegen">
+        <label>Product
+          <select id="ls-product" required></select>
+        </label>
+        <label>Type
+          <select id="ls-type">
+            <option value="controle">Controle/nazicht</option>
+            <option value="reiniging">Reiniging</option>
+            <option value="herstelling">Herstelling</option>
+          </select>
+        </label>
+        <label>Datum<input type="date" id="ls-datum" /></label>
+        <label>Notitie<input type="text" id="ls-notitie" placeholder="optioneel" /></label>
+        <button type="submit">+ Toevoegen</button>
+      </form>
+      <p id="logboek-snel-fout" class="foutmelding"></p>
+
+      <h3 style="margin-top:1.4rem">Overzicht per product</h3>
+      <p class="uitleg">Klik op een product voor de volledige historiek en om een rapport af te drukken.</p>
       <table class="tabel">
         <thead>
           <tr><th>Product</th><th>Controles dit jaar</th><th>Laatste controle</th><th>Laatste reiniging</th><th>Laatste herstelling</th><th></th></tr>

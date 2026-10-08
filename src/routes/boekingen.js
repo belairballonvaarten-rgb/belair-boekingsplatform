@@ -145,7 +145,8 @@ async function haalIngevuldeTemplateOp(boekingId, templateId, adminId) {
 
   const { rows: producten } = await db.query(
     `SELECT p.id, p.naam, p.afbeeldingen, bp.aantal, bp.prijs,
-            (p.infofiche_bestandsnaam IS NOT NULL) AS heeft_infofiche
+            (p.infofiche_bestandsnaam IS NOT NULL) AS heeft_infofiche,
+            (p.certificaat_bestandsnaam IS NOT NULL) AS heeft_certificaat
      FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1 ORDER BY p.naam`,
     [boekingId]
   );

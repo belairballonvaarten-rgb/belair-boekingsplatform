@@ -110,10 +110,32 @@ async function zorgVoorEersteAdmin() {
   console.log(`Admin-account aangemaakt voor ${process.env.ADMIN_EMAIL}`);
 }
 
+// Wachtwoord vergeten/kwijt — zelfde principe als zorgVoorEersteAdmin()
+// hierboven, maar dan om een BESTAAND account te herstellen: zet tijdelijk
+// WACHTWOORD_RESET_EMAIL + WACHTWOORD_RESET_WACHTWOORD in Render (Settings >
+// Environment), herstart de service, log in, en verwijder beide variabelen
+// terug. Draait bij elke opstart zolang de variabelen ingesteld staan — dat
+// is onschadelijk (telkens hetzelfde resultaat) maar daarom net zo belangrijk
+// om ze nadien weer weg te halen i.p.v. het wachtwoord daar te laten staan.
+async function zorgVoorWachtwoordReset() {
+  const resetEmail = process.env.WACHTWOORD_RESET_EMAIL;
+  const resetWachtwoord = process.env.WACHTWOORD_RESET_WACHTWOORD;
+  if (!resetEmail || !resetWachtwoord) return;
+
+  const hash = await bcrypt.hash(resetWachtwoord, 10);
+  const { rowCount } = await db.query('UPDATE admins SET wachtwoord_hash = $1 WHERE email = $2', [hash, resetEmail]);
+  if (rowCount > 0) {
+    console.log(`Wachtwoord gereset voor ${resetEmail} — verwijder nu WACHTWOORD_RESET_EMAIL/WACHTWOORD_RESET_WACHTWOORD terug uit Render.`);
+  } else {
+    console.warn(`WACHTWOORD_RESET_EMAIL (${resetEmail}) ingesteld maar geen admin met dat e-mailadres gevonden — niets gewijzigd.`);
+  }
+}
+
 const PORT = process.env.PORT || 3000;
 
 async function main() {
   await zorgVoorEersteAdmin();
+  await zorgVoorWachtwoordReset();
   app.listen(PORT, () => console.log(`Belair-boekingsplatform API draait op poort ${PORT}`));
 }
 

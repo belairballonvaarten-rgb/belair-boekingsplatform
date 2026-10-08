@@ -116,6 +116,25 @@ function tekenHandleidingLinks(producten) {
   return `<p style="margin:16px 0;font-size:14px;color:#333">${regels}</p>`;
 }
 
+// Zelfde opzet als tekenHandleidingLinks hierboven, maar dan voor het
+// keuringscertificaat — op vraag van Jonas: bestelt een klant meerdere
+// producten, dan moet die via het reservatie-document (bv. de
+// "Reservatie bevestigd"-template, rol 'reservatie_bevestiging') de
+// certificaten van ALLE producten uit die boeking kunnen bereiken, niet
+// enkel van één. Publieke downloadlink per product dat een certificaat
+// heeft (zie routes/product-info-publiek.js) i.p.v. automatisch als bijlage
+// — zelfde reden als bij de handleiding: geen zwaar opgeblazen mail, de
+// klant haalt het zelf op wanneer nodig. Jonas plaatst de plaatshouder
+// {{certificaat_links}} zelf in de template(s) waar hij dit wil tonen.
+function tekenCertificaatLinks(producten) {
+  const metCertificaat = (producten || []).filter((p) => p.heeft_certificaat && p.id);
+  if (!metCertificaat.length) return '';
+  const regels = metCertificaat
+    .map((p) => `<a href="${PLATFORM_URL}/api/product-info/${p.id}/certificaat" style="color:${KL.navy};font-weight:600">${escapeHtml(p.naam)} — certificaat downloaden</a>`)
+    .join('<br>');
+  return `<p style="margin:16px 0;font-size:14px;color:#333">${regels}</p>`;
+}
+
 // Prijssamenvatting onderaan — zelfde opbouw als de prijstabel in het dossier
 // zelf (subtotaal producten, transport, toeslag/korting indien aanwezig,
 // totaal, BTW), in een opvallend huisstijl-kader.
@@ -198,6 +217,7 @@ function bouwTemplateContext(boeking, producten, prijstabel) {
   inhoudContext.producten_kaarten = (producten || []).map(tekenProductKaart).join('');
   inhoudContext.prijsblok = tekenPrijsblok(prijstabel);
   inhoudContext.handleiding_links = tekenHandleidingLinks(producten);
+  inhoudContext.certificaat_links = tekenCertificaatLinks(producten);
   return { onderwerpContext: basis, inhoudContext };
 }
 
@@ -209,7 +229,7 @@ function bouwTemplateContext(boeking, producten, prijstabel) {
 // mail dan bv. een <table> genest in een <p> krijgen (ongeldige HTML, kan in
 // sommige mailclients de opmaak breken) — daarom die omwikkelende <p>/<div>
 // hier weer wegnemen vóór de effectieve vervanging.
-const BLOK_PLAATSHOUDERS = ['header_afbeelding', 'gegevensblok', 'producten_kaarten', 'prijsblok', 'bevestig_knop', 'handleiding_links'];
+const BLOK_PLAATSHOUDERS = ['header_afbeelding', 'gegevensblok', 'producten_kaarten', 'prijsblok', 'bevestig_knop', 'handleiding_links', 'certificaat_links'];
 
 function ontwikkelBlokPlaatshouders(tekst) {
   let resultaat = tekst;

@@ -3227,7 +3227,11 @@ async function openDetail(boekingId) {
       const certificaatKnop = p.product_heeft_certificaat
         ? `<button type="button" class="linkbtn btn-stuur-certificaat" data-product-id="${p.product_id}" title="Stuur het certificaat van ${p.product_naam} naar ${b.klant_email || 'de klant'}">📄 Certificaat</button>`
         : '';
-      return `<div class="detail-rij product-regel"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}</span><span>${certificaatKnop}${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
+      // Rapport (logboek/onderhoud) kan altijd verstuurd worden — in
+      // tegenstelling tot het certificaat is dit geen geüpload bestand maar
+      // een gegenereerd document, dus geen "heeft_rapport"-check nodig.
+      const rapportKnop = `<button type="button" class="linkbtn btn-stuur-rapport" data-product-id="${p.product_id}" title="Stuur het onderhoudsrapport van ${p.product_naam} naar ${b.klant_email || 'de klant'}">📋 Rapport</button>`;
+      return `<div class="detail-rij product-regel"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}</span><span>${certificaatKnop}${rapportKnop}${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
     })
     .join('');
 
@@ -3889,6 +3893,21 @@ async function openDetail(boekingId) {
           body: JSON.stringify({ email: b.klant_email }),
         });
         toonToast('Certificaat verstuurd naar ' + b.klant_email);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+  inhoud.querySelectorAll('.btn-stuur-rapport').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!b.klant_email) return alert('Deze klant heeft geen e-mailadres gekend — voeg dat eerst toe bij de klant.');
+      if (!confirm(`Onderhoudsrapport versturen naar ${b.klant_email}?`)) return;
+      try {
+        await api(`/api/producten/${btn.dataset.productId}/rapport/verstuur`, {
+          method: 'POST',
+          body: JSON.stringify({ email: b.klant_email }),
+        });
+        toonToast('Rapport verstuurd naar ' + b.klant_email);
       } catch (err) {
         alert(err.message);
       }
@@ -4759,6 +4778,10 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
 // echte waarschuwing in het Logboek-overzicht.
 const LOGBOEK_MINIMUM_CONTROLES = 5;
 
+// Op module-niveau i.p.v. lokaal in openProductDetail() — ook nodig in
+// openLogboekDetail() hieronder.
+const LOGBOEK_TYPE_LABELS = { controle: 'Controle/nazicht', reiniging: 'Reiniging', herstelling: 'Herstelling' };
+
 function groepeerPerCategorie(producten) {
   const groepen = new Map();
   const categorieen = alleCategorieen(producten);
@@ -5144,7 +5167,6 @@ async function openProductDetail(productId) {
     .map((k) => `<div class="keuring-item"><span>${k.type_keuring}</span><span>Vervalt: ${fmtDatum(k.vervaldatum)}</span></div>`)
     .join('') || '<p class="leeg-bericht">Nog geen keuringen/certificaten toegevoegd.</p>';
 
-  const LOGBOEK_TYPE_LABELS = { controle: 'Controle/nazicht', reiniging: 'Reiniging', herstelling: 'Herstelling' };
   const logboekHtml = (p.logboek || [])
     .map((l) => `<div class="keuring-item">
         <span>${LOGBOEK_TYPE_LABELS[l.type] || l.type} — ${fmtDatum(l.datum)}${l.notitie ? ` (${l.notitie})` : ''}</span>
@@ -5340,11 +5362,22 @@ async function openProductDetail(productId) {
 // GET /logboek-overzicht en GET /terugverdiend-overzicht) — op vraag van
 // Jonas na een FOD-controle: in één oogopslag zien welke springkastelen
 // achterstaan op de verplichte nazichten, zonder elk product apart te hoeven
-// openen. Een rij aanklikken opent het product (zelfde modal als Producten).
+// openen. "Snel invoeren" bovenaan is voor het praktische geval "ik heb
+// vandaag 3 kastelen gereinigd" — product kiezen + toevoegen, formulier
+// blijft staan voor de volgende. Een rij aanklikken opent de volledige
+// historiek van dat product (openLogboekDetail, niet de hele productfiche).
 // ============================================================
 async function laadLogboekOverzicht() {
   const data = await api('/api/producten/logboek-overzicht');
   document.getElementById('logboek-minimum').textContent = data.minimum_per_jaar;
+
+  // Select voor "Snel invoeren" vullen — behoudt de huidig gekozen waarde
+  // over een herlaad heen (na toevoegen) zodat die niet steeds terugspringt
+  // naar het eerste product in de lijst.
+  const lsProduct = document.getElementById('ls-product');
+  const huidigeKeuze = lsProduct.value;
+  lsProduct.innerHTML = data.producten.map((p) => `<option value="${p.id}">${p.naam}</option>`).join('');
+  if (huidigeKeuze && data.producten.some((p) => p.id === huidigeKeuze)) lsProduct.value = huidigeKeuze;
 
   const tabelLogboek = document.getElementById('tabel-logboek-overzicht');
   tabelLogboek.innerHTML = data.producten.map((p) => `
@@ -5361,7 +5394,7 @@ async function laadLogboekOverzicht() {
   `).join('') || '<tr><td colspan="6" class="leeg-bericht">Geen producten gevonden.</td></tr>';
 
   tabelLogboek.querySelectorAll('.btn-logboek-open-product').forEach((btn) => {
-    btn.addEventListener('click', () => openProductDetail(btn.dataset.productId));
+    btn.addEventListener('click', () => openLogboekDetail(btn.dataset.productId));
   });
 
   // Badge op de menuknop: aantal producten dat nog niet aan het minimum zit —
@@ -5372,6 +5405,119 @@ async function laadLogboekOverzicht() {
   badge.textContent = aantalAchterstallig;
 
   await laadTerugverdiendOverzicht();
+}
+
+// Statisch formulier (staat vast in index.html, wordt niet herladen via
+// innerHTML) — listener dus één keer op module-niveau registreren, zelfde
+// patroon als de andere vaste formulieren in dit bestand (niet opnieuw
+// binden telkens laadLogboekOverzicht() draait, anders stapelen de
+// listeners op).
+document.getElementById('ls-datum').value = new Date().toISOString().slice(0, 10);
+document.getElementById('form-logboek-snel').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const elFout = document.getElementById('logboek-snel-fout');
+  elFout.textContent = '';
+  const productId = document.getElementById('ls-product').value;
+  const type = document.getElementById('ls-type').value;
+  const datum = document.getElementById('ls-datum').value;
+  const notitieEl = document.getElementById('ls-notitie');
+  if (!productId || !datum) { elFout.textContent = 'Kies een product en een datum.'; return; }
+  try {
+    await api(`/api/producten/${productId}/logboek`, {
+      method: 'POST',
+      body: JSON.stringify({ type, datum, notitie: notitieEl.value.trim() || null }),
+    });
+    toonToast('Toegevoegd aan logboek');
+    notitieEl.value = '';
+    await laadLogboekOverzicht();
+  } catch (err) {
+    elFout.textContent = err.message;
+  }
+});
+
+// Focust de logboek-detailweergave van één product — status (certificaat/
+// handleiding/staat), rapport afdrukken, en de volledige historiek met een
+// invoerformulier erboven. Bewust NIET de volledige productfiche (prijzen/
+// materiaal/motor) — dat blijft via "Volledige productfiche bewerken →" of
+// de Producten-pagina zelf.
+async function openLogboekDetail(productId) {
+  const p = await api(`/api/producten/${productId}`);
+  const inhoud = document.getElementById('modal-product-inhoud');
+
+  const staat = p.staat || 'proper';
+  const logboekHtml = (p.logboek || [])
+    .map((l) => `<div class="keuring-item">
+        <span>${LOGBOEK_TYPE_LABELS[l.type] || l.type} — ${fmtDatum(l.datum)}${l.notitie ? ` (${l.notitie})` : ''}</span>
+        <button type="button" class="linkbtn gevaar btn-logboek-verwijderen" data-logboek-id="${l.id}" title="Verwijderen">✕</button>
+      </div>`)
+    .join('') || '<p class="leeg-bericht">Nog geen logboek-items toegevoegd.</p>';
+
+  inhoud.innerHTML = `
+    <h3>${p.naam} — Logboek</h3>
+    <p class="uitleg">
+      Certificaat: ${p.certificaat_bestandsnaam ? `${p.certificaat_bestandsnaam} (${fmtDatum(p.certificaat_upload_op)})` : 'nog niet geüpload'}
+      · Handleiding: ${p.infofiche_bestandsnaam ? `${p.infofiche_bestandsnaam} (${fmtDatum(p.infofiche_upload_op)})` : 'nog niet geüpload'}
+      · Staat: <span class="staat-badge ${staat}">${staat === 'proper' ? 'Proper' : 'Nat/vuil'}</span>
+    </p>
+    <p>
+      <a href="/api/producten/${p.id}/rapport.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Rapport afdrukken (voor FOD-controle)</a>
+      <button type="button" class="linkbtn" id="btn-logboek-detail-volledig">Volledige productfiche bewerken →</button>
+    </p>
+
+    <h4>Nieuwe invoer</h4>
+    <form id="form-logboek-toevoegen-detail" class="form-keuring-toevoegen">
+      <label>Type
+        <select id="lbd-type">
+          <option value="controle">Controle/nazicht</option>
+          <option value="reiniging">Reiniging</option>
+          <option value="herstelling">Herstelling</option>
+        </select>
+      </label>
+      <label>Datum<input type="date" id="lbd-datum" value="${new Date().toISOString().slice(0, 10)}" /></label>
+      <label>Notitie<input type="text" id="lbd-notitie" placeholder="optioneel" /></label>
+      <button type="submit">+ Toevoegen</button>
+    </form>
+    <p id="logboek-detail-fout" class="foutmelding"></p>
+
+    <h4>Historiek</h4>
+    <div class="keuringen-lijst">${logboekHtml}</div>
+  `;
+
+  document.getElementById('btn-logboek-detail-volledig').addEventListener('click', () => {
+    openProductDetail(productId);
+  });
+
+  document.getElementById('form-logboek-toevoegen-detail').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const elFout = document.getElementById('logboek-detail-fout');
+    elFout.textContent = '';
+    const type = document.getElementById('lbd-type').value;
+    const datum = document.getElementById('lbd-datum').value;
+    const notitie = document.getElementById('lbd-notitie').value.trim();
+    if (!datum) { elFout.textContent = 'Kies een datum.'; return; }
+    try {
+      await api(`/api/producten/${productId}/logboek`, {
+        method: 'POST',
+        body: JSON.stringify({ type, datum, notitie: notitie || null }),
+      });
+      toonToast('Toegevoegd aan logboek');
+      await openLogboekDetail(productId);
+      laadLogboekOverzicht();
+    } catch (err) {
+      elFout.textContent = err.message;
+    }
+  });
+
+  inhoud.querySelectorAll('.btn-logboek-verwijderen').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Dit logboek-item verwijderen?')) return;
+      await api(`/api/producten/logboek/${btn.dataset.logboekId}`, { method: 'DELETE' });
+      await openLogboekDetail(productId);
+      laadLogboekOverzicht();
+    });
+  });
+
+  modalProduct.hidden = false;
 }
 
 async function laadTerugverdiendOverzicht() {

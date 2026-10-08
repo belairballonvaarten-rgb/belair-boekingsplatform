@@ -157,6 +157,38 @@ router.get('/:id/rapport.pdf', asyncHandler(async (req, res) => {
   res.send(resultaat.buffer);
 }));
 
+// Stuurt hetzelfde rapport als bijlage naar een klant — zelfde opzet als
+// /certificaat/verstuur en /infofiche/verstuur hierboven. Op vraag van Jonas:
+// vanuit een boeking-dossier naar de klant van die boeking, als die er om
+// vraagt (zie de knop "Rapport" naast "Certificaat" in het dossier).
+router.post('/:id/rapport/verstuur', asyncHandler(async (req, res) => {
+  const email = (req.body.email || '').trim();
+  if (!email) return res.status(400).json({ fout: 'E-mailadres is verplicht' });
+  if (!mailIsGeconfigureerd()) {
+    return res.status(501).json({
+      fout: 'De koppeling met Microsoft 365 is nog niet ingesteld (zie SETUP-MICROSOFT365.md) — versturen van e-mail is daardoor nog niet mogelijk.',
+    });
+  }
+
+  const resultaat = await genereerProductRapportPdf(req.params.id);
+  if (!resultaat) return res.status(404).json({ fout: 'Product niet gevonden' });
+
+  const { rows } = await db.query('SELECT naam FROM producten WHERE id = $1', [req.params.id]);
+  const naam = rows[0] ? rows[0].naam : 'het springkasteel';
+
+  await verstuurMail({
+    naar: email,
+    onderwerp: `Logboek & rapport — ${naam}`,
+    html: `Beste,<br><br>In bijlage het logboek/rapport van "${naam}".<br><br>Met vriendelijke groeten,<br>Belair-Fun`,
+    bijlagen: [{
+      naam: resultaat.bestandsnaam,
+      mimetype: 'application/pdf',
+      dataBase64: resultaat.buffer.toString('base64'),
+    }],
+  });
+  res.json({ verstuurd: true, naar: email });
+}));
+
 router.post('/', asyncHandler(async (req, res) => {
   const {
     naam, categorieen, sku, prijs, weekendprijs, afhaalprijs, weekdagprijs, meerdaagse_prijstabel,
