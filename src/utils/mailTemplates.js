@@ -100,6 +100,22 @@ function tekenGegevensblok(basis) {
   </table>`;
 }
 
+// Publieke downloadlink(en) voor de infofiche/handleiding van elk product in
+// de boeking dat er één heeft (zie routes/product-info-publiek.js) — enkel
+// zichtbaar in de mail als Jonas de {{handleiding_links}}-plaatshouder zelf
+// in een template zet. Bewust GEEN automatische bijlage: Jonas wil dit niet
+// standaard meesturen, de klant kan via deze link(s) het document zelf
+// ophalen wanneer hij het nodig heeft. Geen enkel product met een infofiche?
+// Dan gewoon een lege tekst i.p.v. een storend "geen handleiding beschikbaar".
+function tekenHandleidingLinks(producten) {
+  const metInfofiche = (producten || []).filter((p) => p.heeft_infofiche && p.id);
+  if (!metInfofiche.length) return '';
+  const regels = metInfofiche
+    .map((p) => `<a href="${PLATFORM_URL}/api/product-info/${p.id}/infofiche" style="color:${KL.navy};font-weight:600">${escapeHtml(p.naam)} — handleiding downloaden</a>`)
+    .join('<br>');
+  return `<p style="margin:16px 0;font-size:14px;color:#333">${regels}</p>`;
+}
+
 // Prijssamenvatting onderaan — zelfde opbouw als de prijstabel in het dossier
 // zelf (subtotaal producten, transport, toeslag/korting indien aanwezig,
 // totaal, BTW), in een opvallend huisstijl-kader.
@@ -181,6 +197,7 @@ function bouwTemplateContext(boeking, producten, prijstabel) {
   inhoudContext.gegevensblok = tekenGegevensblok(basis);
   inhoudContext.producten_kaarten = (producten || []).map(tekenProductKaart).join('');
   inhoudContext.prijsblok = tekenPrijsblok(prijstabel);
+  inhoudContext.handleiding_links = tekenHandleidingLinks(producten);
   return { onderwerpContext: basis, inhoudContext };
 }
 
@@ -192,7 +209,7 @@ function bouwTemplateContext(boeking, producten, prijstabel) {
 // mail dan bv. een <table> genest in een <p> krijgen (ongeldige HTML, kan in
 // sommige mailclients de opmaak breken) — daarom die omwikkelende <p>/<div>
 // hier weer wegnemen vóór de effectieve vervanging.
-const BLOK_PLAATSHOUDERS = ['header_afbeelding', 'gegevensblok', 'producten_kaarten', 'prijsblok', 'bevestig_knop'];
+const BLOK_PLAATSHOUDERS = ['header_afbeelding', 'gegevensblok', 'producten_kaarten', 'prijsblok', 'bevestig_knop', 'handleiding_links'];
 
 function ontwikkelBlokPlaatshouders(tekst) {
   let resultaat = tekst;

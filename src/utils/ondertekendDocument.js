@@ -430,4 +430,9 @@ async function verstuurOndertekendDocumentPerMail(boekingId) {
   return resultaat;
 }
 
-module.exports = { genereerOndertekendDocumentPdf, verstuurOndertekendDocumentPerMail };
+module.exports = {
+  genereerOndertekendDocumentPdf, verstuurOndertekendDocumentPerMail,
+  // Herbruikt in productRapport.js (inspectie-rapport per product) — zelfde
+  // briefhoofding-gegevens en teken-helpers, i.p.v. alles te dupliceren.
+  BEDRIJF, KL, euro, fmtDatum, fmtDatumTijd, tekenKaart,
+};

@@ -304,7 +304,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'online-bevestigd', 'boekingen', 'geweigerd', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail'];
+const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'online-bevestigd', 'boekingen', 'geweigerd', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'logboek', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -333,6 +333,7 @@ function wisselView(naam) {
   if (naam === 'beschikbaarheid') laadBeschikbaarheidsoverzicht();
   if (naam === 'nieuwe-boeking' && !document.getElementById('producten-rijen').children.length) nieuweProductRij();
   if (naam === 'producten') laadProductenOverzicht();
+  if (naam === 'logboek') laadLogboekOverzicht();
   if (naam === 'statistieken') laadStatistieken();
   if (naam === 'gebruikers') laadGebruikersOverzicht();
   if (naam === 'instellingen') laadInstellingen();
@@ -3424,15 +3425,17 @@ async function openDetail(boekingId) {
             ${p.vaste_totaalprijs != null
               ? `<div class="prijstabel-rij prijstabel-sub"><span>Berekend totaal (zonder vaste prijs)</span><span>${fmtEuro(p.berekend_totaal)}</span></div>`
               : ''}
-            <div class="prijstabel-rij">
-              <span>Vaste totaalprijs<span class="uitleg" style="display:block;font-weight:normal">i.p.v. het berekende totaal — bv. bij een vaste prijsafspraak</span></span>
+            <div class="prijstabel-rij prijstabel-totaal">
+              <label class="vaste-totaalprijs-toggle" title="Vink aan om het totaal manueel te overschrijven i.p.v. het berekende totaal — bv. bij een vaste prijsafspraak">
+                <input type="checkbox" id="dd-vaste-totaalprijs-aan" ${b.vaste_totaalprijs != null ? 'checked' : ''} />
+                Totaal${p.vaste_totaalprijs != null ? ' <span class="details-badge">vaste prijs</span>' : ''}
+              </label>
               <span class="toeslag-invoer">
-                <input type="number" id="dd-vaste-totaalprijs" step="0.01" min="0" value="${b.vaste_totaalprijs != null ? b.vaste_totaalprijs : ''}" placeholder="berekend" />
-                <button type="button" id="btn-vaste-totaalprijs-wissen" class="linkbtn gevaar" title="Vaste totaalprijs wissen — terug naar berekend totaal">✕</button>
+                <input type="number" id="dd-vaste-totaalprijs" step="0.01" min="0"
+                  value="${b.vaste_totaalprijs != null ? b.vaste_totaalprijs : p.totaal}"
+                  placeholder="bedrag, Enter om op te slaan" ${b.vaste_totaalprijs != null ? '' : 'disabled'} />
               </span>
             </div>
-            <button type="button" id="btn-vaste-totaalprijs-opslaan" class="secundair">Vaste totaalprijs opslaan</button>
-            <div class="prijstabel-rij prijstabel-totaal"><span>Totaal${p.vaste_totaalprijs != null ? ' <span class="details-badge">vaste prijs</span>' : ''}</span><span>${fmtEuro(p.totaal)}</span></div>
             <div class="prijstabel-rij prijstabel-sub"><span>Incl. BTW (${p.btw_percentage}%)</span><span>${fmtEuro(p.btw_bedrag)}</span></div>
             <div class="prijstabel-rij"><span>Reeds betaald</span><span>${fmtEuro(p.betaald_bedrag)}</span></div>
             <div class="prijstabel-rij prijstabel-saldo ${p.saldo_openstaand <= 0 ? 'voldaan' : ''}"><span>Openstaand saldo</span><span>${fmtEuro(p.saldo_openstaand)}</span></div>
@@ -3441,6 +3444,9 @@ async function openDetail(boekingId) {
             <label>Bedrag (€)<input type="number" id="np-betaling-bedrag" step="0.01" min="0.01" placeholder="bedrag, Enter om op te slaan" /></label>
             <label>Opmerking<input type="text" id="np-betaling-opmerking" placeholder="optioneel, bv. 'overschrijving'" /></label>
           </form>
+          ${p.saldo_openstaand > 0.01
+            ? `<button type="button" id="btn-betaling-volledig" class="secundair">✓ Betaald (${fmtEuro(p.saldo_openstaand)})</button>`
+            : ''}
           <div class="betaling-log">${betalingLogHtml}</div>
           <div class="ef-blok">
             <button type="button" class="linkbtn btn-ef" data-boeking-id="${b.id}" data-soort="factuur">🧾 Factuur (EenvoudigFactureren)</button>
@@ -3690,23 +3696,49 @@ async function openDetail(boekingId) {
     laadBoekingenOverzicht();
   });
 
-  document.getElementById('btn-vaste-totaalprijs-opslaan').addEventListener('click', async () => {
-    const vasteTotaalprijs = document.getElementById('dd-vaste-totaalprijs').value;
-    await api(`/api/boekingen/${boekingId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ vaste_totaalprijs: vasteTotaalprijs !== '' ? parseFloat(vasteTotaalprijs) : null }),
-    });
-    openDetail(boekingId);
-    laadBoekingenOverzicht();
+  // Vaste totaalprijs: een vinkje i.p.v. aparte opslaan/wissen-knoppen — aan
+  // zetten maakt het bedragveld meteen bewerkbaar (vooringevuld met het
+  // berekende totaal), uit zetten wist de vaste prijs meteen terug naar het
+  // berekende totaal. Opslaan gebeurt met Enter of door het veld te verlaten
+  // (zelfde "Enter om op te slaan"-gevoel als de andere velden hier).
+  const vasteTotaalprijsVeld = document.getElementById('dd-vaste-totaalprijs');
+  document.getElementById('dd-vaste-totaalprijs-aan').addEventListener('change', async (e) => {
+    if (e.target.checked) {
+      vasteTotaalprijsVeld.disabled = false;
+      vasteTotaalprijsVeld.focus();
+      vasteTotaalprijsVeld.select();
+    } else {
+      vasteTotaalprijsVeld.disabled = true;
+      await api(`/api/boekingen/${boekingId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ vaste_totaalprijs: null }),
+      });
+      openDetail(boekingId);
+      laadBoekingenOverzicht();
+    }
   });
-
-  document.getElementById('btn-vaste-totaalprijs-wissen').addEventListener('click', async () => {
+  const slaVasteTotaalprijsOp = async () => {
+    const waarde = vasteTotaalprijsVeld.value;
+    if (waarde === '') return;
     await api(`/api/boekingen/${boekingId}`, {
       method: 'PUT',
-      body: JSON.stringify({ vaste_totaalprijs: null }),
+      body: JSON.stringify({ vaste_totaalprijs: parseFloat(waarde) }),
     });
     openDetail(boekingId);
     laadBoekingenOverzicht();
+  };
+  vasteTotaalprijsVeld.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    slaVasteTotaalprijsOp();
+  });
+  vasteTotaalprijsVeld.addEventListener('blur', () => {
+    // Enkel opslaan bij het verlaten van het veld als het vinkje aanstaat
+    // (anders zou een per ongeluk focuste, uitgeschakelde invoer alsnog
+    // proberen op te slaan) én de waarde effectief gewijzigd is.
+    if (!vasteTotaalprijsVeld.disabled && vasteTotaalprijsVeld.value !== String(b.vaste_totaalprijs != null ? b.vaste_totaalprijs : '')) {
+      slaVasteTotaalprijsOp();
+    }
   });
 
   // Transportkost zit in het inklapbare "Locatie & transportkost"-blok — dit
@@ -3930,6 +3962,22 @@ async function openDetail(boekingId) {
     openDetail(boekingId);
     laadBoekingenOverzicht();
   });
+
+  // Snelknop "✓ Betaald": in de meeste gevallen wordt gewoon het volledige
+  // openstaand saldo in één keer betaald — dan hoeft Jonas dat bedrag niet
+  // eerst zelf te berekenen/overtypen in het veld hierboven. Het "nieuwe
+  // betaling"-veld blijft daarnaast gewoon bestaan voor een deelbetaling.
+  const btnBetalingVolledig = document.getElementById('btn-betaling-volledig');
+  if (btnBetalingVolledig) {
+    btnBetalingVolledig.addEventListener('click', async () => {
+      await api(`/api/boekingen/${boekingId}/betaling`, {
+        method: 'POST',
+        body: JSON.stringify({ bedrag: p.saldo_openstaand, opmerking: 'Volledig betaald' }),
+      });
+      openDetail(boekingId);
+      laadBoekingenOverzicht();
+    });
+  }
 
   document.getElementById('form-notities').addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -4706,6 +4754,11 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
 // ============================================================
 // PRODUCTEN (beheer: overzicht per sectie, nieuw product, staat, keuringen)
 // ============================================================
+// Zelfde minimum als MIN_CONTROLES_PER_JAAR in routes/producten.js (FOD-
+// verplichting) — enkel voor de uitleg-tekst hier, de server bepaalt de
+// echte waarschuwing in het Logboek-overzicht.
+const LOGBOEK_MINIMUM_CONTROLES = 5;
+
 function groepeerPerCategorie(producten) {
   const groepen = new Map();
   const categorieen = alleCategorieen(producten);
@@ -4998,6 +5051,91 @@ function koppelCertificaatBlok(productId) {
   }
 }
 
+// Infofiche/handleidingblok — zelfde opzet als het certificaatblok hierboven.
+// Bewust GEEN automatisch meesturen: dit is enkel voor Jonas zelf (bekijken,
+// manueel naar een e-mailadres doorsturen op aanvraag) of om de publieke
+// downloadlink te kopiëren, zodat hij die zelf ergens kan plakken/delen
+// (bv. in een mailtemplate via {{handleiding_links}}, zie Instellingen →
+// E-mailtemplates) zonder dat er standaard een bijlage bij elke mail komt.
+function infoficheBlokHtml(p) {
+  if (!p.heeft_infofiche) {
+    return `
+      <form id="form-infofiche-upload" class="form-certificaat">
+        <input type="file" id="info-bestand" accept="application/pdf,image/jpeg,image/png" required />
+        <button type="submit">Upload infofiche</button>
+      </form>
+      <p class="uitleg">PDF, JPG of PNG, max. 8MB.</p>
+    `;
+  }
+  const publiekeLink = `${window.location.origin}/api/product-info/${p.id}/infofiche`;
+  return `
+    <div class="certificaat-huidig">
+      <span>📄 ${p.infofiche_bestandsnaam}</span>
+      <a href="/api/producten/${p.id}/infofiche" target="_blank" rel="noopener" class="linkbtn">Bekijken/downloaden</a>
+      <button type="button" id="btn-infofiche-verwijderen" class="linkbtn gevaar">Verwijderen</button>
+    </div>
+    <label>Publieke link voor de klant (niet automatisch verstuurd — zelf plakken waar nodig)
+      <input type="text" id="info-publieke-link" value="${publiekeLink}" readonly onclick="this.select()" />
+    </label>
+    <form id="form-infofiche-verstuur" class="form-certificaat">
+      <label>Doorsturen naar e-mailadres<input type="email" id="info-email" placeholder="klant@voorbeeld.be" required /></label>
+      <button type="submit">Verstuur</button>
+    </form>
+    <p id="infofiche-fout" class="foutmelding"></p>
+  `;
+}
+
+function koppelInfoficheBlok(productId) {
+  const uploadForm = document.getElementById('form-infofiche-upload');
+  if (uploadForm) {
+    uploadForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const bestand = document.getElementById('info-bestand').files[0];
+      if (!bestand) return;
+      try {
+        const dataBase64 = await leesBestandAlsBase64(bestand);
+        await api(`/api/producten/${productId}/infofiche`, {
+          method: 'PUT',
+          body: JSON.stringify({ bestandsnaam: bestand.name, mimetype: bestand.type, dataBase64 }),
+        });
+        toonToast('Infofiche geüpload');
+        openProductDetail(productId);
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+
+  const verwijderBtn = document.getElementById('btn-infofiche-verwijderen');
+  if (verwijderBtn) {
+    verwijderBtn.addEventListener('click', async () => {
+      if (!confirm('Infofiche verwijderen?')) return;
+      await api(`/api/producten/${productId}/infofiche`, { method: 'DELETE' });
+      toonToast('Infofiche verwijderd');
+      openProductDetail(productId);
+    });
+  }
+
+  const verstuurForm = document.getElementById('form-infofiche-verstuur');
+  if (verstuurForm) {
+    verstuurForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const elFout = document.getElementById('infofiche-fout');
+      elFout.textContent = '';
+      try {
+        await api(`/api/producten/${productId}/infofiche/verstuur`, {
+          method: 'POST',
+          body: JSON.stringify({ email: document.getElementById('info-email').value.trim() }),
+        });
+        toonToast('Infofiche verstuurd');
+        document.getElementById('info-email').value = '';
+      } catch (err) {
+        elFout.textContent = err.message;
+      }
+    });
+  }
+}
+
 async function openProductDetail(productId) {
   const p = await api(`/api/producten/${productId}`);
   const inhoud = document.getElementById('modal-product-inhoud');
@@ -5006,8 +5144,17 @@ async function openProductDetail(productId) {
     .map((k) => `<div class="keuring-item"><span>${k.type_keuring}</span><span>Vervalt: ${fmtDatum(k.vervaldatum)}</span></div>`)
     .join('') || '<p class="leeg-bericht">Nog geen keuringen/certificaten toegevoegd.</p>';
 
+  const LOGBOEK_TYPE_LABELS = { controle: 'Controle/nazicht', reiniging: 'Reiniging', herstelling: 'Herstelling' };
+  const logboekHtml = (p.logboek || [])
+    .map((l) => `<div class="keuring-item">
+        <span>${LOGBOEK_TYPE_LABELS[l.type] || l.type} — ${fmtDatum(l.datum)}${l.notitie ? ` (${l.notitie})` : ''}</span>
+        <button type="button" class="linkbtn gevaar btn-logboek-verwijderen" data-logboek-id="${l.id}" title="Verwijderen">✕</button>
+      </div>`)
+    .join('') || '<p class="leeg-bericht">Nog geen logboek-items toegevoegd.</p>';
+
   inhoud.innerHTML = `
     <h3>${p.naam}</h3>
+    <p><a href="/api/producten/${p.id}/rapport.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Rapport afdrukken (voor FOD-controle)</a></p>
     <form id="form-product-bewerken">
       <div class="grid-2">
         <label>Naam<input type="text" id="pb-naam" value="${p.naam}" /></label>
@@ -5020,6 +5167,8 @@ async function openProductDetail(productId) {
         <label>Afhaalprijs (€)<input type="number" id="pb-afhaalprijs" step="0.01" min="0" value="${p.afhaalprijs != null ? p.afhaalprijs : ''}" /></label>
         <label>Afmetingen<input type="text" id="pb-afmetingen" value="${p.afmetingen || ''}" /></label>
         <label>Afbeelding (URL)<input type="text" id="pb-afbeelding" value="${(p.afbeeldingen && p.afbeeldingen[0]) || ''}" /></label>
+        <label>Kostprijs (€, aankoop)<input type="number" id="pb-kostprijs" step="0.01" min="0" value="${p.kostprijs != null ? p.kostprijs : ''}" placeholder="optioneel, voor terugverdiend-overzicht" /></label>
+        <label>Aankoopdatum<input type="date" id="pb-aankoopdatum" value="${p.aankoopdatum ? String(p.aankoopdatum).slice(0, 10) : ''}" /></label>
         <label>Max. boekingen per dag<input type="number" id="pb-max-per-dag" min="1" value="${p.max_boekingen_per_dag}" /></label>
         <label>Buffer-dagen tussen boekingen<input type="number" id="pb-buffer-dagen" min="0" value="${p.availability_buffer_dagen}" /></label>
         <label>Zichtbaarheid
@@ -5067,6 +5216,25 @@ async function openProductDetail(productId) {
 
     <h4>Certificaat-document</h4>
     <div id="certificaat-blok">${certificaatBlokHtml(p)}</div>
+
+    <h4>Logboek (controle/reiniging/herstelling)</h4>
+    <p class="uitleg">Verplicht minstens ${LOGBOEK_MINIMUM_CONTROLES}x per jaar een controle/nazicht noteren (FOD-verplichting) — zie ook het overzicht onder "Logboek" in het menu.</p>
+    <div class="keuringen-lijst">${logboekHtml}</div>
+    <form id="form-logboek-toevoegen" class="form-keuring-toevoegen">
+      <label>Type
+        <select id="lb-type">
+          <option value="controle">Controle/nazicht</option>
+          <option value="reiniging">Reiniging</option>
+          <option value="herstelling">Herstelling</option>
+        </select>
+      </label>
+      <label>Datum<input type="date" id="lb-datum" value="${new Date().toISOString().slice(0, 10)}" /></label>
+      <label>Notitie<input type="text" id="lb-notitie" placeholder="optioneel" /></label>
+      <button type="submit">+ Toevoegen</button>
+    </form>
+
+    <h4>Infofiche / handleiding</h4>
+    <div id="infofiche-blok">${infoficheBlokHtml(p)}</div>
   `;
 
   koppelNieuweCategorieVeld('pb-categorie', 'pb-nieuwe-categorie-veld');
@@ -5088,6 +5256,8 @@ async function openProductDetail(productId) {
           afhaalprijs: document.getElementById('pb-afhaalprijs').value !== '' ? parseFloat(document.getElementById('pb-afhaalprijs').value) : null,
           afmetingen: document.getElementById('pb-afmetingen').value || null,
           afbeeldingen: afbeelding ? [afbeelding] : [],
+          kostprijs: document.getElementById('pb-kostprijs').value !== '' ? parseFloat(document.getElementById('pb-kostprijs').value) : null,
+          aankoopdatum: document.getElementById('pb-aankoopdatum').value || null,
           max_boekingen_per_dag: parseInt(document.getElementById('pb-max-per-dag').value, 10) || 1,
           availability_buffer_dagen: parseInt(document.getElementById('pb-buffer-dagen').value, 10) || 0,
           zichtbaarheid: document.getElementById('pb-zichtbaarheid').value,
@@ -5138,9 +5308,86 @@ async function openProductDetail(productId) {
     openProductDetail(productId); // herladen zodat de nieuwe keuring meteen zichtbaar is
   });
 
+  document.getElementById('form-logboek-toevoegen').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const type = document.getElementById('lb-type').value;
+    const datum = document.getElementById('lb-datum').value;
+    if (!datum) return;
+    const notitie = document.getElementById('lb-notitie').value.trim();
+    await api(`/api/producten/${productId}/logboek`, {
+      method: 'POST',
+      body: JSON.stringify({ type, datum, notitie: notitie || null }),
+    });
+    openProductDetail(productId); // herladen zodat het nieuwe logboek-item meteen zichtbaar is
+  });
+
+  inhoud.querySelectorAll('.btn-logboek-verwijderen').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      if (!confirm('Dit logboek-item verwijderen?')) return;
+      await api(`/api/producten/logboek/${btn.dataset.logboekId}`, { method: 'DELETE' });
+      openProductDetail(productId);
+    });
+  });
+
   koppelCertificaatBlok(productId);
+  koppelInfoficheBlok(productId);
 
   modalProduct.hidden = false;
+}
+
+// ============================================================
+// LOGBOEK-OVERZICHT + TERUGVERDIEND (zie src/routes/producten.js:
+// GET /logboek-overzicht en GET /terugverdiend-overzicht) — op vraag van
+// Jonas na een FOD-controle: in één oogopslag zien welke springkastelen
+// achterstaan op de verplichte nazichten, zonder elk product apart te hoeven
+// openen. Een rij aanklikken opent het product (zelfde modal als Producten).
+// ============================================================
+async function laadLogboekOverzicht() {
+  const data = await api('/api/producten/logboek-overzicht');
+  document.getElementById('logboek-minimum').textContent = data.minimum_per_jaar;
+
+  const tabelLogboek = document.getElementById('tabel-logboek-overzicht');
+  tabelLogboek.innerHTML = data.producten.map((p) => `
+    <tr>
+      <td>${p.naam}</td>
+      <td class="${p.voldoet_aan_minimum ? 'logboek-ok' : 'logboek-waarschuwing'}">
+        ${p.aantal_controles_dit_jaar} / ${data.minimum_per_jaar}${p.voldoet_aan_minimum ? ' ✓' : ' ⚠️'}
+      </td>
+      <td>${p.laatste_controle ? fmtDatum(p.laatste_controle) : '—'}</td>
+      <td>${p.laatste_reiniging ? fmtDatum(p.laatste_reiniging) : '—'}</td>
+      <td>${p.laatste_herstelling ? fmtDatum(p.laatste_herstelling) : '—'}</td>
+      <td><button type="button" class="linkbtn btn-logboek-open-product" data-product-id="${p.id}">Openen →</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="6" class="leeg-bericht">Geen producten gevonden.</td></tr>';
+
+  tabelLogboek.querySelectorAll('.btn-logboek-open-product').forEach((btn) => {
+    btn.addEventListener('click', () => openProductDetail(btn.dataset.productId));
+  });
+
+  // Badge op de menuknop: aantal producten dat nog niet aan het minimum zit —
+  // zelfde soort signalering als bij Aanvragen/Online bevestigd elders.
+  const aantalAchterstallig = data.producten.filter((p) => !p.voldoet_aan_minimum).length;
+  const badge = document.getElementById('badge-logboek');
+  badge.hidden = aantalAchterstallig === 0;
+  badge.textContent = aantalAchterstallig;
+
+  await laadTerugverdiendOverzicht();
+}
+
+async function laadTerugverdiendOverzicht() {
+  const rijen = await api('/api/producten/terugverdiend-overzicht');
+  const tabel = document.getElementById('tabel-terugverdiend-overzicht');
+  tabel.innerHTML = rijen.map((p) => `
+    <tr>
+      <td>${p.naam}</td>
+      <td>${p.aankoopdatum ? fmtDatum(p.aankoopdatum) : '—'}</td>
+      <td>${fmtEuro(p.kostprijs)}</td>
+      <td>${fmtEuro(p.omzet)}</td>
+      <td class="${p.terugverdiend ? 'logboek-ok' : ''}">
+        ${p.percentage_terugverdiend != null ? `${p.percentage_terugverdiend}%` : '—'}${p.terugverdiend ? ' ✓' : ''}
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="5" class="leeg-bericht">Nog geen product met een kostprijs ingevuld.</td></tr>';
 }
 
 // ============================================================

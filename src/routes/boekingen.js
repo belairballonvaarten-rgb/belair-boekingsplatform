@@ -144,7 +144,8 @@ async function haalIngevuldeTemplateOp(boekingId, templateId, adminId) {
   if (!boeking) return { fout: 'Boeking niet gevonden', status: 404 };
 
   const { rows: producten } = await db.query(
-    `SELECT p.naam, p.afbeeldingen, bp.aantal, bp.prijs
+    `SELECT p.id, p.naam, p.afbeeldingen, bp.aantal, bp.prijs,
+            (p.infofiche_bestandsnaam IS NOT NULL) AS heeft_infofiche
      FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1 ORDER BY p.naam`,
     [boekingId]
   );

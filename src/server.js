@@ -24,6 +24,7 @@ const dagoverzichtRoutes = require('./routes/dagoverzicht');
 const crewRoutes = require('./routes/crew');
 const mailTemplatesRoutes = require('./routes/mail-templates');
 const klantBevestigingRoutes = require('./routes/klant-bevestiging');
+const productInfoPubliekRoutes = require('./routes/product-info-publiek');
 
 const app = express();
 
@@ -78,6 +79,9 @@ app.use('/api/mail-templates', mailTemplatesRoutes);
 // Publiek (geen login) — de "Ik bevestig"-knop in de aanvraagbevestigingsmail
 // wijst hierheen, zie routes/klant-bevestiging.js.
 app.use('/api/klant-bevestiging', klantBevestigingRoutes);
+// Publiek (geen login) — downloadlink voor infofiche/handleiding en
+// certificaat, zie routes/product-info-publiek.js.
+app.use('/api/product-info', productInfoPubliekRoutes);
 
 // Beheerscherm (statische front-end) — public/index.html is het startpunt
 app.use(express.static(path.join(__dirname, '..', 'public')));

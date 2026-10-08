@@ -235,6 +235,11 @@ main { padding: 1.5rem 2rem; max-width: 1440px; margin: 0 auto; }
 .btn-weigeren { color: var(--rood) !important; border-color: var(--rood) !important; }
 .btn-behandeling { color: var(--blauw) !important; border-color: var(--blauw) !important; }
 .leeg-bericht { color: var(--grijs); font-style: italic; }
+/* Logboek-overzicht: duidelijk (maar niet overdreven opvallend) onderscheid
+   tussen een product dat het jaarlijkse minimum aan nazichten haalt en één
+   dat achterstaat. */
+.logboek-ok { color: var(--groen); font-weight: 600; }
+.logboek-waarschuwing { color: var(--rood); font-weight: 700; }
 
 /* SNELFILTERS & STATS */
 .snelfilters { display: flex; gap: 0.5rem; flex-wrap: wrap; margin-bottom: 1rem; }
@@ -659,6 +664,20 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .veld-met-wissen .linkbtn { padding: 0.3rem 0.2rem; font-size: 0.9rem; }
 .toeslag-invoer { display: flex; align-items: center; gap: 0.3rem; }
 .toeslag-invoer select { width: auto; flex: 0 0 auto; padding: 0.5rem 0.4rem; }
+/* Vinkje naast "Totaal" om de vaste totaalprijs aan/uit te zetten — zelfde
+   opzet als .moet-zeker-afhalen-toggle, maar als linkerkant van een
+   .prijstabel-rij (geen margin-top nodig, die rij staat zelf al los). */
+.vaste-totaalprijs-toggle { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; font-weight: 700; }
+.vaste-totaalprijs-toggle input { margin: 0; }
+/* Zolang het vinkje uit staat, moet het bedragveld eruitzien als gewone tekst
+   (geen spinner-pijltjes/invoerrand) — pas zodra het aanvinkt bewerkbaar wordt
+   krijgt het weer het normale invoerveld-uiterlijk (zie .prijstabel-rij input). */
+#dd-vaste-totaalprijs:disabled {
+  border: none; background: transparent; color: inherit; font-weight: 700;
+  -moz-appearance: textfield; padding-right: 0;
+}
+#dd-vaste-totaalprijs:disabled::-webkit-inner-spin-button,
+#dd-vaste-totaalprijs:disabled::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
 .betaling-log { max-height: 110px; overflow-y: auto; margin-bottom: 1rem; }
 .betaling-item { display: flex; justify-content: space-between; align-items: center; gap: 0.6rem; }
 .betaling-item .linkbtn { padding: 0 0.2rem; font-size: 0.85rem; }
