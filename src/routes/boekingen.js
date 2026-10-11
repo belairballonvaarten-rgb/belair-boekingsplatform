@@ -379,7 +379,9 @@ const BOEKINGEN_OVERZICHT_SELECT = `
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
          COALESCE(bp_totaal.waarde, 0) AS waarde,
          COALESCE(bet.betaald_bedrag, 0) AS betaling_ontvangen,
-         bp_namen.producten_namen
+         bp_namen.producten_namen,
+         com_laatste.laatste_mail_verstuurd_op,
+         l.leveringstijd, l.afhaaltijd
   FROM boekingen b
   JOIN klanten k ON k.id = b.klant_id
   LEFT JOIN (
@@ -394,6 +396,18 @@ const BOEKINGEN_OVERZICHT_SELECT = `
     JOIN producten p ON p.id = bp.product_id
     GROUP BY bp.boeking_id
   ) bp_namen ON bp_namen.boeking_id = b.id
+  -- Laatst verstuurde uitgaande mail (bv. de aanvraagbevestiging) — gebruikt
+  -- door de Aanvragen-inbox om een aanvraag te markeren waar de klant na
+  -- enkele dagen nog niet op gereageerd heeft (zie laadAanvragen() in app.js).
+  LEFT JOIN (
+    SELECT boeking_id, MAX(aangemaakt_op) AS laatste_mail_verstuurd_op
+    FROM communicatie WHERE type = 'email' AND richting = 'uitgaand'
+    GROUP BY boeking_id
+  ) com_laatste ON com_laatste.boeking_id = b.id
+  -- Leverings-/afhaaltijd (zelfde tabel als het Dashboard/leveringen-app) —
+  -- nu ook rechtstreeks aanpasbaar vanuit het Reservatieoverzicht, op vraag
+  -- van Jonas, zonder eerst het dossier te moeten openen.
+  LEFT JOIN leveringen l ON l.boeking_id = b.id
 `;
 
 // Lijst met filters: status, datum-range, klant, zoekterm

@@ -15,15 +15,16 @@ const STATUS_LABELS = {
 };
 
 // Kleurcode per status, voor snel visueel overzicht: rood = nog niet bevestigd
-// door de klant, geel = bevestigd maar betaalverzoek nog niet verstuurd, oranje =
-// betaalverzoek onderweg of gedeeltelijk betaald, groen = volledig betaald/
-// gefactureerd en klaar voor transportplanning, grijs = geweigerd.
+// door de klant, oranje = bevestigd (zelf via de mail-knop of door Jonas) t.e.m.
+// betaalverzoek/gedeeltelijk betaald — bewust dezelfde kleur voor beide, dat is
+// voor Jonas allebei "onderweg, nog niet volledig in orde" — groen = volledig
+// betaald/gefactureerd en klaar voor transportplanning, grijs = geweigerd.
 const STATUS_KLEUR = {
   nieuw: 'rood',
   in_behandeling: 'rood',
   geaccepteerd: 'rood',
   ingepland: 'rood',
-  bevestigd: 'geel',
+  bevestigd: 'oranje',
   betaalverzoek_verstuurd: 'oranje',
   betaald_deels: 'oranje',
   betaald_volledig: 'groen',
@@ -49,6 +50,15 @@ function weergaveStatusLabel(status, saldoOpenstaand) {
 
 function statusPillHtml(status, saldoOpenstaand) {
   return `<span class="status-pill status-${STATUS_KLEUR[status] || 'grijs'}">${weergaveStatusLabel(status, saldoOpenstaand)}</span>`;
+}
+
+// Compacte kleurstip i.p.v. de volledige statustekst — op vraag van Jonas voor
+// het Reservatieoverzicht (daar staat de kleurenlegende al bovenaan de tabel,
+// dus de tekst zelf hoeft niet meer in elke rij herhaald te worden). De naam
+// blijft wel als tooltip beschikbaar.
+function statusKleurDotHtml(status, saldoOpenstaand) {
+  const titel = weergaveStatusLabel(status, saldoOpenstaand);
+  return `<span class="status-kleur-stip status-kleur-${STATUS_KLEUR[status] || 'grijs'}" title="${titel}"></span>`;
 }
 
 // Kleine, kort-zichtbare bevestiging onderaan het scherm — vooral bedoeld voor
@@ -79,6 +89,24 @@ function speciaalSterHtml(b) {
   return `<span class="ster-speciaal" title="${titel.replace(/"/g, '&quot;')}">⭑</span>`;
 }
 
+// Aantal dagen zonder reactie waarna een aanvraag als "opvolgen nodig"
+// getoond wordt in de Aanvragen-inbox (zie opvolgenBadgeHtml hieronder) — op
+// vraag van Jonas: na een verstuurde aanvraagbevestiging is het moeilijk
+// manueel bij te houden wie nog niet gereageerd heeft.
+const OPVOLGEN_NA_DAGEN = 5;
+
+// Waarschuwing op een aanvraag-kaart wanneer er al een uitgaande mail
+// verstuurd is (bv. de aanvraagbevestiging) maar de klant nog niet
+// gereageerd heeft (status staat nog op 'nieuw'/'in_behandeling') én dat al
+// OPVOLGEN_NA_DAGEN dagen geleden is. Puur een visuele seintje — Jonas volgt
+// zelf op (bellen/mailen), er gebeurt verder niets automatisch.
+function opvolgenBadgeHtml(b) {
+  if (!b.laatste_mail_verstuurd_op) return '';
+  const dagenGeleden = Math.floor((Date.now() - new Date(b.laatste_mail_verstuurd_op).getTime()) / (1000 * 60 * 60 * 24));
+  if (dagenGeleden < OPVOLGEN_NA_DAGEN) return '';
+  return `<p class="opvolgen-badge">⚠ Al ${dagenGeleden} dagen geen reactie na laatste mail — opvolgen!</p>`;
+}
+
 // Productenkolom in het Reservatieoverzicht: bij veel producten in 1 boeking
 // werd deze kolom veel te breed (de volledige lijst stond er zo in). Toont nu
 // max. 2 namen, en bij meer een "…" die je met een klik openklapt.
@@ -98,7 +126,7 @@ function producttenKolomHtml(namenString) {
 // hieronder. "Geweigerd" valt hier los van buiten.
 const STATUS_FASEN = [
   { label: 'In verwerking', kleur: 'rood', statussen: ['nieuw', 'in_behandeling', 'geaccepteerd', 'ingepland'] },
-  { label: 'Bevestigd', kleur: 'geel', statussen: ['bevestigd'] },
+  { label: 'Bevestigd', kleur: 'oranje', statussen: ['bevestigd'] },
   { label: 'Betaalverzoek', kleur: 'oranje', statussen: ['betaalverzoek_verstuurd', 'betaald_deels'] },
   { label: 'Klaar voor levering', kleur: 'groen', statussen: ['betaald_volledig', 'gefactureerd', 'voldaan_manueel'] },
 ];
@@ -1872,6 +1900,7 @@ async function laadAanvragen() {
         <p>📍 ${b.leveringsadres || '—'}</p>
         <p>📞 ${b.klant_telefoon || '—'}</p>
         <p class="beschikbaarheid-badge" data-boeking-id="${b.id}">⏳ Beschikbaarheid controleren…</p>
+        ${opvolgenBadgeHtml(b)}
       </div>
       <div class="kaart-acties"></div>
     `;
@@ -2183,6 +2212,25 @@ function bouwKeuzeOpties(opties, huidigeWaarde) {
 // overeenkomt met wat op het scherm staat).
 let laatsteBoekingenOverzichtData = [];
 
+// Zelfde inline tijdstip-select als op het Dashboard (zie renderDashboardKolom
+// hierboven) — nu ook in het Reservatieoverzicht, zodat Jonas de leverings-/
+// afhaaltijd daar meteen kan bijsturen zonder eerst het dossier te openen.
+// Zelfde terugval-logica: nog geen expliciet tijdstip? → klant-voorkeur als die
+// een concreet kwartier is, anders de vaste standaardtijd (enkel ter weergave,
+// pas echt opgeslagen zodra het veld effectief gewijzigd wordt).
+function overzichtTijdSelectHtml(b, type) {
+  const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
+  const datumVeld = type === 'levering' ? 'gewenste_datum_start' : 'gewenste_datum_einde';
+  const voorkeurVeld = type === 'levering' ? 'voorkeur_tijdstip_levering' : 'voorkeur_tijdstip_afhaling';
+  const standaardTijd = type === 'levering' ? '08:00' : '20:00';
+  const datum = (b[datumVeld] || '').slice(0, 10);
+  const tijdWaarde = b[tijdVeld]
+    ? new Date(b[tijdVeld]).toISOString().slice(11, 16)
+    : (TIJDSTIP_HHMM_PATROON.test(b[voorkeurVeld] || '') ? b[voorkeurVeld] : '');
+  const titel = type === 'levering' ? 'Leveringstijd' : 'Afhaaltijd';
+  return `<select class="overzicht-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${datum}" title="${titel}">${genereerKwartierOpties(tijdWaarde || standaardTijd)}</select>`;
+}
+
 async function laadBoekingenOverzicht() {
   const params = huidigeBoekingenFilterParams();
   const boekingen = await api(`/api/boekingen?${params.toString()}`);
@@ -2202,7 +2250,7 @@ async function laadBoekingenOverzicht() {
   tbody.innerHTML = '';
   document.getElementById('check-alles').checked = false;
   if (!boekingen.length) {
-    tbody.innerHTML = '<tr><td colspan="11" class="leeg-bericht">Geen boekingen gevonden.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="13" class="leeg-bericht">Geen boekingen gevonden.</td></tr>';
     return;
   }
   for (const b of boekingen) {
@@ -2216,19 +2264,36 @@ async function laadBoekingenOverzicht() {
     tr.innerHTML = `
       <td><input type="checkbox" class="check-boeking-rij" data-boeking-id="${b.id}" /></td>
       <td>${fmtDatum(b.gewenste_datum_start)}</td>
+      <td>${overzichtTijdSelectHtml(b, 'levering')}</td>
+      <td>${overzichtTijdSelectHtml(b, 'afhaling')}</td>
       <td>${producttenKolomHtml(b.producten_namen)}</td>
       <td>${adres.straat}</td>
       <td>${adres.postcode}</td>
       <td>${adres.gemeente}</td>
       <td>${b.klant_naam}</td>
       <td class="saldo-cel${saldoVoldaan ? ' voldaan' : ''}" title="Totale waarde: ${fmtEuro(b.waarde)}">${saldoVoldaan ? '✓ Voldaan' : fmtEuro(saldo)}</td>
-      <td>${statusPillHtml(b.status, saldo)}${speciaalSterHtml(b)}</td>
+      <td>${statusKleurDotHtml(b.status, saldo)}${speciaalSterHtml(b)}</td>
       <td title="${b.type_ondergrond || ''}">${ondergrondAfkorting(b.type_ondergrond)}</td>
       <td>Bekijk →</td>
     `;
     tr.querySelector('.check-boeking-rij').addEventListener('click', (e) => e.stopPropagation());
     const productenDetails = tr.querySelector('.producten-kolom-meer');
     if (productenDetails) productenDetails.addEventListener('click', (e) => e.stopPropagation());
+    tr.querySelectorAll('.overzicht-tijd-input').forEach((select) => {
+      select.addEventListener('click', (e) => e.stopPropagation());
+      select.addEventListener('change', async () => {
+        if (!select.value || !select.dataset.datum) return;
+        try {
+          await api(`/api/dashboard/${select.dataset.boekingId}/tijdstip`, {
+            method: 'PUT',
+            body: JSON.stringify({ type: select.dataset.type, datum: select.dataset.datum, tijd: select.value }),
+          });
+          toonToast('Tijdstip opgeslagen');
+        } catch (err) {
+          alert(err.message);
+        }
+      });
+    });
     tr.addEventListener('click', () => openDetail(b.id));
     tbody.appendChild(tr);
   }
@@ -3310,10 +3375,10 @@ async function openDetail(boekingId) {
     <div class="paneel">
       <h3>${b.klant_naam} ${statusPillHtml(b.status, b.prijstabel.saldo_openstaand)}${speciaalSterHtml(b)}</h3>
       ${b.speciaal_verzoek ? `<div class="speciaal-verzoek-banner">⭑ Speciaal verzoek${b.speciaal_verzoek_notitie ? ': ' + b.speciaal_verzoek_notitie : ''}</div>` : ''}
-      <div class="dossier-snelknoppen">${dossierSnelknopHtml('aanvraag_bevestiging', '📨 Aanvraagbevestiging', b)}${dossierSnelknopHtml('betaalverzoek', '💳 Betaalverzoek', b)}${dossierSnelknopHtml('reservatie_bevestiging', '✅ Reservatiebevestiging', b)}${dossierSnelknopHtml('review_verzoek', '⭐ Review vragen', b)}</div>
       ${statusStepperHtml(b.status, b.prijstabel.saldo_openstaand)}
       <p class="uitleg" style="margin: 0 0 0.4rem;">Klik op een fase hierboven om ernaartoe te springen, of klik de actieve fase nogmaals aan om terug te gaan naar de vorige status.</p>
       <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen volgende stap voorgesteld</p>'}</div>
+      <div class="dossier-snelknoppen">${dossierSnelknopHtml('aanvraag_bevestiging', '📨 Aanvraagbevestiging', b)}${dossierSnelknopHtml('betaalverzoek', '💳 Betaalverzoek', b)}${dossierSnelknopHtml('reservatie_bevestiging', '✅ Reservatiebevestiging', b)}${dossierSnelknopHtml('review_verzoek', '⭐ Review vragen', b)}</div>
     </div>
 
     <div class="detail-layout">

@@ -222,6 +222,7 @@ main { padding: 1.5rem 2rem; max-width: 1440px; margin: 0 auto; }
 .beschikbaarheid-badge { font-weight: 600; }
 .beschikbaarheid-badge.beschikbaarheid-ok { color: #1a7a3c; }
 .beschikbaarheid-badge.beschikbaarheid-fout { color: #b5390a; }
+.opvolgen-badge { font-weight: 600; color: #b5390a; }
 .kaart-acties { display: flex; gap: 0.5rem; flex-shrink: 0; }
 .kaart-acties button {
   border: 1px solid var(--rand);
@@ -318,6 +319,20 @@ main { padding: 1.5rem 2rem; max-width: 1440px; margin: 0 auto; }
 .legende-stip.grijs { background: var(--grijs); }
 .legende-stip.paars { background: var(--paars); }
 .ster-speciaal { color: var(--paars); margin-left: 0.3rem; font-size: 0.95em; }
+
+/* Compacte kleurstip in het Reservatieoverzicht i.p.v. de volledige statustekst
+   (de legende hierboven legt de kleuren al uit) — groter en vierkant i.p.v. de
+   ronde legende-stip, zodat ze ook als "kleurvakje" leesbaar is in een tabelrij. */
+.status-kleur-stip { display: inline-block; width: 14px; height: 14px; border-radius: 3px; vertical-align: middle; cursor: help; }
+.status-kleur-stip.status-kleur-rood { background: var(--rood); }
+.status-kleur-stip.status-kleur-oranje { background: var(--oranje); }
+.status-kleur-stip.status-kleur-groen { background: var(--groen); }
+.status-kleur-stip.status-kleur-grijs { background: var(--grijs); }
+
+/* Inline leverings-/afhaaltijd-select in het Reservatieoverzicht — zelfde
+   bediening als op het Dashboard, maar smal gehouden zodat de tabel niet te
+   breed wordt. */
+.overzicht-tijd-input { font-size: 0.82rem; padding: 0.15rem 0.25rem; border: 1px solid var(--rand); border-radius: 4px; background: white; }
 /* "Zeker afhalen" — klein en subtiel (gewoon een icoontje + tooltip), geen
    opvallende badge: dit product wordt morgen alweer verhuurd, dus deze
    afhaling mag niet uitgesteld worden. */
