@@ -6,7 +6,7 @@ const { berekenAfstandKm, berekenTransportkost } = require('../utils/afstand');
 const { berekenAantalDagen, berekenMeerdaagsePrijs } = require('../utils/prijzen');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { verstuurMail, isGeconfigureerd: mailIsGeconfigureerd } = require('../utils/mailer');
-const { vulTemplateIn, bouwTemplateContext } = require('../utils/mailTemplates');
+const { vulTemplateIn, bouwTemplateContext, tekenMailOmslag } = require('../utils/mailTemplates');
 const {
   isGeconfigureerd: efIsGeconfigureerd,
   zorgVoorKlant: efZorgVoorKlant,
@@ -173,6 +173,13 @@ async function haalIngevuldeTemplateOp(boekingId, templateId, adminId) {
   if (handtekening && handtekening.trim()) {
     inhoud += `<br><br>${handtekening}`;
   }
+
+  // Vaste-breedte, gecentreerde "kaart" rond de volledige inhoud (zie
+  // tekenMailOmslag) — anders rekken de tabellen hierboven zich uit tot de
+  // volle breedte van het mailvenster, wat op een breed scherm uit elkaar
+  // loopt/amateuristisch oogt. Hier toegepast (niet in bouwTemplateContext)
+  // zodat ook de handtekening hierboven mee binnen de kaart komt te staan.
+  inhoud = tekenMailOmslag(inhoud);
 
   return { template, boeking, onderwerp, inhoud };
 }
@@ -357,8 +364,9 @@ function bouwBoekingenFilter(query) {
   }
   // Voor de "Online bevestigd"-inbox: enkel aanvragen die de klant ZELF via de
   // knop in de e-mail bevestigd heeft (zie routes/klant-bevestiging.js) i.p.v.
-  // aanvragen die Jonas manueel accepteerde — beide belanden op status
-  // 'geaccepteerd', klant_bevestigd_op is het enige onderscheid.
+  // aanvragen die Jonas manueel accepteerde — een klant-zelfbevestiging
+  // springt meteen naar status 'bevestigd' (i.p.v. 'geaccepteerd'/'ingepland'),
+  // klant_bevestigd_op is het kenmerk waarmee deze inbox ze apart herkent.
   if (klant_bevestigd) {
     condities.push(`b.klant_bevestigd_op IS NOT NULL`);
   }

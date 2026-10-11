@@ -1919,10 +1919,13 @@ async function laadAanvragen() {
 
 // ============================================================
 // ONLINE BEVESTIGD — aanvragen die de klant zelf bevestigde via de knop in de
-// e-mail (klant_bevestigd_op gezet), en nog op status 'geaccepteerd' staan
-// (dus nog niet verder afgewerkt met betaalverzoek/inplannen/factuur). Zelfde
-// opzet als de Aanvragen-inbox hierboven, maar dan puur ter info + doorklik —
-// de eigenlijke vervolgstappen gebeuren in het dossier zelf.
+// e-mail (klant_bevestigd_op gezet), en nog op status 'bevestigd' staan (dus
+// nog niet verder afgewerkt met een betaalverzoek). Een klant-zelfbevestiging
+// springt meteen naar 'bevestigd' i.p.v. 'geaccepteerd' (zie
+// routes/klant-bevestiging.js) — zo toont het reservatieoverzicht meteen de
+// juiste fase i.p.v. "In verwerking" te blijven staan. Zelfde opzet als de
+// Aanvragen-inbox hierboven, maar dan puur ter info + doorklik — de
+// eigenlijke vervolgstappen gebeuren in het dossier zelf.
 // ============================================================
 function zetOnlineBevestigdBadge(aantal) {
   const badge = document.getElementById('badge-online-bevestigd');
@@ -1938,14 +1941,14 @@ function zetOnlineBevestigdBadge(aantal) {
 }
 async function verversOnlineBevestigdBadge() {
   try {
-    const bevestigd = await api('/api/boekingen?status=geaccepteerd&klant_bevestigd=1');
+    const bevestigd = await api('/api/boekingen?status=bevestigd&klant_bevestigd=1');
     zetOnlineBevestigdBadge(bevestigd.length);
   } catch (e) { /* stil falen */ }
 }
 async function laadOnlineBevestigd() {
   const container = document.getElementById('lijst-online-bevestigd');
   container.innerHTML = '<p class="leeg-bericht">Laden...</p>';
-  const bevestigd = await api('/api/boekingen?status=geaccepteerd&klant_bevestigd=1&sortering=laatst_toegevoegd');
+  const bevestigd = await api('/api/boekingen?status=bevestigd&klant_bevestigd=1&sortering=laatst_toegevoegd');
 
   zetOnlineBevestigdBadge(bevestigd.length);
 

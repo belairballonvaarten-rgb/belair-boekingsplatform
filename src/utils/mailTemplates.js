@@ -191,6 +191,27 @@ function tekenPrijsblok(prijstabel) {
   </table>`;
 }
 
+// Omwikkelt de volledig ingevulde mail-inhoud met een vaste-breedte (600px),
+// gecentreerde "kaart" op een lichtgrijze achtergrond — de standaardopzet
+// voor een nette HTML-mail. Zonder dit rekken de blokken hierboven (tabellen
+// met width="100%", zoals tekenGegevensblok/tekenPrijsblok/productkaarten)
+// zich uit tot de volle breedte van het mailvenster — op een breed scherm/
+// inbox-paneel loopt de inhoud dan helemaal uit elkaar (bv. "Uw gegevens"
+// tot tegen de rechterrand, het volgende blok weer anders breed), wat
+// amateuristisch oogt. Pas hier, bij het effectief opbouwen van de
+// verstuurde mail, toegepast — niet in de template-inhoud zelf in de
+// database — zelfde reden als tekenGegevensblok hierboven: Quill zou dit bij
+// het bewerken van een template kunnen stukmaken.
+function tekenMailOmslag(inhoud) {
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f2f3f5"><tr><td align="center" style="padding:28px 12px">
+  <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="width:600px;max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden">
+  <tr><td style="padding:32px 36px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif">
+  ${inhoud}
+  </td></tr>
+  </table>
+  </td></tr></table>`;
+}
+
 // boeking: rij uit 'boekingen' (met klant_naam erbij gejoined).
 // producten: [{naam, aantal, prijs, afbeeldingen}, ...]
 // prijstabel: resultaat van berekenPrijstabel() in routes/boekingen.js.
@@ -282,4 +303,4 @@ function vulTemplateIn(tekst, context) {
   });
 }
 
-module.exports = { vulTemplateIn, bouwTemplateContext };
+module.exports = { vulTemplateIn, bouwTemplateContext, tekenMailOmslag };

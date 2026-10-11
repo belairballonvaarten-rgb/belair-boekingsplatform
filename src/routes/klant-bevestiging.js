@@ -49,6 +49,8 @@ function paginaHtml(titel, boodschap, kleur, extraHtml) {
   p{color:#444;line-height:1.5;margin:0;}
   button.bevestig-knop{margin-top:22px;background:#e8631e;color:#fff;border:none;padding:14px 30px;border-radius:8px;font-weight:600;font-size:16px;cursor:pointer;}
   button.bevestig-knop:active{opacity:0.85;}
+  button.annuleer-knop{background:#fff;color:#888;border:1px solid #d8d8dc;padding:10px 24px;border-radius:8px;font-weight:600;font-size:14px;cursor:pointer;}
+  button.annuleer-knop:active{opacity:0.7;}
 </style>
 </head>
 <body>
@@ -65,6 +67,7 @@ const PAGINA_LINK_ONGELDIG = paginaHtml('Link niet gevonden', 'Deze bevestigings
 const PAGINA_AL_BEVESTIGD = paginaHtml('Al bevestigd', 'Deze aanvraag was al bevestigd — er is niets meer nodig van uw kant. Belair-Fun neemt contact op voor de verdere afhandeling.');
 const PAGINA_NIET_MEER_OPEN = paginaHtml('Kan niet meer bevestigd worden', 'Deze aanvraag staat niet meer open voor bevestiging via deze link. Neem contact op met Belair-Fun als u vragen heeft.', '#c23f38');
 const PAGINA_ONVERWACHTE_FOUT = paginaHtml('Even iets misgegaan', 'Er ging iets mis bij het verwerken van uw bevestiging. Neem gerust contact op met Belair-Fun — of probeer de link straks nog eens.', '#c23f38');
+const PAGINA_GEANNULEERD = paginaHtml('Aanvraag geannuleerd', 'Uw aanvraag is geannuleerd. Bedankt om ons te laten weten — mocht u toch nog interesse hebben, neem gerust opnieuw contact op met Belair-Fun.', '#6b7280');
 
 // Waarom de link zelf (GET) NIET meteen bevestigt, en pas de knop hieronder
 // (via een POST) dat effectief doet: veel mailproviders/bedrijfs-mailfilters
@@ -77,13 +80,16 @@ const PAGINA_ONVERWACHTE_FOUT = paginaHtml('Even iets misgegaan', 'Er ging iets 
 // hebben, wat voor hen aanvoelt/lijkt alsof de knop "niet werkt". Een gewone
 // GET (zoals een scanner doet) heeft nu geen effect meer — enkel het klikken
 // op de knop hieronder (een echte, door de klant zelf ingediende POST) telt.
-function paginaMetKnop(actieUrl) {
+function paginaMetKnop(bevestigActieUrl, annuleerActieUrl) {
   return paginaHtml(
     'Bevestig uw reservatie',
     'Klik op de knop hieronder om uw aanvraag te bevestigen.',
     null,
-    `<form method="POST" action="${actieUrl}">
+    `<form method="POST" action="${bevestigActieUrl}">
       <button type="submit" class="bevestig-knop">✓ Ik bevestig mijn reservatie</button>
+    </form>
+    <form method="POST" action="${annuleerActieUrl}" style="margin-top:10px" onsubmit="return confirm('Aanvraag echt annuleren?');">
+      <button type="submit" class="annuleer-knop">✕ Ik annuleer deze aanvraag</button>
     </form>`
   );
 }
@@ -115,23 +121,33 @@ async function stuurAutomatischeBevestigingsmail(boekingId) {
 }
 
 // Kort seintje naar Jonas zelf (zijn eigen mailadres, AZURE_SENDER_EMAIL) dat
-// een klant zopas zelf bevestigd heeft — vroeger zag hij dit vanzelf doordat
-// de klant op de mail antwoordde (kwam toe in zijn eigen postvak); nu de
-// klant in plaats daarvan op een knop klikt, zou hij het anders kunnen missen.
-// Mag NOOIT de bevestiging zelf (hierboven al gecommit) doen mislukken —
-// vandaar de try/catch rond de HELE functie, niet enkel rond verstuurMail.
-async function stuurSeintjeNaarJonas(boeking) {
+// een klant zopas zelf bevestigd (of geannuleerd) heeft — vroeger zag hij dit
+// vanzelf doordat de klant op de mail antwoordde (kwam toe in zijn eigen
+// postvak); nu de klant in plaats daarvan op een knop klikt, zou hij het
+// anders kunnen missen. Mag NOOIT de bevestiging/annulatie zelf (hierboven al
+// gecommit) doen mislukken — vandaar de try/catch rond de HELE functie, niet
+// enkel rond verstuurMail.
+async function stuurSeintjeNaarJonas(boeking, { geannuleerd = false } = {}) {
   try {
     const afzender = process.env.AZURE_SENDER_EMAIL;
     if (!afzender) return; // geen Microsoft 365-koppeling ingesteld — gewoon overslaan
-    const prijstabel = await berekenPrijstabel(boeking.id);
     const klantNaamVeilig = escapeHtml(boeking.klant_naam);
+    if (geannuleerd) {
+      await verstuurMail({
+        naar: afzender,
+        onderwerp: `Klant annuleerde zelf: ${boeking.klant_naam}`,
+        html: `<p>${klantNaamVeilig} heeft zonet zelf de aanvraag geannuleerd via de link in de e-mail.</p>
+               <p>Status staat nu op "Geweigerd".</p>`,
+      });
+      return;
+    }
+    const prijstabel = await berekenPrijstabel(boeking.id);
     await verstuurMail({
       naar: afzender,
       onderwerp: `Klant bevestigde zelf: ${boeking.klant_naam}`,
       html: `<p>${klantNaamVeilig} heeft zonet zelf de aanvraag bevestigd via de knop in de e-mail.</p>
              <p>Openstaand saldo: € ${Number(prijstabel.saldo_openstaand || 0).toFixed(2).replace('.', ',')}.</p>
-             <p>Status staat nu op "Geaccepteerd" — vergeet het betaalverzoek niet te versturen vanuit het dossier.</p>`,
+             <p>Status staat nu op "Bevestigd" — vergeet het betaalverzoek niet te versturen vanuit het dossier.</p>`,
     });
   } catch (err) {
     console.error('Seintje naar Jonas (klant-zelfbevestiging) mislukt:', err);
@@ -181,7 +197,8 @@ router.get('/:boekingId/:token', asyncHandler(async (req, res) => {
   try {
     const { fout, status } = await haalBevestigbareBoekingOp(req);
     if (fout) return res.status(status).send(fout);
-    res.send(paginaMetKnop(`/api/klant-bevestiging/${req.params.boekingId}/${req.params.token}`));
+    const basisUrl = `/api/klant-bevestiging/${req.params.boekingId}/${req.params.token}`;
+    res.send(paginaMetKnop(basisUrl, `${basisUrl}/annuleer`));
   } catch (err) {
     console.error('Onverwachte fout bij klant-zelfbevestiging (GET):', err);
     res.status(500).send(PAGINA_ONVERWACHTE_FOUT);
@@ -207,8 +224,16 @@ router.post('/:boekingId/:token', asyncHandler(async (req, res) => {
     let bijgewerkt;
     try {
       await client.query('BEGIN');
+      // Status gaat rechtstreeks naar 'bevestigd' (i.p.v. 'geaccepteerd') zodat
+      // het reservatieoverzicht meteen de fase "Bevestigd" toont i.p.v. "In
+      // verwerking" te blijven staan — op vraag van Jonas: een klant die zelf
+      // via de mail bevestigt, hoeft niet te wachten tot hij manueel ook nog
+      // 'Ingepland' aanvinkt. Geen enkele andere logica (beschikbaarheid,
+      // dashboard, planning, sync met de leveringen-app) maakt onderscheid
+      // tussen 'geaccepteerd'/'ingepland'/'bevestigd' — die drie staan overal
+      // samen in dezelfde "actief"-lijst, dus deze sprong is ongevaarlijk.
       const updateResultaat = await client.query(
-        `UPDATE boekingen SET status = 'geaccepteerd', klant_bevestigd_op = now(), bijgewerkt_op = now()
+        `UPDATE boekingen SET status = 'bevestigd', klant_bevestigd_op = now(), bijgewerkt_op = now()
          WHERE id = $1 AND klant_bevestigd_op IS NULL AND status = ANY($2::text[])`,
         [boeking.id, BEVESTIGBARE_STATUSSEN]
       );
@@ -223,7 +248,7 @@ router.post('/:boekingId/:token', asyncHandler(async (req, res) => {
         );
         await client.query(
           `INSERT INTO boeking_status_historiek (boeking_id, van_status, naar_status, opmerking)
-           VALUES ($1, $2, 'geaccepteerd', 'Klant heeft zelf bevestigd via de link in de e-mail')`,
+           VALUES ($1, $2, 'bevestigd', 'Klant heeft zelf bevestigd via de link in de e-mail')`,
           [boeking.id, boeking.status]
         );
       }
@@ -241,7 +266,7 @@ router.post('/:boekingId/:token', asyncHandler(async (req, res) => {
       return res.send(PAGINA_NIET_MEER_OPEN);
     }
 
-    // Status ging net naar 'geaccepteerd' -> telt vanaf nu mee in de
+    // Status ging net naar 'bevestigd' -> telt vanaf nu mee in de
     // website-beschikbaarheid (zie utils/wordpressSync.js).
     plandWebsiteSync();
 
@@ -266,6 +291,60 @@ router.post('/:boekingId/:token', asyncHandler(async (req, res) => {
     // deze vangnet i.p.v. door te laten vallen naar de centrale foutafhandeling
     // in server.js.
     console.error('Onverwachte fout bij klant-zelfbevestiging (POST):', err);
+    res.status(500).send(PAGINA_ONVERWACHTE_FOUT);
+  }
+}));
+
+// Annulatie door de klant zelf — tweede knop op dezelfde pagina als de
+// bevestiging hierboven (zie paginaMetKnop). Zet de aanvraag op 'geweigerd'
+// (dezelfde status als wanneer Jonas zelf weigert — verschijnt dus gewoon bij
+// "Geweigerd" in het overzicht, met een eigen herkenbare opmerking in de
+// historiek zodat het onderscheid met een manuele weigering duidelijk
+// blijft). Zelfde bescherming tegen een dubbele/gelijktijdige klik als de
+// bevestig-route hierboven (atomaire UPDATE met WHERE-voorwaarde).
+router.post('/:boekingId/:token/annuleer', asyncHandler(async (req, res) => {
+  try {
+    const { fout, status, boeking } = await haalBevestigbareBoekingOp(req);
+    if (fout) return res.status(status).send(fout);
+
+    const client = await db.getClient();
+    let bijgewerkt;
+    try {
+      await client.query('BEGIN');
+      const updateResultaat = await client.query(
+        `UPDATE boekingen SET status = 'geweigerd', bijgewerkt_op = now()
+         WHERE id = $1 AND klant_bevestigd_op IS NULL AND status = ANY($2::text[])`,
+        [boeking.id, BEVESTIGBARE_STATUSSEN]
+      );
+      bijgewerkt = updateResultaat.rowCount > 0;
+      if (bijgewerkt) {
+        await client.query(
+          `INSERT INTO boeking_status_historiek (boeking_id, van_status, naar_status, opmerking)
+           VALUES ($1, $2, 'geweigerd', 'Klant heeft zelf geannuleerd via de link in de e-mail')`,
+          [boeking.id, boeking.status]
+        );
+      }
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    if (!bijgewerkt) {
+      return res.send(PAGINA_NIET_MEER_OPEN);
+    }
+
+    // Een geannuleerde aanvraag telt niet meer mee tegen de beschikbaarheid —
+    // zelfde nevenwerking als een bevestiging (zie hierboven).
+    plandWebsiteSync();
+
+    await stuurSeintjeNaarJonas(boeking, { geannuleerd: true });
+
+    res.send(PAGINA_GEANNULEERD);
+  } catch (err) {
+    console.error('Onverwachte fout bij klant-zelfannulatie (POST):', err);
     res.status(500).send(PAGINA_ONVERWACHTE_FOUT);
   }
 }));
