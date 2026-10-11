@@ -5469,8 +5469,6 @@ async function laadLogboekOverzicht() {
   const badge = document.getElementById('badge-logboek');
   badge.hidden = aantalAchterstallig === 0;
   badge.textContent = aantalAchterstallig;
-
-  await laadTerugverdiendOverzicht();
 }
 
 // Statisch formulier (staat vast in index.html, wordt niet herladen via
@@ -6090,6 +6088,8 @@ async function laadStatistieken() {
     productTotVeld.value = data.productTot;
     document.getElementById('stat-producten-per-categorie').innerHTML = statRenderProductenPerCategorie(data.productenPerCategorie);
   }
+
+  await laadTerugverdiendOverzicht();
 }
 
 document.getElementById('stat-jaar').addEventListener('change', (e) => {

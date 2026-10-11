@@ -7,7 +7,25 @@ const MAANDEN = ['januari', 'februari', 'maart', 'april', 'mei', 'juni', 'juli',
 // Publiek adres van DIT platform zelf — nodig om de bevestigingslink (en de
 // header-afbeelding hieronder) in een mail als volledige (absolute) URL te
 // kunnen zetten. Zie .env.example.
-const PLATFORM_URL = (process.env.PLATFORM_URL || 'https://planning.belair-fun.be').replace(/\/+$/, '');
+//
+// Herstelt zelf een fout/ongeldig schema in PLATFORM_URL (bv. bij Render
+// per ongeluk "render:///boekingen.belair-fun.be" ingevuld i.p.v.
+// "https://boekingen.belair-fun.be") — zonder dit zou ELKE link/afbeelding in
+// elke mail stuk zijn (de mail-app/browser kent "render://" niet en doet dan
+// gewoon niets, zonder duidelijke foutmelding voor Jonas). Een correct
+// https://-adres gaat hier ongewijzigd doorheen.
+function normaliseerPlatformUrl(ruw) {
+  const STANDAARD = 'https://planning.belair-fun.be';
+  if (!ruw || !String(ruw).trim()) return STANDAARD;
+  let url = String(ruw).trim();
+  if (/^https?:\/\//i.test(url)) return url.replace(/\/+$/, '');
+  // Onbekend/fout schema (bv. "render:///", "render://", ...) weghalen en
+  // vervangen door https://.
+  url = url.replace(/^[a-z][a-z0-9+.-]*:\/*/i, '');
+  if (!url) return STANDAARD;
+  return `https://${url}`.replace(/\/+$/, '');
+}
+const PLATFORM_URL = normaliseerPlatformUrl(process.env.PLATFORM_URL);
 
 // Belair-Fun-huisstijlkleuren, overgenomen uit het logo/de mail-header
 // (public/img/email-header-belair-fun.png) — gebruikt in de nieuwe,

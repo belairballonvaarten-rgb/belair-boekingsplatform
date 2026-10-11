@@ -93,6 +93,19 @@ async function zorgVoorKlant(db, klant) {
   return klantId;
 }
 
+// EenvoudigFactureren geeft in 'uri' de kale API-resource-link terug (zonder
+// extensie, bv. ".../api/v1/invoices/13288106") — rechtstreeks in de browser
+// geopend toont dat enkel de ruwe XML-data, geen leesbaar document. Hun eigen
+// documentatie (onfact.be, hetzelfde platform): "voor documenten kan u ook de
+// .pdf, .html of .xml extensie gebruiken" — door .pdf toe te voegen krijgt
+// Jonas de echte PDF van de factuur/het betaalverzoek te zien i.p.v. de kale
+// API-data. (Bevestigd via hun documentatie, niet live getest tegen een
+// echte account — als dit toch nog fout zou gaan, laat het dan weten.)
+function maakWeergaveUrl(resultaat) {
+  if (resultaat.uri) return `${resultaat.uri}.pdf`;
+  return resultaat.url || null;
+}
+
 // regels: [{ omschrijving, aantal, bedrag_incl_btw }]
 async function maakFactuur(klantId, regels, notitie) {
   const payload = {
@@ -109,7 +122,7 @@ async function maakFactuur(klantId, regels, notitie) {
   const resultaat = await efRequest('POST', '/invoices', payload);
   return {
     id: resultaat.invoice_id || resultaat.id || null,
-    url: resultaat.uri || resultaat.url || null,
+    url: maakWeergaveUrl(resultaat),
   };
 }
 
@@ -133,7 +146,7 @@ async function maakBetaalverzoek(klantId, regels, notitie) {
     const resultaat = await efRequest('POST', '/payment-requests', payload);
     return {
       id: resultaat.payment_request_id || resultaat.id || null,
-      url: resultaat.uri || resultaat.url || null,
+      url: maakWeergaveUrl(resultaat),
       viaFallback: false,
     };
   } catch (err) {
