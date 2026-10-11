@@ -4831,9 +4831,13 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
 const LOGBOEK_MINIMUM_CONTROLES = 5;
 
 // Op module-niveau i.p.v. lokaal in openProductDetail() — ook nodig in
-// openLogboekDetail() hieronder.
-const LOGBOEK_TYPE_LABELS = { controle: 'Controle/nazicht', reiniging: 'Reiniging', herstelling: 'Herstelling' };
-const LOGBOEK_TYPES = Object.keys(LOGBOEK_TYPE_LABELS);
+// openLogboekDetail() hieronder. 'plaatsing' staat er ENKEL in voor de
+// weergave (label bij een logboekregel) — die regels worden automatisch door
+// de database aangemaakt zodra een plaatsing bevestigd wordt in de
+// leveringen-app (zie migratie 047), dus LOGBOEK_TYPES (de 3 manueel
+// kiesbare types bij "+ Toevoegen") bevat 'plaatsing' bewust NIET.
+const LOGBOEK_TYPE_LABELS = { controle: 'Controle/nazicht', reiniging: 'Reiniging', herstelling: 'Herstelling', plaatsing: 'Plaatsing (automatisch)' };
+const LOGBOEK_TYPES = ['controle', 'reiniging', 'herstelling'];
 
 // Op vraag van Jonas: bij een logboek-invoer moet je meerdere types tegelijk
 // kunnen aanvinken (bv. "gereinigd" EN "gecontroleerd" op dezelfde dag) i.p.v.
@@ -5522,11 +5526,12 @@ async function laadLogboekOverzicht() {
         ${p.aantal_controles_dit_jaar} / ${data.minimum_per_jaar}${p.voldoet_aan_minimum ? ' ✓' : ' ⚠️'}
       </td>
       <td>${p.laatste_controle ? fmtDatum(p.laatste_controle) : '—'}</td>
+      <td>${p.laatste_plaatsing ? fmtDatum(p.laatste_plaatsing) : '—'}</td>
       <td>${p.laatste_reiniging ? fmtDatum(p.laatste_reiniging) : '—'}</td>
       <td>${p.laatste_herstelling ? fmtDatum(p.laatste_herstelling) : '—'}</td>
       <td><button type="button" class="linkbtn btn-logboek-open-product" data-product-id="${p.id}">Openen →</button></td>
     </tr>
-  `).join('') || '<tr><td colspan="6" class="leeg-bericht">Geen producten gevonden.</td></tr>';
+  `).join('') || '<tr><td colspan="7" class="leeg-bericht">Geen producten gevonden.</td></tr>';
 
   tabelLogboek.querySelectorAll('.btn-logboek-open-product').forEach((btn) => {
     btn.addEventListener('click', () => openLogboekDetail(btn.dataset.productId));

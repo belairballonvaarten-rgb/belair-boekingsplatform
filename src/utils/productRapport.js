@@ -33,7 +33,7 @@ const MIN_CONTROLES_PER_JAAR = 5;
 // geheel opgevraagd worden, bv. als een FOD-controleur dat ter plaatse vraagt.
 const AANTAL_REGELS_KORT = 5;
 
-const LOGBOEK_TYPE_LABELS = { controle: 'Controle/nazicht', reiniging: 'Reiniging', herstelling: 'Herstelling' };
+const LOGBOEK_TYPE_LABELS = { controle: 'Controle/nazicht', reiniging: 'Reiniging', herstelling: 'Herstelling', plaatsing: 'Plaatsing (automatisch)' };
 
 // ---- Zorgt dat er nog minstens 'benodigd' ruimte is tot de ondermarge;
 // breekt anders naar een nieuwe pagina. Nodig omdat enkel tekenTabel()'s
@@ -329,14 +329,20 @@ async function genereerProductRapportPdf(productId, opties = {}) {
     'Nog geen reiniging/herstelling genoteerd.'
   );
 
-  // ---- Inspecties (controle) ----
-  const alleControleRijen = logboek.filter((l) => l.type === 'controle');
+  // ---- Inspecties (controle + plaatsing) ----
+  // Op vraag van Jonas: naast de manueel ingevoerde "grote controles" telt ook
+  // elke bevestigde plaatsing mee als visuele controle (de plaatser controleert
+  // het kasteel toch telkens bij het opzetten) — die regels worden automatisch
+  // aangemaakt zodra 'plaatsing_bevestigd' gezet wordt in de leveringen-app
+  // (zie migratie 047, trigger op de leveringen-tabel). De Type-kolom hieronder
+  // houdt het voor een FOD-controleur wel duidelijk welke regel welke soort is.
+  const alleControleRijen = logboek.filter((l) => l.type === 'controle' || l.type === 'plaatsing');
   const controleWeergave = volledig ? alleControleRijen : alleControleRijen.slice(-AANTAL_REGELS_KORT);
   const ditJaar = alleControleRijen.filter((l) => new Date(l.datum).getFullYear() === new Date().getFullYear()).length;
   const voldoet = ditJaar >= MIN_CONTROLES_PER_JAAR;
   tekenSectieTitel(
     doc, MARGIN, CONTENT_W, MARGIN, 'Inspecties',
-    `Minstens ${MIN_CONTROLES_PER_JAAR}x per jaar een controle/nazicht (FOD-verplichting).`
+    `Minstens ${MIN_CONTROLES_PER_JAAR}x per jaar een controle/nazicht (FOD-verplichting) — een bevestigde plaatsing telt hierbij mee als visuele controle.`
   );
   // Enkel bij effectief behaald (>=5) een groen "voldoet"-oordeel — anders
   // gewoon de stand van zaken neutraal tonen (zie tekenStatusBanner hierboven).
@@ -355,8 +361,8 @@ async function genereerProductRapportPdf(productId, opties = {}) {
   }
   tekenTabel(
     doc, MARGIN, CONTENT_W, MARGIN, 'Controles/nazichten',
-    [{ titel: 'Datum', breedte: 0.16 }, { titel: 'Door', breedte: 0.24 }, { titel: 'Opmerking', breedte: 0.6 }],
-    controleWeergave.map((l) => [fmtDatum(l.datum), l.uitgevoerd_door || '', l.notitie || '']),
+    [{ titel: 'Datum', breedte: 0.16 }, { titel: 'Type', breedte: 0.22 }, { titel: 'Door', breedte: 0.22 }, { titel: 'Opmerking', breedte: 0.4 }],
+    controleWeergave.map((l) => [fmtDatum(l.datum), LOGBOEK_TYPE_LABELS[l.type] || l.type, l.uitgevoerd_door || '', l.notitie || '']),
     'Nog geen controle/nazicht genoteerd.'
   );
 

@@ -70,15 +70,18 @@ const MIN_CONTROLES_PER_JAAR = 5;
 // Eén overzicht van alle producten met hun logboekstatus dit kalenderjaar —
 // zodat Jonas in één oogopslag ziet welke springkastelen achterstaan op de
 // verplichte nazichten, zonder elk product apart te moeten openen. Telt
-// enkel 'controle'-regels mee voor de 5x/jaar-verplichting; reiniging en
-// herstelling tonen we erbij als laatste-datum, puur informatief.
+// 'controle'- EN 'plaatsing'-regels mee voor de 5x/jaar-verplichting (op
+// vraag van Jonas: een bevestigde plaatsing is ook een visuele controle door
+// de plaatser, zie migratie 047) — reiniging en herstelling tonen we erbij
+// als laatste-datum, puur informatief.
 router.get('/logboek-overzicht', asyncHandler(async (req, res) => {
   const { rows } = await db.query(
     `SELECT p.id, p.naam,
-            COUNT(*) FILTER (WHERE l.type = 'controle' AND l.datum >= date_trunc('year', CURRENT_DATE)) AS aantal_controles_dit_jaar,
+            COUNT(*) FILTER (WHERE l.type IN ('controle', 'plaatsing') AND l.datum >= date_trunc('year', CURRENT_DATE)) AS aantal_controles_dit_jaar,
             MAX(l.datum) FILTER (WHERE l.type = 'reiniging') AS laatste_reiniging,
             MAX(l.datum) FILTER (WHERE l.type = 'herstelling') AS laatste_herstelling,
-            MAX(l.datum) FILTER (WHERE l.type = 'controle') AS laatste_controle
+            MAX(l.datum) FILTER (WHERE l.type = 'controle') AS laatste_controle,
+            MAX(l.datum) FILTER (WHERE l.type = 'plaatsing') AS laatste_plaatsing
      FROM producten p
      LEFT JOIN product_logboek l ON l.product_id = p.id
      WHERE p.zichtbaarheid <> 'hidden' OR EXISTS (
