@@ -3378,6 +3378,7 @@ async function openDetail(boekingId) {
       ${statusStepperHtml(b.status, b.prijstabel.saldo_openstaand)}
       <p class="uitleg" style="margin: 0 0 0.4rem;">Klik op een fase hierboven om ernaartoe te springen, of klik de actieve fase nogmaals aan om terug te gaan naar de vorige status.</p>
       <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen volgende stap voorgesteld</p>'}</div>
+      <p class="dossier-snelknoppen-label">✉️ E-mails versturen</p>
       <div class="dossier-snelknoppen">${dossierSnelknopHtml('aanvraag_bevestiging', '📨 Aanvraagbevestiging', b)}${dossierSnelknopHtml('betaalverzoek', '💳 Betaalverzoek', b)}${dossierSnelknopHtml('reservatie_bevestiging', '✅ Reservatiebevestiging', b)}${dossierSnelknopHtml('review_verzoek', '⭐ Review vragen', b)}</div>
     </div>
 

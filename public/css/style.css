@@ -1064,6 +1064,11 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .rijke-tekst-editor .ql-container { min-height: 9rem; font-size: 0.92rem; }
 .instellingen-blok-breed { max-width: 46rem; }
 
+/* Klein kopje boven de 4 sneltoetsen — op vraag van Jonas: zonder dit voelde
+   bv. "Reservatiebevestiging" eerder aan als een status dan als een knop die
+   effectief een e-mail verstuurt. */
+.dossier-snelknoppen-label { font-size: 0.78rem; font-weight: 600; color: var(--grijs); text-transform: uppercase; letter-spacing: 0.02em; margin: 0.6rem 0 0.3rem; }
+
 /* Dossier: 4 vaste sneltoetsen bovenaan om een e-mailtemplate te versturen
    (Aanvraagbevestiging/Betaalverzoek/Reservatiebevestiging/Review) — zie
    .dossier-snelknop-mail-handlers in app.js. */

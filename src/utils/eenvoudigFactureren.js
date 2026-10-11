@@ -6,17 +6,25 @@
 //   'X-API-Key'-header, en het aanmaken van klanten (POST /clients) en
 //   facturen (POST /invoices, met client_id + items[]) zijn bevestigd via
 //   hun eigen hulp-artikels.
-// - Een apart "betaalverzoek"-document bestaat WEL in hun systeem (los van
-//   een factuur), maar hun documentatie beschrijft dat enkel als een
-//   manuele/UI-actie — een apart API-eindpunt daarvoor kon niet met
-//   zekerheid bevestigd worden. We proberen POST /payment-requests; lukt dat
-//   niet (bv. 404), dan valt dit automatisch terug op een gewone factuur, met
-//   een duidelijke melding in de UI zodat Jonas weet dat dat gebeurd is.
+// - Een apart "betaalverzoek"-document bestaat WEL in hun systeem, los van
+//   een factuur (bevestigd: hun eigen Make.com-koppeling heeft er een
+//   volledige eigen module-set voor — aanmaken/opvragen/zoeken/bijwerken/
+//   verwijderen/PDF/mailen). Jonas gaf zelf bevestigd dat dit in zijn account
+//   écht twee verschillende documenten zijn. Het exacte API-pad daarvoor kon
+//   niet met zekerheid uit hun documentatie gehaald worden — zie
+//   BETAALVERZOEK_PADEN hieronder, waar een paar aannemelijke varianten na
+//   elkaar geprobeerd worden.
+// - Lukt geen van die paden (bv. nog steeds 404), dan valt dit NIET meer
+//   terug op een gewone factuur — eerder deed het dat wel, maar een factuur
+//   verbruikt mogelijk een echt factuurnummer in Jonas' boekhouding, en dat
+//   stilzwijgend aanmaken terwijl hij een betaalverzoek verwachtte is geen
+//   aanvaardbare terugval. Jonas krijgt dan een duidelijke foutmelding i.p.v.
+//   een verkeerd document, met de vraag om het juiste API-pad op te vragen
+//   via EenvoudigFactureren → Instellingen → API-documentatie.
 // - Dit is dus, in tegenstelling tot de rest van het platform, NIET getest
-//   tegen een echte account/sleutel — de eerste keer dat Jonas op "Factuur"
-//   of "Betaalverzoek aanmaken" klikt is de eerste echte test. Foutmeldingen
-//   van EenvoudigFactureren zelf worden zo veel mogelijk letterlijk
-//   doorgegeven, net om samen snel te kunnen bijsturen indien nodig.
+//   tegen een echte account/sleutel. Foutmeldingen van EenvoudigFactureren
+//   zelf worden zo veel mogelijk letterlijk doorgegeven, net om samen snel
+//   te kunnen bijsturen indien nodig.
 
 const EF_BASIS_URL = 'https://eenvoudigfactureren.be/api/v1';
 
@@ -126,10 +134,23 @@ async function maakFactuur(klantId, regels, notitie) {
   };
 }
 
-// Probeert eerst een echt "betaalverzoek"-document; bestaat dat eindpunt niet
-// op deze account/API-versie, dan valt dit terug op een gewone factuur (zie
-// uitleg bovenaan dit bestand) — 'viaFallback' laat de aanroeper weten dat
-// dat gebeurd is, voor een duidelijke melding aan Jonas.
+// Een "betaalverzoek" is bij EenvoudigFactureren bevestigd een EIGEN
+// documenttype, los van een factuur (hun Make.com-koppeling heeft er een
+// volledige eigen module-set voor: aanmaken/opvragen/zoeken/bijwerken/
+// verwijderen/PDF/mailen — zie hun eigen integratiepagina). Enkel het exacte
+// API-pad kon niet met zekerheid uit hun documentatie gehaald worden, dus
+// proberen we hier een paar aannemelijke varianten na elkaar (zelfde
+// payload-vorm als een factuur — niet bevestigd, maar wel de meest
+// voor de hand liggende aanname).
+//
+// BELANGRIJK — dit valt NIET meer automatisch terug op een gewone factuur
+// als geen van deze paden werkt: een factuur verbruikt mogelijk een echt,
+// opeenvolgend factuurnummer in Jonas' boekhouding, en dat stilzwijgend
+// aanmaken terwijl hij een betaalverzoek verwachtte is geen aanvaardbare
+// terugval. Lukt geen van de paden, dan krijgt Jonas een duidelijke
+// foutmelding i.p.v. een verkeerd document.
+const BETAALVERZOEK_PADEN = ['/paymentrequests', '/payment_requests', '/payment-requests'];
+
 async function maakBetaalverzoek(klantId, regels, notitie) {
   const payload = {
     client_id: Number.isFinite(Number(klantId)) ? Number(klantId) : klantId,
@@ -142,18 +163,26 @@ async function maakBetaalverzoek(klantId, regels, notitie) {
     })),
     note: notitie || undefined,
   };
-  try {
-    const resultaat = await efRequest('POST', '/payment-requests', payload);
-    return {
-      id: resultaat.payment_request_id || resultaat.id || null,
-      url: maakWeergaveUrl(resultaat),
-      viaFallback: false,
-    };
-  } catch (err) {
-    if (err.status !== 404 && err.status !== 405) throw err;
-    const factuur = await maakFactuur(klantId, regels, notitie);
-    return { ...factuur, viaFallback: true };
+  let laatsteFout = null;
+  for (const pad of BETAALVERZOEK_PADEN) {
+    try {
+      const resultaat = await efRequest('POST', pad, payload);
+      return {
+        id: resultaat.payment_request_id || resultaat.id || null,
+        url: maakWeergaveUrl(resultaat),
+        viaFallback: false,
+      };
+    } catch (err) {
+      if (err.status !== 404 && err.status !== 405) throw err;
+      laatsteFout = err;
+    }
   }
+  const fout = new Error(
+    `Geen van de geprobeerde betaalverzoek-eindpunten (${BETAALVERZOEK_PADEN.join(', ')}) bestaat bij EenvoudigFactureren. `
+    + `Er werd NIETS aangemaakt (dus ook geen factuur) — vraag het juiste API-pad op bij EenvoudigFactureren (Instellingen → API-documentatie) zodat dit opgelost kan worden.`
+  );
+  fout.status = laatsteFout ? laatsteFout.status : undefined;
+  throw fout;
 }
 
 module.exports = { isGeconfigureerd, zorgVoorKlant, maakFactuur, maakBetaalverzoek };
