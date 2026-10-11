@@ -332,7 +332,7 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'online-bevestigd', 'boekingen', 'geweigerd', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'logboek', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail'];
+const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'online-bevestigd', 'boekingen', 'geweigerd', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'logboek', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail', 'product-detail'];
 // Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
 // ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
 // de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
@@ -340,7 +340,7 @@ const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'online-bev
 // enkel het "test"-tabblad is niet langer zichtbaar in het menu.
 
 function huidigeViewNaam() {
-  return views.find((v) => v !== 'boeking-detail' && !document.getElementById(`view-${v}`).hidden) || 'boekingen';
+  return views.find((v) => v !== 'boeking-detail' && v !== 'product-detail' && !document.getElementById(`view-${v}`).hidden) || 'boekingen';
 }
 
 function wisselView(naam) {
@@ -5055,10 +5055,11 @@ document.getElementById('form-bulk-import').addEventListener('submit', async (e)
   }
 });
 
-// Productdetail (modal): bewerken + keuringen/certificaten
-const modalProduct = document.getElementById('modal-product');
-document.getElementById('btn-modal-product-sluiten').addEventListener('click', () => { modalProduct.hidden = true; });
-modalProduct.addEventListener('click', (e) => { if (e.target === modalProduct) modalProduct.hidden = true; });
+// Productdetail (volledige pagina, zie view-product-detail): bewerken +
+// keuringen/certificaten/logboek — zelfde "onthoud vanwaar je kwam"-patroon
+// als boekingDetailVorigeView hierboven.
+let productDetailVorigeView = 'producten';
+document.getElementById('btn-product-detail-terug').addEventListener('click', () => wisselView(productDetailVorigeView));
 
 // Leest een bestand (via een <input type="file">) in als base64-tekst, zonder
 // de "data:...;base64," voorloop — dat is wat de certificaat-routes verwachten.
@@ -5291,8 +5292,17 @@ function koppelLogboekOrigineelBlok(productId) {
 }
 
 async function openProductDetail(productId) {
+  // Zelfde patroon als openDetail() (boekingen): enkel bij een ECHTE navigatie
+  // (nog niet op de productpagina) onthouden we vanwaar we komen en schakelen
+  // we aan het einde om — een ververs-aanroep na een opslag (zie de vele
+  // openProductDetail(productId)-aanroepen hieronder) mag Jonas niet tegen
+  // zijn wil terug naar deze pagina trekken als hij intussen al elders zat.
+  const navigeertNaarDetail = document.getElementById('view-product-detail').hidden;
+  if (navigeertNaarDetail) {
+    productDetailVorigeView = huidigeViewNaam();
+  }
   const p = await api(`/api/producten/${productId}`);
-  const inhoud = document.getElementById('modal-product-inhoud');
+  const inhoud = document.getElementById('product-detail-inhoud');
 
   const keuringenHtml = (p.keuringen || [])
     .map((k) => `<div class="keuring-item"><span>${k.type_keuring}</span><span>Vervalt: ${fmtDatum(k.vervaldatum)}</span></div>`)
@@ -5305,93 +5315,116 @@ async function openProductDetail(productId) {
       </div>`)
     .join('') || '<p class="leeg-bericht">Nog geen logboek-items toegevoegd.</p>';
 
+  // Volledige pagina i.p.v. de vroegere krappe modal (op vraag van Jonas: "dit
+  // is zo bekrompen en onoverzichtelijk") — zelfde .detail-layout/.paneel-opzet
+  // als het boeking- en klantdossier: linkerkolom (breder) voor het
+  // bewerk-formulier zelf, rechterkolom voor de losse, kortere blokken
+  // (keuringen, certificaat, logboek, infofiche) elk in hun eigen kaart.
   inhoud.innerHTML = `
     <h3>${p.naam}</h3>
-    <p>
-      <a href="/api/producten/${p.id}/logboek.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Logboek afdrukken (laatste 5, voor FOD-controle)</a>
-      <a href="/api/producten/${p.id}/logboek.pdf?volledig=1" target="_blank" rel="noopener" class="linkbtn">📄 Volledig logboek (alle regels)</a>
-    </p>
-    <form id="form-product-bewerken">
-      <div class="grid-2">
-        <label>Naam<input type="text" id="pb-naam" value="${p.naam}" /></label>
-        <label>Categorie
-          <select id="pb-categorie">${bouwCategorieKeuzeOpties((p.categorieen && p.categorieen[0]) || '')}</select>
-        </label>
-        <label id="pb-nieuwe-categorie-veld" hidden>Naam nieuwe categorie<input type="text" id="pb-nieuwe-categorie-naam" placeholder="bv. Verlichting" /></label>
-        <label>Dagprijs (€)<input type="number" id="pb-prijs" step="0.01" min="0" value="${p.prijs}" /></label>
-        <label>Weekendprijs (€)<input type="number" id="pb-weekendprijs" step="0.01" min="0" value="${p.weekendprijs != null ? p.weekendprijs : ''}" /></label>
-        <label>Afhaalprijs (€)<input type="number" id="pb-afhaalprijs" step="0.01" min="0" value="${p.afhaalprijs != null ? p.afhaalprijs : ''}" /></label>
-        <label>Afmetingen<input type="text" id="pb-afmetingen" value="${p.afmetingen || ''}" /></label>
-        <label>Afbeelding (URL)<input type="text" id="pb-afbeelding" value="${(p.afbeeldingen && p.afbeeldingen[0]) || ''}" /></label>
-        <label>Kostprijs (€, aankoop)<input type="number" id="pb-kostprijs" step="0.01" min="0" value="${p.kostprijs != null ? p.kostprijs : ''}" placeholder="optioneel, voor terugverdiend-overzicht" /></label>
-        <label>Aankoopdatum<input type="date" id="pb-aankoopdatum" value="${p.aankoopdatum ? String(p.aankoopdatum).slice(0, 10) : ''}" /></label>
-        <label>Serienummer<input type="text" id="pb-serienummer" value="${p.serienummer || ''}" /></label>
-        <label>Bouwjaar<input type="number" id="pb-bouwjaar" min="1990" max="2100" value="${p.bouwjaar != null ? p.bouwjaar : ''}" /></label>
-        <label>Max. boekingen per dag<input type="number" id="pb-max-per-dag" min="1" value="${p.max_boekingen_per_dag}" /></label>
-        <label>Buffer-dagen tussen boekingen<input type="number" id="pb-buffer-dagen" min="0" value="${p.availability_buffer_dagen}" /></label>
-        <label>Zichtbaarheid
-          <select id="pb-zichtbaarheid">
-            <option value="bookbaar" ${p.zichtbaarheid === 'bookbaar' ? 'selected' : ''}>Bookbaar</option>
-            <option value="featured" ${p.zichtbaarheid === 'featured' ? 'selected' : ''}>Featured</option>
-            <option value="hidden" ${p.zichtbaarheid === 'hidden' ? 'selected' : ''}>Verborgen</option>
-          </select>
-        </label>
+    <div class="detail-layout">
+      <div class="detail-kolom detail-kolom-links">
+        <div class="paneel">
+          <form id="form-product-bewerken">
+            <h4>Basisgegevens</h4>
+            <div class="grid-2">
+              <label>Naam<input type="text" id="pb-naam" value="${p.naam}" /></label>
+              <label>Categorie
+                <select id="pb-categorie">${bouwCategorieKeuzeOpties((p.categorieen && p.categorieen[0]) || '')}</select>
+              </label>
+              <label id="pb-nieuwe-categorie-veld" hidden>Naam nieuwe categorie<input type="text" id="pb-nieuwe-categorie-naam" placeholder="bv. Verlichting" /></label>
+              <label>Dagprijs (€)<input type="number" id="pb-prijs" step="0.01" min="0" value="${p.prijs}" /></label>
+              <label>Weekendprijs (€)<input type="number" id="pb-weekendprijs" step="0.01" min="0" value="${p.weekendprijs != null ? p.weekendprijs : ''}" /></label>
+              <label>Afhaalprijs (€)<input type="number" id="pb-afhaalprijs" step="0.01" min="0" value="${p.afhaalprijs != null ? p.afhaalprijs : ''}" /></label>
+              <label>Afmetingen<input type="text" id="pb-afmetingen" value="${p.afmetingen || ''}" /></label>
+              <label>Afbeelding (URL)<input type="text" id="pb-afbeelding" value="${(p.afbeeldingen && p.afbeeldingen[0]) || ''}" /></label>
+              <label>Kostprijs (€, aankoop)<input type="number" id="pb-kostprijs" step="0.01" min="0" value="${p.kostprijs != null ? p.kostprijs : ''}" placeholder="optioneel, voor terugverdiend-overzicht" /></label>
+              <label>Aankoopdatum<input type="date" id="pb-aankoopdatum" value="${p.aankoopdatum ? String(p.aankoopdatum).slice(0, 10) : ''}" /></label>
+              <label>Serienummer<input type="text" id="pb-serienummer" value="${p.serienummer || ''}" /></label>
+              <label>Bouwjaar<input type="number" id="pb-bouwjaar" min="1990" max="2100" value="${p.bouwjaar != null ? p.bouwjaar : ''}" /></label>
+              <label>Max. boekingen per dag<input type="number" id="pb-max-per-dag" min="1" value="${p.max_boekingen_per_dag}" /></label>
+              <label>Buffer-dagen tussen boekingen<input type="number" id="pb-buffer-dagen" min="0" value="${p.availability_buffer_dagen}" /></label>
+              <label>Zichtbaarheid
+                <select id="pb-zichtbaarheid">
+                  <option value="bookbaar" ${p.zichtbaarheid === 'bookbaar' ? 'selected' : ''}>Bookbaar</option>
+                  <option value="featured" ${p.zichtbaarheid === 'featured' ? 'selected' : ''}>Featured</option>
+                  <option value="hidden" ${p.zichtbaarheid === 'hidden' ? 'selected' : ''}>Verborgen</option>
+                </select>
+              </label>
+            </div>
+            <h4 style="margin-top:1.2rem">Laadlijst / materiaal (voor de routeplanner)</h4>
+            <div class="grid-2">
+              <label>Type motor
+                <select id="pb-motor-type">
+                  <option value="" ${!p.motor_type ? 'selected' : ''}>— Onbekend —</option>
+                  <option value="Standaard motor" ${p.motor_type === 'Standaard motor' ? 'selected' : ''}>Standaard motor</option>
+                  <option value="Zware motor" ${p.motor_type === 'Zware motor' ? 'selected' : ''}>Zware motor</option>
+                </select>
+              </label>
+              <label>Gewicht unit (kg)<input type="number" id="pb-gewicht-kg" min="0" step="0.1" value="${p.gewicht_kg != null ? p.gewicht_kg : ''}" /></label>
+              <label>Valmatten (harde ondergrond)<input type="number" id="pb-aantal-valmatten" min="0" step="1" value="${p.aantal_valmatten != null ? p.aantal_valmatten : ''}" /></label>
+              <label>Piketten (zachte ondergrond)<input type="number" id="pb-aantal-piketten" min="0" step="1" value="${p.aantal_piketten != null ? p.aantal_piketten : ''}" /></label>
+              <label>Zandzakken (harde ondergrond)<input type="number" id="pb-aantal-zandzakken" min="0" step="1" value="${p.aantal_zandzakken != null ? p.aantal_zandzakken : ''}" /></label>
+              <label>Aantal motors<input type="number" id="pb-aantal-motors" min="0" step="1" value="${p.aantal_motors != null ? p.aantal_motors : ''}" /></label>
+              <label>Verlengkabel standaard<input type="number" id="pb-verlengkabel-standaard" min="0" step="1" value="${p.verlengkabel_standaard != null ? p.verlengkabel_standaard : ''}" /></label>
+              <label>Verlengkabel dubbel<input type="number" id="pb-verlengkabel-dubbel" min="0" step="1" value="${p.verlengkabel_dubbel != null ? p.verlengkabel_dubbel : ''}" /></label>
+              <label>Opsteltijd (minuten, voor routeplanner)<input type="number" id="pb-opsteltijd" min="0" step="1" value="${p.gemiddelde_opsteltijd_minuten != null ? p.gemiddelde_opsteltijd_minuten : ''}" /></label>
+            </div>
+            <label>Overige benodigdheden<input type="text" id="pb-overige-benodigdheden" value="${p.overige_benodigdheden || ''}" placeholder="bv. Ballen + 2 stokken" /></label>
+            <label>Opmerking materiaal<input type="text" id="pb-materiaal-opmerking" value="${p.materiaal_opmerking || ''}" placeholder="optioneel" /></label>
+            <div class="form-acties">
+              <button type="submit">Wijzigingen opslaan</button>
+              <button type="button" id="btn-product-verwijderen" class="linkbtn gevaar">✕ Product verwijderen</button>
+            </div>
+            <p id="product-bewerken-fout" class="foutmelding"></p>
+          </form>
+        </div>
       </div>
-      <p class="uitleg" style="margin-top:0.6rem">Voor de laadlijst per voertuig:</p>
-      <div class="grid-2">
-        <label>Type motor
-          <select id="pb-motor-type">
-            <option value="" ${!p.motor_type ? 'selected' : ''}>— Onbekend —</option>
-            <option value="Standaard motor" ${p.motor_type === 'Standaard motor' ? 'selected' : ''}>Standaard motor</option>
-            <option value="Zware motor" ${p.motor_type === 'Zware motor' ? 'selected' : ''}>Zware motor</option>
-          </select>
-        </label>
-        <label>Gewicht unit (kg)<input type="number" id="pb-gewicht-kg" min="0" step="0.1" value="${p.gewicht_kg != null ? p.gewicht_kg : ''}" /></label>
-        <label>Valmatten (harde ondergrond)<input type="number" id="pb-aantal-valmatten" min="0" step="1" value="${p.aantal_valmatten != null ? p.aantal_valmatten : ''}" /></label>
-        <label>Piketten (zachte ondergrond)<input type="number" id="pb-aantal-piketten" min="0" step="1" value="${p.aantal_piketten != null ? p.aantal_piketten : ''}" /></label>
-        <label>Zandzakken (harde ondergrond)<input type="number" id="pb-aantal-zandzakken" min="0" step="1" value="${p.aantal_zandzakken != null ? p.aantal_zandzakken : ''}" /></label>
-        <label>Aantal motors<input type="number" id="pb-aantal-motors" min="0" step="1" value="${p.aantal_motors != null ? p.aantal_motors : ''}" /></label>
-        <label>Verlengkabel standaard<input type="number" id="pb-verlengkabel-standaard" min="0" step="1" value="${p.verlengkabel_standaard != null ? p.verlengkabel_standaard : ''}" /></label>
-        <label>Verlengkabel dubbel<input type="number" id="pb-verlengkabel-dubbel" min="0" step="1" value="${p.verlengkabel_dubbel != null ? p.verlengkabel_dubbel : ''}" /></label>
-        <label>Opsteltijd (minuten, voor routeplanner)<input type="number" id="pb-opsteltijd" min="0" step="1" value="${p.gemiddelde_opsteltijd_minuten != null ? p.gemiddelde_opsteltijd_minuten : ''}" /></label>
+      <div class="detail-kolom detail-kolom-rechts">
+        <div class="paneel">
+          <h4>Logboek (controle/reiniging/herstelling)</h4>
+          <p class="uitleg">Verplicht minstens ${LOGBOEK_MINIMUM_CONTROLES}x per jaar een controle/nazicht noteren (FOD-verplichting, een bevestigde plaatsing telt automatisch mee) — zie ook het overzicht onder "Logboek" in het menu.</p>
+          <p>
+            <a href="/api/producten/${p.id}/logboek.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Logboek afdrukken (laatste 5)</a>
+            <a href="/api/producten/${p.id}/logboek.pdf?volledig=1" target="_blank" rel="noopener" class="linkbtn">📄 Volledig logboek</a>
+          </p>
+          <div class="keuringen-lijst">${logboekHtml}</div>
+          <form id="form-logboek-toevoegen" class="form-keuring-toevoegen">
+            ${logboekTypeCheckboxenHtml('lb')}
+            <label>Datum<input type="date" id="lb-datum" value="${new Date().toISOString().slice(0, 10)}" /></label>
+            <label>Uitgevoerd door<input type="text" id="lb-door" placeholder="naam" /></label>
+            <label>Notitie<input type="text" id="lb-notitie" placeholder="optioneel" /></label>
+            <button type="submit">+ Toevoegen</button>
+          </form>
+        </div>
+
+        <div class="paneel">
+          <h4>Keuringen / certificaten</h4>
+          <div class="keuringen-lijst">${keuringenHtml}</div>
+          <form id="form-keuring-toevoegen" class="form-keuring-toevoegen">
+            <label>Type<input type="text" id="kt-type" placeholder="bv. jaarlijkse keuring" /></label>
+            <label>Vervaldatum<input type="date" id="kt-vervaldatum" /></label>
+            <button type="submit">+ Toevoegen</button>
+          </form>
+        </div>
+
+        <div class="paneel">
+          <h4>Certificaat-document</h4>
+          <div id="certificaat-blok">${certificaatBlokHtml(p)}</div>
+        </div>
+
+        <div class="paneel">
+          <h4>Origineel logboek (fabrikant)</h4>
+          <p class="uitleg">Het papieren/PDF-logboek dat je bij aankoop kreeg — wordt automatisch ACHTERAAN het hierboven afgedrukte logboek-PDF toegevoegd, zodat je één samengevoegd document hebt bij een controle.</p>
+          <div id="logboek-origineel-blok">${logboekOrigineelBlokHtml(p)}</div>
+        </div>
+
+        <div class="paneel">
+          <h4>Infofiche / handleiding</h4>
+          <div id="infofiche-blok">${infoficheBlokHtml(p)}</div>
+        </div>
       </div>
-      <label>Overige benodigdheden<input type="text" id="pb-overige-benodigdheden" value="${p.overige_benodigdheden || ''}" placeholder="bv. Ballen + 2 stokken" /></label>
-      <label>Opmerking materiaal<input type="text" id="pb-materiaal-opmerking" value="${p.materiaal_opmerking || ''}" placeholder="optioneel" /></label>
-      <div class="form-acties">
-        <button type="submit">Wijzigingen opslaan</button>
-        <button type="button" id="btn-product-verwijderen" class="linkbtn gevaar">✕ Product verwijderen</button>
-      </div>
-      <p id="product-bewerken-fout" class="foutmelding"></p>
-    </form>
-
-    <h4>Keuringen / certificaten</h4>
-    <div class="keuringen-lijst">${keuringenHtml}</div>
-    <form id="form-keuring-toevoegen" class="form-keuring-toevoegen">
-      <label>Type<input type="text" id="kt-type" placeholder="bv. jaarlijkse keuring" /></label>
-      <label>Vervaldatum<input type="date" id="kt-vervaldatum" /></label>
-      <button type="submit">+ Toevoegen</button>
-    </form>
-
-    <h4>Certificaat-document</h4>
-    <div id="certificaat-blok">${certificaatBlokHtml(p)}</div>
-
-    <h4>Logboek (controle/reiniging/herstelling)</h4>
-    <p class="uitleg">Verplicht minstens ${LOGBOEK_MINIMUM_CONTROLES}x per jaar een controle/nazicht noteren (FOD-verplichting) — zie ook het overzicht onder "Logboek" in het menu.</p>
-    <div class="keuringen-lijst">${logboekHtml}</div>
-    <form id="form-logboek-toevoegen" class="form-keuring-toevoegen">
-      ${logboekTypeCheckboxenHtml('lb')}
-      <label>Datum<input type="date" id="lb-datum" value="${new Date().toISOString().slice(0, 10)}" /></label>
-      <label>Uitgevoerd door<input type="text" id="lb-door" placeholder="naam" /></label>
-      <label>Notitie<input type="text" id="lb-notitie" placeholder="optioneel" /></label>
-      <button type="submit">+ Toevoegen</button>
-    </form>
-
-    <h4>Origineel logboek (fabrikant)</h4>
-    <p class="uitleg">Het papieren/PDF-logboek dat je bij aankoop kreeg — wordt automatisch ACHTERAAN het hierboven afgedrukte logboek-PDF toegevoegd, zodat je één samengevoegd document hebt bij een controle.</p>
-    <div id="logboek-origineel-blok">${logboekOrigineelBlokHtml(p)}</div>
-
-    <h4>Infofiche / handleiding</h4>
-    <div id="infofiche-blok">${infoficheBlokHtml(p)}</div>
+    </div>
   `;
 
   koppelNieuweCategorieVeld('pb-categorie', 'pb-nieuwe-categorie-veld');
@@ -5433,7 +5466,11 @@ async function openProductDetail(productId) {
           materiaal_opmerking: document.getElementById('pb-materiaal-opmerking').value.trim() || null,
         }),
       });
-      modalProduct.hidden = true;
+      // Blijf op de pagina (zoals het boekingdossier) i.p.v. terug naar het
+      // overzicht te springen — gewoon herladen in-place + een toast, zodat
+      // Jonas meteen ziet dat het is opgeslagen zonder zijn plek kwijt te raken.
+      toonToast('Wijzigingen opgeslagen');
+      openProductDetail(productId);
       laadProductenOverzicht();
       laadProductenCache();
     } catch (err) {
@@ -5447,7 +5484,9 @@ async function openProductDetail(productId) {
     if (!confirm(`"${p.naam}" definitief verwijderen? Dit kan niet ongedaan gemaakt worden.`)) return;
     try {
       await api(`/api/producten/${productId}`, { method: 'DELETE' });
-      modalProduct.hidden = true;
+      // Hier WEL terug naar het overzicht navigeren — het product bestaat
+      // niet meer, dus hier verder blijven/herladen kan niet.
+      wisselView(productDetailVorigeView);
       laadProductenOverzicht();
       laadProductenCache();
     } catch (err) {
@@ -5493,7 +5532,9 @@ async function openProductDetail(productId) {
   koppelInfoficheBlok(productId);
   koppelLogboekOrigineelBlok(productId);
 
-  modalProduct.hidden = false;
+  // Zie de uitleg bovenaan deze functie — enkel bij een echte navigatie
+  // effectief omschakelen.
+  if (navigeertNaarDetail) wisselView('product-detail');
 }
 
 // ============================================================
@@ -5586,8 +5627,14 @@ document.getElementById('form-logboek-snel').addEventListener('submit', async (e
 // materiaal/motor) — dat blijft via "Volledige productfiche bewerken →" of
 // de Producten-pagina zelf.
 async function openLogboekDetail(productId) {
+  // Zelfde "onthoud vanwaar je kwam"-patroon als openProductDetail hierboven —
+  // beide delen dezelfde pagina/container, dus dezelfde navigeertNaarDetail-check.
+  const navigeertNaarDetail = document.getElementById('view-product-detail').hidden;
+  if (navigeertNaarDetail) {
+    productDetailVorigeView = huidigeViewNaam();
+  }
   const p = await api(`/api/producten/${productId}`);
-  const inhoud = document.getElementById('modal-product-inhoud');
+  const inhoud = document.getElementById('product-detail-inhoud');
 
   const staat = p.staat || 'proper';
   const logboekHtml = (p.logboek || [])
@@ -5599,29 +5646,31 @@ async function openLogboekDetail(productId) {
 
   inhoud.innerHTML = `
     <h3>${p.naam} — Logboek</h3>
-    <p class="uitleg">
-      Certificaat: ${p.certificaat_bestandsnaam ? `${p.certificaat_bestandsnaam} (${fmtDatum(p.certificaat_upload_op)})` : 'nog niet geüpload'}
-      · Handleiding: ${p.infofiche_bestandsnaam ? `${p.infofiche_bestandsnaam} (${fmtDatum(p.infofiche_upload_op)})` : 'nog niet geüpload'}
-      · Staat: <span class="staat-badge ${staat}">${staat === 'proper' ? 'Proper' : 'Nat/vuil'}</span>
-    </p>
-    <p>
-      <a href="/api/producten/${p.id}/logboek.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Logboek afdrukken (laatste 5, voor FOD-controle)</a>
-      <a href="/api/producten/${p.id}/logboek.pdf?volledig=1" target="_blank" rel="noopener" class="linkbtn">📄 Volledig logboek (alle regels)</a>
-      <button type="button" class="linkbtn" id="btn-logboek-detail-volledig">Volledige productfiche bewerken →</button>
-    </p>
+    <div class="paneel">
+      <p class="uitleg">
+        Certificaat: ${p.certificaat_bestandsnaam ? `${p.certificaat_bestandsnaam} (${fmtDatum(p.certificaat_upload_op)})` : 'nog niet geüpload'}
+        · Handleiding: ${p.infofiche_bestandsnaam ? `${p.infofiche_bestandsnaam} (${fmtDatum(p.infofiche_upload_op)})` : 'nog niet geüpload'}
+        · Staat: <span class="staat-badge ${staat}">${staat === 'proper' ? 'Proper' : 'Nat/vuil'}</span>
+      </p>
+      <p>
+        <a href="/api/producten/${p.id}/logboek.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Logboek afdrukken (laatste 5, voor FOD-controle)</a>
+        <a href="/api/producten/${p.id}/logboek.pdf?volledig=1" target="_blank" rel="noopener" class="linkbtn">📄 Volledig logboek (alle regels)</a>
+        <button type="button" class="linkbtn" id="btn-logboek-detail-volledig">Volledige productfiche bewerken →</button>
+      </p>
 
-    <h4>Nieuwe invoer</h4>
-    <form id="form-logboek-toevoegen-detail" class="form-keuring-toevoegen">
-      ${logboekTypeCheckboxenHtml('lbd')}
-      <label>Datum<input type="date" id="lbd-datum" value="${new Date().toISOString().slice(0, 10)}" /></label>
-      <label>Uitgevoerd door<input type="text" id="lbd-door" placeholder="naam" /></label>
-      <label>Notitie<input type="text" id="lbd-notitie" placeholder="optioneel" /></label>
-      <button type="submit">+ Toevoegen</button>
-    </form>
-    <p id="logboek-detail-fout" class="foutmelding"></p>
+      <h4>Nieuwe invoer</h4>
+      <form id="form-logboek-toevoegen-detail" class="form-keuring-toevoegen">
+        ${logboekTypeCheckboxenHtml('lbd')}
+        <label>Datum<input type="date" id="lbd-datum" value="${new Date().toISOString().slice(0, 10)}" /></label>
+        <label>Uitgevoerd door<input type="text" id="lbd-door" placeholder="naam" /></label>
+        <label>Notitie<input type="text" id="lbd-notitie" placeholder="optioneel" /></label>
+        <button type="submit">+ Toevoegen</button>
+      </form>
+      <p id="logboek-detail-fout" class="foutmelding"></p>
 
-    <h4>Historiek</h4>
-    <div class="keuringen-lijst">${logboekHtml}</div>
+      <h4>Historiek</h4>
+      <div class="keuringen-lijst">${logboekHtml}</div>
+    </div>
   `;
 
   document.getElementById('btn-logboek-detail-volledig').addEventListener('click', () => {
@@ -5659,7 +5708,7 @@ async function openLogboekDetail(productId) {
     });
   });
 
-  modalProduct.hidden = false;
+  if (navigeertNaarDetail) wisselView('product-detail');
 }
 
 async function laadTerugverdiendOverzicht() {
