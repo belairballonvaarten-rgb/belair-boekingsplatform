@@ -1,7 +1,7 @@
 const express = require('express');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
-const { checkBeschikbaarheid } = require('../utils/beschikbaarheid');
+const { checkBeschikbaarheid, berekenResterendeAantallen } = require('../utils/beschikbaarheid');
 const { berekenAfstandKm, berekenTransportkost } = require('../utils/afstand');
 const { berekenAantalDagen, berekenMeerdaagsePrijs } = require('../utils/prijzen');
 const { asyncHandler } = require('../utils/asyncHandler');
@@ -70,6 +70,23 @@ router.post('/beschikbaarheid-check', asyncHandler(async (req, res) => {
     excl_boeking_id || null
   );
   res.json(resultaat);
+}));
+
+// Zelfde check als hierboven, maar dan voor ALLE producten tegelijk, met het
+// werkelijk resterend aantal per product — gebruikt door de productenkiezer
+// (zie public/js/app.js) zodat die niet per product een aparte aanroep moet
+// doen om te tonen hoeveel er nog vrij zijn op de gekozen periode.
+router.post('/beschikbaarheid-overzicht', asyncHandler(async (req, res) => {
+  const { gewenste_datum_start, gewenste_datum_einde, excl_boeking_id } = req.body;
+  if (!gewenste_datum_start) {
+    return res.status(400).json({ fout: 'gewenste_datum_start is verplicht' });
+  }
+  const resultaten = await berekenResterendeAantallen(
+    gewenste_datum_start,
+    gewenste_datum_einde || gewenste_datum_start,
+    excl_boeking_id || null
+  );
+  res.json({ resultaten });
 }));
 
 // Staat de Microsoft 365-mailkoppeling al ingesteld (AZURE_*-omgevingsvariabelen)?

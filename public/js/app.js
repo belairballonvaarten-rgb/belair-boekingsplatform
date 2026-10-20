@@ -403,8 +403,8 @@ function wisselView(naam) {
   if (naam === 'boekingen') laadBoekingenOverzicht();
   if (naam === 'geweigerd') laadGeweigerd();
   if (naam === 'klanten') laadKlantenOverzicht();
+  if (naam === 'nieuwe-boeking') verversBeschikbaarheid();
   if (naam === 'beschikbaarheid') laadBeschikbaarheidsoverzicht();
-  if (naam === 'nieuwe-boeking' && !document.getElementById('producten-rijen').children.length) nieuweProductRij();
   if (naam === 'producten') laadProductenOverzicht();
   if (naam === 'logboek') laadLogboekOverzicht();
   if (naam === 'statistieken') laadStatistieken();
@@ -3315,11 +3315,6 @@ async function openDetail(boekingId) {
   const geopendeSecties = ['details-locatie-transport', 'details-fotos', 'details-ondertekend-document', 'details-communicatie', 'details-historiek']
     .filter((id) => document.getElementById(id)?.open);
 
-  // Welke producten zijn nog vrij op de (huidige) periode van deze boeking, voor de
-  // "product toevoegen"-select — de boeking zelf mag niet meetellen als bezetting.
-  const dpOnbeschikbaar = await bepaalOnbeschikbareProductIds(b.gewenste_datum_start, b.gewenste_datum_einde, boekingId);
-  const dpEersteCategorie = eersteCategorieMetProducten();
-
   // Overboeking-conflict: zijn de producten die AL op deze boeking staan zelf
   // (deels) dubbel geboekt met een andere reservatie op dezelfde periode? Dit
   // kan bewust zo zijn (Jonas bevestigde dat via magOverboekenNaBevestiging bij
@@ -3375,28 +3370,17 @@ async function openDetail(boekingId) {
   // effectief controleert/aanpast, los van de Producten-lijst hiernaast die
   // enkel gaat over wélke producten (en hoeveel) er op deze boeking staan.
   // boeking_producten.prijs is overal in de rest van de app (subtotaal, CSV,
-  // facturatie, ...) de prijs PER STUK (totaal = prijs × aantal). Bij een
-  // aantal > 1 (bv. 11 tafels) was dat met maar één bewerkbaar veld niet
-  // duidelijk — Jonas typte daar soms per ongeluk het totaalbedrag i.p.v. de
-  // stuksprijs in, wat dan foutief vermenigvuldigd werd. Vanaf aantal > 1
-  // tonen we daarom expliciet "stuksprijs = totaal", allebei bewerkbaar en
-  // met elkaar gesynchroniseerd (zie de event listeners verderop) — bij
-  // aantal 1 blijft het gewoon één veld, want daar is stuksprijs = totaal
-  // toch al hetzelfde bedrag.
+  // facturatie, ...) de prijs PER STUK (totaal = prijs × aantal), maar hier
+  // altijd het TOTAAL voor de regel tonen/bewerken (1 duidelijk veld, 1 lijn
+  // per product) i.p.v. de stuksprijs — bij een aantal > 1 (bv. 11 tafels)
+  // typte Jonas in het stuksprijs-veld soms per ongeluk het totaalbedrag in,
+  // wat dan foutief vermenigvuldigd werd. Bij het opslaan rekenen we hier
+  // gewoon terug naar de stuksprijs (totaal / aantal) — bij aantal 1 is dat
+  // toch hetzelfde bedrag, dus geen gedragswijziging daar.
   const prijstabelProductenHtml = b.producten.length
     ? b.producten.map((pr) => {
-        const eenheidsprijs = Number(pr.prijs);
-        if (pr.aantal > 1) {
-          const totaal = eenheidsprijs * pr.aantal;
-          return `<div class="prijstabel-rij prijstabel-productregel">
-            <span>${pr.product_naam} × ${pr.aantal}</span>
-            <span class="prijstabel-prijs-invoer-wrap prijstabel-prijs-invoer-wrap-dubbel">
-              <span class="prijstabel-prijs-invoer-label">€<input type="number" step="0.01" min="0" class="product-eenheidsprijs-invoer" data-id="${pr.id}" data-aantal="${pr.aantal}" value="${eenheidsprijs}" title="Prijs per stuk — hier manueel bij te sturen" /><small>/stuk</small></span>
-              <span class="prijstabel-prijs-invoer-label">= €<input type="number" step="0.01" min="0" class="product-totaalprijs-invoer" data-id="${pr.id}" data-aantal="${pr.aantal}" value="${totaal.toFixed(2)}" title="Totaalprijs voor deze regel — hier manueel bij te sturen (herberekent dan de prijs per stuk)" /><small>totaal</small></span>
-            </span>
-          </div>`;
-        }
-        return `<div class="prijstabel-rij prijstabel-productregel"><span>${pr.product_naam}</span><span class="prijstabel-prijs-invoer-wrap">€<input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${pr.id}" value="${eenheidsprijs}" title="Automatisch voorgestelde prijs o.b.v. dagprijs/weekendprijs — hier manueel bij te sturen" /></span></div>`;
+        const totaal = Number(pr.prijs) * pr.aantal;
+        return `<div class="prijstabel-rij prijstabel-productregel"><span>${pr.product_naam}${pr.aantal > 1 ? ' × ' + pr.aantal : ''}</span><span class="prijstabel-prijs-invoer-wrap">€<input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${pr.id}" data-aantal="${pr.aantal}" value="${totaal.toFixed(2)}" title="Totaalprijs voor deze regel — hier manueel bij te sturen" /></span></div>`;
       }).join('')
     : '<div class="prijstabel-rij prijstabel-sub"><span>Geen producten</span><span></span></div>';
 
@@ -3531,12 +3515,8 @@ async function openDetail(boekingId) {
           <h4>Producten</h4>
           ${conflictBannerHtml}
           <div id="detail-producten-lijst">${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}</div>
-          <div class="product-toevoegen-rij">
-            <select id="dp-categorie">${bouwCategorieOpties(dpEersteCategorie)}</select>
-            <select id="dp-product">${bouwModelOpties(dpEersteCategorie, undefined, dpOnbeschikbaar)}</select>
-            <input type="number" id="dp-aantal" value="1" min="1" title="Aantal" ${AANTAL_CATEGORIEEN.includes(dpEersteCategorie) ? '' : 'hidden'} />
-            <button type="button" id="btn-product-toevoegen" class="secundair">+ Toevoegen</button>
-          </div>
+          <h5>Product toevoegen</h5>
+          <div id="dp-productenkiezer" class="productenkiezer"></div>
           <p id="product-toevoegen-fout" class="foutmelding"></p>
         </div>
 
@@ -3997,37 +3977,42 @@ async function openDetail(boekingId) {
     },
   });
 
-  // Product toevoegen aan deze bestaande boeking (bv. telefonisch bijbesteld).
-  // Het aantal-veld is enkel zichtbaar/bruikbaar bij categorieën waar een
-  // aantal > 1 effectief zin heeft (zie AANTAL_CATEGORIEEN hierboven) — bij
-  // Springkastelen/Attracties/Obstakelbanen kan een aanvraag maar 1 exemplaar
-  // van elk model kiezen, ook al staan er meerdere fysieke exemplaren in
-  // voorraad, dus daar blijft het simpelweg verborgen (en dus altijd 1).
-  document.getElementById('dp-categorie').addEventListener('change', (e) => {
-    document.getElementById('dp-product').innerHTML = bouwModelOpties(e.target.value, undefined, dpOnbeschikbaar);
-    const elAantal = document.getElementById('dp-aantal');
-    elAantal.hidden = !AANTAL_CATEGORIEEN.includes(e.target.value);
-    elAantal.value = '1';
-  });
-  document.getElementById('btn-product-toevoegen').addEventListener('click', async () => {
+  // Product toevoegen aan deze bestaande boeking (bv. telefonisch bijbesteld) —
+  // via de productenkiezer (klik-om-toe-te-voegen, zie hieronder bij "PRODUCTENKIEZER").
+  // Staat het product er al op en mag een aantal > 1 (zie AANTAL_CATEGORIEEN),
+  // dan telt een nieuwe klik er gewoon één bij i.p.v. een dubbele regel te maken.
+  async function dossierProductToevoegen(productId) {
     const elFout = document.getElementById('product-toevoegen-fout');
     elFout.textContent = '';
-    const productId = document.getElementById('dp-product').value;
-    if (!productId) { elFout.textContent = 'Kies eerst een model.'; return; }
-    const elAantal = document.getElementById('dp-aantal');
-    const aantal = elAantal.hidden ? 1 : (parseInt(elAantal.value, 10) || 1);
+    const product = productenCache.find((p) => p.id === productId);
+    if (!product) return;
+    const magAantal = (product.categorieen || []).some((c) => AANTAL_CATEGORIEEN.includes(c));
+    const bestaandeRegel = b.producten.find((p) => p.product_id === productId);
     try {
-      await apiMetOverboekenRetry(
-        `/api/boekingen/${boekingId}/producten`,
-        { method: 'POST' },
-        { product_id: productId, aantal }
-      );
+      if (bestaandeRegel) {
+        if (!magAantal) {
+          toonToast(`${product.naam} staat al op deze boeking`);
+          return;
+        }
+        await apiMetOverboekenRetry(
+          `/api/boekingen/${boekingId}/producten/${bestaandeRegel.id}`,
+          { method: 'PUT' },
+          { aantal: bestaandeRegel.aantal + 1 }
+        );
+      } else {
+        await apiMetOverboekenRetry(
+          `/api/boekingen/${boekingId}/producten`,
+          { method: 'POST' },
+          { product_id: productId, aantal: 1 }
+        );
+      }
       openDetail(boekingId);
       laadBoekingenOverzicht();
     } catch (err) {
-      elFout.textContent = err.message;
+      elFout.textContent = `Kon product niet toevoegen: ${err.message}`;
     }
-  });
+  }
+  ververProductenKiezer('dp-productenkiezer', b.gewenste_datum_start, b.gewenste_datum_einde, boekingId, dossierProductToevoegen);
   inhoud.querySelectorAll('.btn-product-verwijderen').forEach((btn) => {
     btn.addEventListener('click', async () => {
       if (!confirm('Dit product uit de boeking verwijderen?')) return;
@@ -4079,34 +4064,12 @@ async function openDetail(boekingId) {
     }
   }
 
+  // Het veld toont/bewerkt altijd het TOTAAL voor de regel (zie opmerking
+  // hierboven) — bij het opslaan rekenen we terug naar de stuksprijs die de
+  // server effectief bijhoudt (totaal / aantal; bij aantal 1 blijft dat
+  // gewoon hetzelfde bedrag).
   inhoud.querySelectorAll('.product-prijs-invoer').forEach((el) => {
-    el.addEventListener('change', () => {
-      slaProductEenheidsprijsOp(el.dataset.id, el.value !== '' ? parseFloat(el.value) : 0);
-    });
-  });
-
-  // Bij aantal > 1: stuksprijs en totaalprijs blijven met elkaar
-  // gesynchroniseerd — wijzig je de ene, dan herberekent de andere meteen
-  // zichtbaar mee (nog vóór het opslaan). Opgeslagen wordt altijd de
-  // stuksprijs (zie slaProductEenheidsprijsOp hierboven).
-  inhoud.querySelectorAll('.product-eenheidsprijs-invoer').forEach((el) => {
     const aantal = Number(el.dataset.aantal) || 1;
-    const totaalEl = inhoud.querySelector(`.product-totaalprijs-invoer[data-id="${el.dataset.id}"]`);
-    el.addEventListener('input', () => {
-      const eenheidsprijs = el.value !== '' ? parseFloat(el.value) : 0;
-      if (totaalEl) totaalEl.value = (eenheidsprijs * aantal).toFixed(2);
-    });
-    el.addEventListener('change', () => {
-      slaProductEenheidsprijsOp(el.dataset.id, el.value !== '' ? parseFloat(el.value) : 0);
-    });
-  });
-  inhoud.querySelectorAll('.product-totaalprijs-invoer').forEach((el) => {
-    const aantal = Number(el.dataset.aantal) || 1;
-    const eenheidsEl = inhoud.querySelector(`.product-eenheidsprijs-invoer[data-id="${el.dataset.id}"]`);
-    el.addEventListener('input', () => {
-      const totaal = el.value !== '' ? parseFloat(el.value) : 0;
-      if (eenheidsEl) eenheidsEl.value = (totaal / aantal).toFixed(2);
-    });
     el.addEventListener('change', () => {
       const totaal = el.value !== '' ? parseFloat(el.value) : 0;
       slaProductEenheidsprijsOp(el.dataset.id, totaal / aantal);
@@ -4329,7 +4292,6 @@ const PRODUCT_CATEGORIE_VOLGORDE = ['Springkastelen', 'Attracties', 'Obstakelban
 const AANTAL_CATEGORIEEN = ['Feestmaterialen', 'Servies/Bestek/glazen'];
 // Speciale waarde voor de "+ Nieuwe categorie…" optie in de categorie-dropdowns.
 const NIEUWE_CATEGORIE_WAARDE = '__nieuwe_categorie__';
-let onbeschikbareProductIds = new Set();
 
 // Alle categorieën: eerst de 5 vaste in hun vaste volgorde, daarna elke extra
 // categorie die Jonas zelf heeft aangemaakt (via "+ Nieuwe categorie…"),
@@ -4361,15 +4323,6 @@ function productenPerCategorie() {
     groepen.get(gekozenCategorie).push(p);
   });
   return groepen;
-}
-
-// Eerste categorie die effectief producten bevat (fallback voor een nieuwe rij).
-function eersteCategorieMetProducten() {
-  const groepen = productenPerCategorie();
-  for (const [categorie, producten] of groepen) {
-    if (producten.length) return categorie;
-  }
-  return '';
 }
 
 // Vaste lijst van de 5 échte categorieën, los van welke producten er op dit
@@ -4405,82 +4358,128 @@ function leesGekozenCategorie(selectId, nieuweNaamInputId) {
   return nieuweNaam;
 }
 
-function bouwCategorieOpties(geselecteerdeCategorie) {
+// ============================================================
+// PRODUCTENKIEZER (herbruikbare component) — accordion-stijl productenlijst
+// met het werkelijk resterend aantal per product, in plaats van de vroegere
+// categorie+model-dropdowns. Gebruikt zowel bij "Nieuwe boeking" als bij
+// "Product toevoegen" in een bestaand dossier (zie openDetail hierboven).
+// Jonas vroeg hierom na een screenshot van een ander systeem: sneller klikken
+// i.p.v. 2 dropdowns per product, en meteen zien hoeveel er nog vrij zijn.
+// Een (deels) bezet product blijft gewoon aanklikbaar — komt enkel onderaan
+// in een apart "Reeds (deels) bezet"-blok terecht; een klik daarop loopt via
+// dezelfde apiMetOverboekenRetry-bevestiging als de rest van de app.
+// ============================================================
+
+// Haalt voor ALLE producten tegelijk het werkelijk resterend aantal op voor
+// de gekozen periode (zie POST /api/boekingen/beschikbaarheid-overzicht) —
+// één aanroep i.p.v. één per product, belangrijk bij 100+ producten.
+async function laadResterendeAantallen(datumStart, datumEinde, exclBoekingId) {
+  if (!datumStart) return new Map();
+  try {
+    const { resultaten } = await api('/api/boekingen/beschikbaarheid-overzicht', {
+      method: 'POST',
+      body: JSON.stringify({
+        gewenste_datum_start: datumStart,
+        gewenste_datum_einde: datumEinde || datumStart,
+        excl_boeking_id: exclBoekingId || undefined,
+      }),
+    });
+    return new Map(resultaten.map((r) => [r.product_id, r]));
+  } catch (_) {
+    return new Map(); // bij twijfel: geen resterend-aantal tonen, blijft wel aanklikbaar
+  }
+}
+
+function productenKiezerRijHtml(product, resterendInfo) {
+  const resterend = resterendInfo ? resterendInfo.resterend : null;
+  const bezet = resterend !== null && resterend <= 0;
+  const resterendHtml = resterend === null
+    ? ''
+    : ` <span class="productenkiezer-resterend${bezet ? ' productenkiezer-resterend-bezet' : ''}">(${Math.max(resterend, 0)} vrij)</span>`;
+  return `<div class="productenkiezer-rij${bezet ? ' productenkiezer-rij-bezet' : ''}" data-id="${product.id}" data-naam="${(product.naam || '').toLowerCase()}" title="${bezet ? 'Al (deels) bezet op deze periode — klik om toch (over) te boeken' : 'Klik om toe te voegen'}">
+    <span class="productenkiezer-plus">+</span>
+    <span class="productenkiezer-naam">${product.naam}</span>
+    ${resterendHtml}
+    <span class="productenkiezer-prijs">${fmtEuro(product.prijs || 0)}</span>
+  </div>`;
+}
+
+// Bouwt de volledige kiezer-inhoud: per categorie een uitklapbare lijst van de
+// nog vrije producten (dicht bij binnenkomst, net als het Beschikbaarheid-
+// overzicht), en helemaal onderaan — buiten de categorieën — alle producten
+// die op deze periode al (deels) bezet zijn.
+function bouwProductenKiezerHtml(resterendeKaart) {
   const groepen = productenPerCategorie();
-  let html = '';
+  let beschikbaarHtml = '';
+  let bezetHtml = '';
   groepen.forEach((producten, categorie) => {
     if (!producten.length) return;
-    const selected = categorie === geselecteerdeCategorie ? 'selected' : '';
-    html += `<option value="${categorie}" ${selected}>${categorie}</option>`;
-  });
-  return html;
-}
-
-// Modellen (producten) binnen één categorie — geen optgroups meer nodig, dus geen
-// eindeloos scrollen door alle producten om een model te kiezen.
-function bouwModelOpties(categorie, geselecteerdWaarde, onbeschikbareSetOverride) {
-  const onbeschikbareSet = onbeschikbareSetOverride || onbeschikbareProductIds;
-  const producten = productenPerCategorie().get(categorie) || [];
-  // Zonder expliciet gekozen waarde geen enkel product vooraf laten kiezen door
-  // de browser (die selecteert anders gewoon het eerste product in de lijst)
-  // — een lege, niet-aanklikbare placeholder-optie dwingt Jonas om zelf actief
-  // een product te kiezen, zodat er nooit per ongeluk het verkeerde product
-  // wordt toegevoegd.
-  const placeholder = geselecteerdWaarde
-    ? ''
-    : '<option value="" selected disabled hidden>Selecteren...</option>';
-  // Een al bezet product blijft WEL kiesbaar (niet disabled) — Jonas moet soms
-  // bewust kunnen overboeken (bv. 's morgens nog afhalen, diezelfde namiddag al
-  // terug plaatsen bij een andere klant). De ⚠️-markering waarschuwt alvast; bij
-  // het opslaan vraagt de app expliciet bevestiging (zie magOverboekenNaBevestiging)
-  // en blijft zo'n overboeking daarna zichtbaar als conflict bij de reservatie(s).
-  return placeholder + producten
-    .map((p) => {
-      const onbeschikbaar = onbeschikbareSet.has(p.id);
-      const selected = p.id === geselecteerdWaarde ? 'selected' : '';
-      return `<option value="${p.id}" ${selected}>${p.naam}${onbeschikbaar ? ' ⚠️ (al bezet op deze datum)' : ''}</option>`;
-    })
-    .join('');
-}
-
-function herbouwAlleProductSelects() {
-  document.querySelectorAll('#producten-rijen .product-rij').forEach((rij) => {
-    const categorieSelect = rij.querySelector('.rij-categorie');
-    const productSelect = rij.querySelector('.rij-product');
-    const huidigeWaarde = productSelect.value;
-    productSelect.innerHTML = bouwModelOpties(categorieSelect.value, huidigeWaarde);
-    // Een al bezet product blijft kiesbaar (zie bouwModelOpties), dus de eerder
-    // gekozen waarde altijd herstellen — ook als die nu als ⚠️ bezet gemarkeerd is.
-    if (huidigeWaarde) {
-      productSelect.value = huidigeWaarde;
+    const beschikbaar = [];
+    producten.forEach((p) => {
+      const info = resterendeKaart.get(p.id);
+      if (info && info.resterend <= 0) {
+        bezetHtml += productenKiezerRijHtml(p, info);
+      } else {
+        beschikbaar.push(p);
+      }
+    });
+    if (beschikbaar.length) {
+      beschikbaarHtml += `<details class="productenkiezer-categorie">
+        <summary>${categorie} (${beschikbaar.length})</summary>
+        ${beschikbaar.map((p) => productenKiezerRijHtml(p, resterendeKaart.get(p.id))).join('')}
+      </details>`;
     }
   });
+  const bezetBlokHtml = bezetHtml
+    ? `<div class="productenkiezer-categorie productenkiezer-bezet-blok">
+         <h5>⚠️ Reeds (deels) bezet op deze periode</h5>
+         ${bezetHtml}
+       </div>`
+    : '';
+  return (beschikbaarHtml || '<p class="leeg-bericht">Geen producten.</p>') + bezetBlokHtml;
 }
 
-// Voor een gegeven datum/periode: de product-id's die NIET beschikbaar zijn.
-// Gedeeld door het "Nieuwe boeking"-formulier en het Beschikbaarheid-overzicht.
-async function bepaalOnbeschikbareProductIds(datumStart, datumEinde, exclBoekingId) {
-  const nieuweSet = new Set();
-  await Promise.all(
-    productenCache.map(async (p) => {
-      try {
-        const resultaat = await api('/api/boekingen/beschikbaarheid-check', {
-          method: 'POST',
-          body: JSON.stringify({
-            product_id: p.id,
-            gewenste_datum_start: datumStart,
-            gewenste_datum_einde: datumEinde,
-            aantal: 1,
-            excl_boeking_id: exclBoekingId || undefined,
-          }),
-        });
-        if (!resultaat.beschikbaar) nieuweSet.add(p.id);
-      } catch (_) {
-        // bij twijfel niet blokkeren
-      }
-    })
-  );
-  return nieuweSet;
+// Filteren op naam: opent automatisch de categorieën met een match en
+// verbergt categorieën zonder — zonder filter terug naar de standaard
+// (ingeklapte) staat, zoals bij het Beschikbaarheid-overzicht.
+function koppelProductenKiezerZoek(container) {
+  const zoekInput = container.querySelector('.productenkiezer-zoek');
+  zoekInput.addEventListener('input', () => {
+    const term = zoekInput.value.trim().toLowerCase();
+    container.querySelectorAll('.productenkiezer-rij').forEach((rij) => {
+      rij.hidden = !!term && !rij.dataset.naam.includes(term);
+    });
+    container.querySelectorAll('details.productenkiezer-categorie').forEach((details) => {
+      const heeftZichtbare = Array.from(details.querySelectorAll('.productenkiezer-rij')).some((rij) => !rij.hidden);
+      details.hidden = !!term && !heeftZichtbare;
+      details.open = !!term;
+    });
+  });
+}
+
+function koppelProductenKiezerKlikken(container, opKiezen) {
+  container.addEventListener('click', (e) => {
+    const rij = e.target.closest('.productenkiezer-rij');
+    if (rij) opKiezen(rij.dataset.id);
+  });
+}
+
+// Herlaadt en herbouwt één productenkiezer-instantie volledig — aan te roepen
+// telkens de periode wijzigt (of bij een eerste render). `exclBoekingId` sluit
+// de boeking zelf uit bij het tellen (dossier-variant van de kiezer).
+async function ververProductenKiezer(containerId, datumStart, datumEinde, exclBoekingId, opKiezen) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (!datumStart) {
+    container.innerHTML = '<p class="leeg-bericht">Kies eerst een datum (of periode) om te zien wat nog vrij is.</p>';
+    return;
+  }
+  const behoudenZoekterm = container.querySelector('.productenkiezer-zoek')?.value || '';
+  const resterendeKaart = await laadResterendeAantallen(datumStart, datumEinde, exclBoekingId);
+  container.innerHTML = `<input type="text" class="productenkiezer-zoek" placeholder="🔍 Product zoeken..." value="${behoudenZoekterm}" />${bouwProductenKiezerHtml(resterendeKaart)}`;
+  koppelProductenKiezerZoek(container);
+  koppelProductenKiezerKlikken(container, opKiezen);
+  if (behoudenZoekterm) container.querySelector('.productenkiezer-zoek').dispatchEvent(new Event('input'));
 }
 
 // Zelfde beschikbaarheidscheck, maar dan met de concrete overlappende boeking(en)
@@ -4506,14 +4505,8 @@ async function bepaalBezetteProductenMetBoeking(datumStart, datumEinde) {
 
 async function verversBeschikbaarheid() {
   const datumStart = document.getElementById('datum-start').value;
-  if (!datumStart) {
-    onbeschikbareProductIds = new Set();
-    herbouwAlleProductSelects();
-    return;
-  }
   const datumEinde = document.getElementById('datum-einde').value || datumStart;
-  onbeschikbareProductIds = await bepaalOnbeschikbareProductIds(datumStart, datumEinde);
-  herbouwAlleProductSelects();
+  await ververProductenKiezer('nb-productenkiezer', datumStart, datumEinde, null, (productId) => voegProductRijToe(productId));
 }
 
 // ============================================================
@@ -4836,41 +4829,49 @@ function laadBeschikbaarheidsoverzicht() {
 function startNieuweBoekingVoorProduct(productId, datumStart, datumEinde) {
   wisselView('nieuwe-boeking');
   document.getElementById('producten-rijen').innerHTML = '';
-  nieuweProductRij(productId);
   document.getElementById('datum-start').value = datumStart;
   document.getElementById('datum-einde').value = (datumEinde && datumEinde !== datumStart) ? datumEinde : '';
   nieuweBoekingKalender.stelIn(datumStart, datumEinde || datumStart);
-  verversBeschikbaarheid();
+  verversBeschikbaarheid().then(() => voegProductRijToe(productId));
 }
 
-function nieuweProductRij(voorkeurProductId) {
+// Rij in de "gekozen producten"-lijst van Nieuwe boeking — elke rij staat voor
+// één product (+ aantal), aangevuld via de productenkiezer hierboven i.p.v.
+// zelf een categorie/model te kiezen uit een dropdown.
+function werkProductRijTekstBij(rij, naam) {
+  const aantal = Number(rij.dataset.aantal) || 1;
+  rij.querySelector('.rij-tekst').textContent = `${naam}${aantal > 1 ? ' × ' + aantal : ''}`;
+}
+
+// Door de productenkiezer aangeroepen bij een klik op een product: staat het
+// al in de lijst en mag een aantal > 1 (zie AANTAL_CATEGORIEEN), dan telt een
+// volgende klik er gewoon één bij i.p.v. een dubbele rij te maken.
+function voegProductRijToe(productId) {
+  const product = productenCache.find((p) => p.id === productId);
+  if (!product) return;
+  const magAantal = (product.categorieen || []).some((c) => AANTAL_CATEGORIEEN.includes(c));
+  const bestaandeRij = document.querySelector(`#producten-rijen .product-rij[data-product-id="${productId}"]`);
+  if (bestaandeRij) {
+    if (!magAantal) {
+      toonToast(`${product.naam} staat al in de lijst`);
+      return;
+    }
+    bestaandeRij.dataset.aantal = Number(bestaandeRij.dataset.aantal) + 1;
+    werkProductRijTekstBij(bestaandeRij, product.naam);
+    return;
+  }
   const rij = document.createElement('div');
   rij.className = 'product-rij';
-  const voorkeurProduct = voorkeurProductId ? productenCache.find((p) => p.id === voorkeurProductId) : null;
-  const categorieen = voorkeurProduct ? (voorkeurProduct.categorieen || []) : [];
-  const startCategorie = (voorkeurProduct && PRODUCT_CATEGORIE_VOLGORDE.find((c) => categorieen.includes(c)))
-    || (voorkeurProduct ? 'Overige' : eersteCategorieMetProducten());
+  rij.dataset.productId = productId;
+  rij.dataset.aantal = '1';
   rij.innerHTML = `
-    <label>Categorie<select class="rij-categorie">${bouwCategorieOpties(startCategorie)}</select></label>
-    <label>Model<select class="rij-product">${bouwModelOpties(startCategorie, voorkeurProductId)}</select></label>
-    <label class="rij-aantal-label" ${AANTAL_CATEGORIEEN.includes(startCategorie) ? '' : 'hidden'}>Aantal<input type="number" class="rij-aantal" value="1" min="1" /></label>
+    <span class="rij-tekst"></span>
     <button type="button" class="verwijder">✕</button>
   `;
-  // Aantal > 1 heeft enkel zin bij Feestmaterialen/Servies-Bestek (zie
-  // AANTAL_CATEGORIEEN) — bij Springkastelen/Attracties/Obstakelbanen is er
-  // sowieso maar 1 exemplaar per model per boeking, dus blijft dat veld hier
-  // verborgen (en het aantal op 1) net zoals in het dossier zelf.
-  rij.querySelector('.rij-categorie').addEventListener('change', (e) => {
-    rij.querySelector('.rij-product').innerHTML = bouwModelOpties(e.target.value);
-    const aantalLabel = rij.querySelector('.rij-aantal-label');
-    aantalLabel.hidden = !AANTAL_CATEGORIEEN.includes(e.target.value);
-    if (aantalLabel.hidden) rij.querySelector('.rij-aantal').value = 1;
-  });
   rij.querySelector('.verwijder').addEventListener('click', () => rij.remove());
   document.getElementById('producten-rijen').appendChild(rij);
+  werkProductRijTekstBij(rij, product.naam);
 }
-
-document.getElementById('btn-product-toevoegen').addEventListener('click', nieuweProductRij);
 
 document.getElementById('nk-postcode').addEventListener('blur', () => vulGemeenteAutomatischIn('nk-postcode', 'nk-gemeente'));
 
@@ -4903,17 +4904,15 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
       klantId = nieuweKlant.id;
     }
 
+    // Elke rij staat al voor een concreet, via de productenkiezer aangeklikt
+    // product (zie voegProductRijToe) — geen losse validatie op een lege
+    // product_id meer nodig, die kan hier niet meer voorkomen.
     const producten = Array.from(document.querySelectorAll('#producten-rijen .product-rij')).map((rij) => ({
-      product_id: rij.querySelector('.rij-product').value,
-      aantal: parseInt(rij.querySelector('.rij-aantal').value, 10) || 1,
+      product_id: rij.dataset.productId,
+      aantal: Number(rij.dataset.aantal) || 1,
     }));
     if (!producten.length) throw new Error('Voeg minstens één product toe.');
     if (!document.getElementById('datum-start').value) throw new Error('Kies een datum (of periode) in de kalender.');
-    // Zonder gekozen model staat een rij nu op de "Selecteren..."-placeholder
-    // (lege waarde) i.p.v. automatisch een willekeurig eerste product — dus
-    // hier expliciet controleren i.p.v. straks een onduidelijke serverfout te
-    // krijgen op een lege product_id.
-    if (producten.some((p) => !p.product_id)) throw new Error('Kies voor elke productrij een model.');
 
     const adresIdemKlant = document.getElementById('adres-idem-klant').checked;
     const nbStraat = document.getElementById('leveringsadres-straat').value.trim();
@@ -4949,9 +4948,8 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
     document.getElementById('klant-id').value = '';
     document.getElementById('klant-geselecteerd').hidden = true;
     document.getElementById('veld-leveringsadres').hidden = false;
-    onbeschikbareProductIds = new Set();
-    nieuweProductRij();
     nieuweBoekingKalender.stelIn(null, null);
+    verversBeschikbaarheid();
 
     toonToast(`Boeking aangemaakt (status: ${STATUS_LABELS[boeking.status]}).`);
     openDetail(boeking.id);

@@ -403,8 +403,53 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 }
 .zoekresultaten .resultaat:hover { background: var(--grijs-licht); }
 .geselecteerd { background: #e6f4ea; color: var(--groen); padding: 0.5rem 0.7rem; border-radius: 6px; font-weight: 600; }
-.product-rij { display: grid; grid-template-columns: 1.1fr 1.6fr 0.6fr auto; gap: 0.6rem; align-items: end; margin-bottom: 0.6rem; }
-.product-rij .verwijder { color: var(--rood); background: none; border: none; font-weight: 700; }
+/* Gekozen producten (Nieuwe boeking) — elke rij is één via de productenkiezer
+   aangeklikt product + aantal, geen categorie/model-dropdowns meer. */
+.product-rij {
+  display: flex; justify-content: space-between; align-items: center; gap: 0.6rem;
+  background: white; border: 1px solid var(--rand); border-radius: 6px;
+  padding: 0.5rem 0.8rem; margin-bottom: 0.4rem;
+}
+.product-rij .rij-tekst { font-weight: 600; }
+.product-rij .verwijder { color: var(--rood); background: none; border: none; font-weight: 700; cursor: pointer; }
+
+/* PRODUCTENKIEZER — accordion-stijl klik-om-toe-te-voegen lijst, gebruikt bij
+   Nieuwe boeking en bij "Product toevoegen" in het dossier (zie app.js,
+   ververProductenKiezer/bouwProductenKiezerHtml). Zelfde visuele taal als het
+   Beschikbaarheid-overzicht (.besch-categorie) hierboven. */
+.detail-kolom-producten h5 { margin: 0.9rem 0 0.2rem; font-size: 0.9rem; color: var(--blauw-donker); }
+.productenkiezer { margin-top: 0.6rem; }
+.productenkiezer-zoek {
+  width: 100%; margin-bottom: 0.5rem; padding: 0.45rem 0.6rem;
+  border: 1px solid var(--rand); border-radius: 6px; font-size: 0.9rem;
+}
+.productenkiezer-categorie { margin-bottom: 0.2rem; }
+.productenkiezer-categorie summary {
+  cursor: pointer; font-size: 0.82rem; color: var(--grijs); text-transform: uppercase;
+  letter-spacing: 0.02em; margin: 0.5rem 0 0.3rem; list-style: none;
+}
+.productenkiezer-categorie summary::-webkit-details-marker { display: none; }
+.productenkiezer-categorie summary::after { content: '▾'; margin-left: 0.4rem; }
+.productenkiezer-categorie[open] summary::after { content: '▴'; }
+.productenkiezer-categorie:first-child summary { margin-top: 0; }
+.productenkiezer-categorie h5 {
+  margin: 0.5rem 0 0.3rem; font-size: 0.82rem; color: var(--oranje);
+  text-transform: uppercase; letter-spacing: 0.02em;
+}
+.productenkiezer-rij {
+  display: flex; align-items: center; gap: 0.5rem; background: white;
+  border: 1px solid var(--rand); border-radius: 6px; padding: 0.4rem 0.6rem;
+  margin-bottom: 0.3rem; cursor: pointer; font-size: 0.9rem;
+}
+.productenkiezer-rij:hover { border-color: var(--groen); }
+.productenkiezer-rij .productenkiezer-plus { color: var(--groen); font-weight: 700; flex: 0 0 auto; }
+.productenkiezer-rij .productenkiezer-naam { flex: 1 1 auto; font-weight: 600; }
+.productenkiezer-rij .productenkiezer-resterend { color: var(--grijs); font-size: 0.82rem; flex: 0 0 auto; }
+.productenkiezer-rij .productenkiezer-resterend-bezet { color: var(--rood); font-weight: 600; }
+.productenkiezer-rij .productenkiezer-prijs { color: var(--grijs); font-size: 0.82rem; flex: 0 0 auto; }
+.productenkiezer-rij-bezet { border-color: #f3d0c4; background: #fdf6f2; }
+.productenkiezer-rij-bezet:hover { border-color: var(--oranje); }
+.productenkiezer-bezet-blok { margin-top: 0.4rem; border-top: 1px solid var(--grijs-licht); padding-top: 0.4rem; }
 
 /* BESCHIKBAARHEID-OVERZICHT */
 .beschikbaarheid-kiezer { display: flex; justify-content: center; }
@@ -635,9 +680,6 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 /* De periode-kalender in het dossier staat in een krapper kolomblok -> iets
    minder interne padding dan de volle-breedte kalenders elders in de app. */
 .detail-kolom .kalender-widget-compact { padding: 0.9rem 1rem; }
-.product-toevoegen-rij { display: flex; gap: 0.4rem; align-items: center; margin-top: 0.6rem; flex-wrap: wrap; }
-.product-toevoegen-rij select { flex: 1 1 auto; min-width: 0; }
-.product-toevoegen-rij #dp-aantal { width: 4rem; flex: 0 0 auto; }
 
 /* Inklapbare secties (Communicatie, Historiek, Locatie & transportkost) — hoeven
    niet dagelijks open te staan, maar blijven één klik weg. */
@@ -681,13 +723,6 @@ details.paneel .paneel-inhoud > h4:first-child { margin-top: 0; }
 /* "€" en het invoerveld samen als één stuk, zodat ze bij weinig plaats niet
    over 2 regels uit elkaar vallen (zag er "los" uit naast een lange productnaam). */
 .prijstabel-prijs-invoer-wrap { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; flex-shrink: 0; }
-/* Stuksprijs = totaal, allebei bewerkbaar (aantal > 1) — zie prijstabelProductenHtml.
-   Elk op een eigen regel ipv naast elkaar, anders past het niet naast een lange
-   productnaam op een smal scherm. */
-.prijstabel-prijs-invoer-wrap-dubbel { flex-direction: column; align-items: flex-end; gap: 0.15rem; }
-.prijstabel-prijs-invoer-label { display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; }
-.prijstabel-prijs-invoer-label input { width: 80px; }
-.prijstabel-prijs-invoer-label small { color: var(--grijs); font-size: 0.75rem; }
 .prijstabel-saldo { font-weight: 700; }
 .prijstabel-saldo span:last-child { color: #b5390a; }
 .prijstabel-saldo.voldaan span:last-child { color: #1a7a3c; }
