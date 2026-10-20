@@ -602,11 +602,17 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
   const boeking = await zorgVoorAutomatischeAfstand(rows[0]);
 
+  // LEFT JOIN (i.p.v. JOIN): een vanuit het webformulier automatisch aangemaakte
+  // "niet herkend"-productregel heeft geen product_id (zie ruwe_naam, migratie
+  // 049) en moet hier dus ook mee terugkomen — anders verdwijnt ze stilletjes
+  // uit de lijst in het dossier. product_naam valt in dat geval terug op de
+  // letterlijke, onherkende tekst.
   const { rows: producten } = await db.query(
-    `SELECT bp.*, p.naam AS product_naam, p.afbeeldingen AS product_afbeeldingen, p.categorieen AS product_categorieen,
+    `SELECT bp.*, COALESCE(p.naam, bp.ruwe_naam, 'Onbekend product') AS product_naam,
+            p.afbeeldingen AS product_afbeeldingen, p.categorieen AS product_categorieen,
             (p.certificaat_bestandsnaam IS NOT NULL) AS product_heeft_certificaat
      FROM boeking_producten bp
-     JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
+     LEFT JOIN producten p ON p.id = bp.product_id WHERE bp.boeking_id = $1`,
     [req.params.id]
   );
   const { rows: historiek } = await db.query(

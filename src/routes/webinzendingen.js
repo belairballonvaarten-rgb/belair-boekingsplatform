@@ -2,7 +2,6 @@ const express = require('express');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
-const { checkBeschikbaarheid } = require('../utils/beschikbaarheid');
 
 const router = express.Router();
 
@@ -80,14 +79,32 @@ function zoekVeld(data, ...mogelijkeNamen) {
 
 function parseDatumNaarIso(ruw) {
   if (!ruw) return null;
-  const eu = ruw.match(/^(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})$/); // 18/09/2026
+  const eu = ruw.match(/(\d{1,2})[/\-](\d{1,2})[/\-](\d{4})/); // 18/09/2026
   if (eu) {
     const [, dag, maand, jaar] = eu;
     return `${jaar}-${maand.padStart(2, '0')}-${dag.padStart(2, '0')}`;
   }
-  const iso = ruw.match(/^(\d{4})-(\d{2})-(\d{2})/); // 2026-09-18(...)
+  const iso = ruw.match(/(\d{4})-(\d{2})-(\d{2})/); // 2026-09-18(...)
   if (iso) return iso[0].slice(0, 10);
   return null;
+}
+
+// Een huurperiode van meerdere dagen komt vanuit het webformulier soms als ÉÉN
+// tekstveld binnen i.p.v. een apart begin- en einddatumveld, bv.
+// "18/09/2026 - 20/09/2026", "18/09/2026 tot 20/09/2026" of "18/09/2026 t/m
+// 20/09/2026". We zoeken daarom gewoon alle datum-achtige stukjes in de tekst:
+// één gevonden → zelfde dag voor start én einde (zoals bij een dagboeking),
+// twee of meer gevonden → de eerste is de startdatum, de laatste de einddatum.
+function parseDatumBereik(ruw) {
+  if (!ruw) return { start: null, einde: null };
+  const stukjes = ruw.match(/\d{1,2}[/\-]\d{1,2}[/\-]\d{4}|\d{4}-\d{2}-\d{2}/g) || [];
+  if (stukjes.length >= 2) {
+    const start = parseDatumNaarIso(stukjes[0]);
+    const einde = parseDatumNaarIso(stukjes[stukjes.length - 1]);
+    if (start) return { start, einde: einde || start };
+  }
+  const start = parseDatumNaarIso(ruw);
+  return { start, einde: start };
 }
 
 // Sommige formulieren wisselen "Stad" en "Postcode" per ongeluk om (dat zagen
@@ -133,12 +150,22 @@ async function vindOfMaakKlant({ naam, klant_type, btw_nummer, adres, postcode, 
   return rows[0].id;
 }
 
-// Probeert een binnengekomen formulier-inzending automatisch om te zetten in
-// een echte aanvraag (boeking met status 'nieuw', bron 'website'), die dan
-// gewoon in de Aanvragen-inbox verschijnt om te accepteren/weigeren zoals
-// elke andere aanvraag. Lukt de automatische omzetting niet (bv. onherkend
-// product, ontbrekende datum) dan wordt er NIETS aangemaakt — Jonas kan de
-// aanvraag dan zelf manueel aanmaken met de zichtbare ruwe gegevens.
+// Zet een binnengekomen formulier-inzending ALTIJD om in een echte aanvraag
+// (boeking met status 'nieuw', bron 'website'), die dan gewoon in de
+// Aanvragen-inbox verschijnt — ook als iets ontbreekt of onherkend is (bv.
+// geen datum, of een productnaam die niet herkend wordt). Op uitdrukkelijke
+// vraag van Jonas: liever een onvolledige/mogelijk foutieve aanvraag die hij
+// nog moet vervolledigen, dan een inzending die onopgemerkt blijft liggen.
+// Ontbrekende/onherkende velden worden vervangen door een duidelijke
+// placeholder en bovenaan de Opmerkingen opgesomd, zodat meteen duidelijk is
+// wat nog nagekeken/aangevuld moet worden. Een eventueel beschikbaarheids-
+// conflict (product al bezet op die datum) blokkeert de aanmaak dus ook niet
+// meer — dat conflict blijft gewoon zichtbaar via de bestaande rode
+// conflict-banner in het dossier zelf (zie openDetail() in app.js), net als
+// bij een manuele overboeking. Een niet-herkend product blijft niet enkel in
+// de Opmerkingen staan: het komt ook als een rode "niet herkend"-regel in de
+// productenlijst zelf (zie boeking_producten.ruwe_naam, migratie 049), zodat
+// het meteen opvalt en in 1 klik te vervangen is door het juiste product.
 async function verwerkInzending(ruweData) {
   const voornaam = zoekVeld(ruweData, 'Voornaam', 'voornaam');
   const achternaam = zoekVeld(ruweData, 'Achternaam', 'achternaam');
@@ -156,7 +183,6 @@ async function verwerkInzending(ruweData) {
   const { postcode, gemeente } = scheidPostcodeGemeente(veldPostcode, veldStad);
   const type_ondergrond = zoekVeld(ruweData, 'Type ondergrond');
   const toegankelijkheid = zoekVeld(ruweData, 'Toegankelijkheid');
-  const gewenste_datum_start = parseDatumNaarIso(zoekVeld(ruweData, 'Datum'));
   const voorkeur_tijdstip_levering = zoekVeld(ruweData, 'Voorkeur tijdstip van levering');
   const voorkeur_tijdstip_afhaling = zoekVeld(ruweData, 'Voorkeur tijdstip van afhaling');
   const opmerkingen = zoekVeld(ruweData, 'Extra opmerkingen?', 'Opmerkingen', 'Extra opmerkingen');
@@ -164,27 +190,61 @@ async function verwerkInzending(ruweData) {
   const huurvoorwaarden_geaccepteerd = Boolean(huurvoorwaardenRuw && normaliseerTekst(huurvoorwaardenRuw).includes('akkoord'));
   const productNaam = zoekVeld(ruweData, 'Product');
 
-  const ontbrekend = [];
-  if (!naam) ontbrekend.push('naam (Voornaam/Achternaam)');
-  if (!gewenste_datum_start) ontbrekend.push('datum');
-  const productId = productNaam ? await vindProductId(productNaam) : null;
-  if (!productNaam) ontbrekend.push('product');
-  else if (!productId) ontbrekend.push(`product "${productNaam}" (niet herkend in de productenlijst)`);
+  // Niets hiervan blokkeert nog de aanmaak — enkel verzamelen voor de
+  // "nog na te kijken"-opmerking hieronder.
+  const aandachtspunten = [];
 
-  if (ontbrekend.length) {
-    return { ok: false, reden: `Kon niet automatisch omgezet worden — ontbreekt of onherkend: ${ontbrekend.join(', ')}.` };
+  let effectieveNaam = naam;
+  if (!effectieveNaam) {
+    effectieveNaam = 'Onbekend (website-inzending)';
+    aandachtspunten.push('Naam ontbrak in het webformulier.');
   }
 
-  const check = await checkBeschikbaarheid(productId, gewenste_datum_start, gewenste_datum_start, 1);
-  if (!check.beschikbaar) {
-    return { ok: false, reden: `Kon niet automatisch omgezet worden — product niet beschikbaar op ${gewenste_datum_start}: ${check.reden}` };
+  // Datum/periode: zie parseDatumBereik hierboven voor de "meerdere dagen in
+  // één veld"-situatie. Daarnaast proberen we ook nog een apart einddatumveld
+  // (sommige formuliervarianten hebben dat wél) — vindt die iets, dan heeft
+  // die voorrang op wat uit het ene datumveld zelf afgeleid werd.
+  const { start: datumUitBereik, einde: eindeUitBereik } = parseDatumBereik(zoekVeld(ruweData, 'Datum'));
+  let gewenste_datum_start = datumUitBereik;
+  let gewenste_datum_einde = eindeUitBereik;
+  const apartEindeRuw = zoekVeld(ruweData, 'Datum tot', 'Datum einde', 'Einddatum', 'Eind datum', 'Datum (tot)', 'Tot en met', 'Tot');
+  if (apartEindeRuw) {
+    const apartEinde = parseDatumNaarIso(apartEindeRuw);
+    if (apartEinde) gewenste_datum_einde = apartEinde;
+  }
+  if (!gewenste_datum_start) {
+    gewenste_datum_start = new Date().toISOString().slice(0, 10);
+    aandachtspunten.push(`Datum ontbrak of werd niet herkend — voorlopig op vandaag (${gewenste_datum_start}) gezet, zelf corrigeren.`);
+  }
+  if (!gewenste_datum_einde || gewenste_datum_einde < gewenste_datum_start) {
+    gewenste_datum_einde = gewenste_datum_start;
+  }
+
+  // Niet-herkende/ontbrekende producten blokkeren de aanmaak niet meer, maar
+  // worden (op vraag van Jonas) WEL als een echte, rood gemarkeerde "niet
+  // herkend"-regel op de boeking gezet (zie boeking_producten.ruwe_naam,
+  // migratie 049) i.p.v. enkel vermeld in de Opmerkingen — zo valt het meteen
+  // op in de productenlijst zelf van het dossier, en is het in 1 klik te
+  // vervangen door het juiste product.
+  const productId = productNaam ? await vindProductId(productNaam) : null;
+  if (!productNaam) {
+    aandachtspunten.push('Geen product opgegeven in het webformulier — zelf toevoegen.');
+  } else if (!productId) {
+    aandachtspunten.push(`Product "${productNaam}" niet herkend in de productenlijst — rode regel "niet herkend" toegevoegd, zelf corrigeren.`);
   }
 
   const adresVolledig = [plaatsingsadres, [postcode, gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ') || null;
 
   const klantId = await vindOfMaakKlant({
-    naam, klant_type, btw_nummer, adres: plaatsingsadres, postcode, gemeente, telefoon, email,
+    naam: effectieveNaam, klant_type, btw_nummer, adres: plaatsingsadres, postcode, gemeente, telefoon, email,
   });
+
+  const notitieDelen = [];
+  if (aandachtspunten.length) {
+    notitieDelen.push(`⚠ Automatisch aangemaakt vanuit het webformulier, nog na te kijken:\n- ${aandachtspunten.join('\n- ')}`);
+  }
+  if (opmerkingen) notitieDelen.push(opmerkingen);
+  const notitiesVolledig = notitieDelen.join('\n\n') || null;
 
   const client = await db.getClient();
   try {
@@ -197,20 +257,31 @@ async function verwerkInzending(ruweData) {
          huurvoorwaarden_geaccepteerd, huurvoorwaarden_geaccepteerd_op,
          notities, bron
        )
-       VALUES ($1, $2, $2, $3, $4, $5, $6, $7, $8, $9, CASE WHEN $9 THEN now() ELSE NULL END, $10, 'website')
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, CASE WHEN $10 THEN now() ELSE NULL END, $11, 'website')
        RETURNING id`,
       [
-        klantId, gewenste_datum_start, leveringswijze, adresVolledig, type_ondergrond, toegankelijkheid,
+        klantId, gewenste_datum_start, gewenste_datum_einde, leveringswijze, adresVolledig, type_ondergrond, toegankelijkheid,
         voorkeur_tijdstip_levering, voorkeur_tijdstip_afhaling, huurvoorwaarden_geaccepteerd,
-        opmerkingen,
+        notitiesVolledig,
       ]
     );
     const boekingId = boekingRows[0].id;
-    const { rows: productRows } = await client.query('SELECT prijs FROM producten WHERE id = $1', [productId]);
-    await client.query(
-      'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, 1, $3)',
-      [boekingId, productId, productRows[0]?.prijs || 0]
-    );
+    if (productId) {
+      // Herkend product: gewoon een normale regel, zoals bij elke manuele boeking.
+      const { rows: productRows } = await client.query('SELECT prijs FROM producten WHERE id = $1', [productId]);
+      await client.query(
+        'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, 1, $3)',
+        [boekingId, productId, productRows[0]?.prijs || 0]
+      );
+    } else if (productNaam) {
+      // Niet herkend, maar er stond wél iets in het Product-veld: een
+      // placeholder-regel (prijs 0, nog zelf te bepalen) met de letterlijke
+      // tekst, die in het dossier rood/"niet herkend" getoond wordt.
+      await client.query(
+        'INSERT INTO boeking_producten (boeking_id, product_id, ruwe_naam, aantal, prijs) VALUES ($1, NULL, $2, 1, 0)',
+        [boekingId, productNaam]
+      );
+    }
     await client.query(
       'INSERT INTO boeking_status_historiek (boeking_id, van_status, naar_status) VALUES ($1, NULL, $2)',
       [boekingId, 'nieuw']

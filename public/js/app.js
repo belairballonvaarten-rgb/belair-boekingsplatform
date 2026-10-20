@@ -3379,7 +3379,13 @@ async function openDetail(boekingId) {
       // zolang dat conflict bestaat, zodat het nooit onopgemerkt blijft.
       const conflict = productHeeftConflict(p);
       const conflictHtml = conflict ? ' ⚠️ <span class="conflict-tekst">dubbel geboekt op deze periode</span>' : '';
-      return `<div class="detail-rij product-regel${conflict ? ' product-regel-conflict' : ''}"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}${conflictHtml}</span><span>${certificaatKnop}${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
+      // Automatisch vanuit het webformulier aangemaakt, maar de productnaam
+      // werd niet herkend in de productenlijst (zie ruwe_naam/migratie 049) —
+      // blijft rood zichtbaar tot Jonas deze regel verwijdert en het juiste
+      // product zelf kiest via de productenkiezer hieronder.
+      const nietHerkend = !p.product_id;
+      const nietHerkendHtml = nietHerkend ? ' ⚠️ <span class="conflict-tekst">niet herkend — zelf juist product kiezen</span>' : '';
+      return `<div class="detail-rij product-regel${(conflict || nietHerkend) ? ' product-regel-conflict' : ''}"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}${conflictHtml}${nietHerkendHtml}</span><span>${certificaatKnop}${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
     })
     .join('');
 
@@ -4560,7 +4566,7 @@ async function bepaalBezetteProductenMetBoeking(datumStart, datumEinde) {
 async function verversBeschikbaarheid() {
   const datumStart = document.getElementById('datum-start').value;
   const datumEinde = document.getElementById('datum-einde').value || datumStart;
-  await ververProductenKiezer('nb-productenkiezer', datumStart, datumEinde, null, (productId) => voegProductRijToe(productId));
+  await ververProductenKiezer('nb-productenkiezer', datumStart, datumEinde, null, (productId, aantal) => voegProductRijToe(productId, aantal));
 }
 
 // ============================================================
