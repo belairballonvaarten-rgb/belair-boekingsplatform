@@ -222,6 +222,12 @@ main { padding: 1.5rem 2rem; max-width: 1440px; margin: 0 auto; }
 .beschikbaarheid-badge { font-weight: 600; }
 .beschikbaarheid-badge.beschikbaarheid-ok { color: #1a7a3c; }
 .beschikbaarheid-badge.beschikbaarheid-fout { color: #b5390a; }
+/* Overboeking: een product dat dubbel geboekt staat op dezelfde periode (bv.
+   's morgens nog afhalen, diezelfde namiddag al terug plaatsen) — bewust
+   toegelaten na bevestiging, maar blijft hier duidelijk rood zichtbaar als
+   conflict i.p.v. onopgemerkt te blijven. Zelfde rood als beschikbaarheid-fout. */
+.product-regel-conflict { background: #fdecea; border-radius: 6px; }
+.product-regel-conflict .conflict-tekst { color: #b5390a; font-weight: 600; font-size: 0.85rem; }
 .opvolgen-badge { font-weight: 600; color: #b5390a; }
 .kaart-acties { display: flex; gap: 0.5rem; flex-shrink: 0; }
 .kaart-acties button {
@@ -675,6 +681,13 @@ details.paneel .paneel-inhoud > h4:first-child { margin-top: 0; }
 /* "€" en het invoerveld samen als één stuk, zodat ze bij weinig plaats niet
    over 2 regels uit elkaar vallen (zag er "los" uit naast een lange productnaam). */
 .prijstabel-prijs-invoer-wrap { display: inline-flex; align-items: center; gap: 0.25rem; white-space: nowrap; flex-shrink: 0; }
+/* Stuksprijs = totaal, allebei bewerkbaar (aantal > 1) — zie prijstabelProductenHtml.
+   Elk op een eigen regel ipv naast elkaar, anders past het niet naast een lange
+   productnaam op een smal scherm. */
+.prijstabel-prijs-invoer-wrap-dubbel { flex-direction: column; align-items: flex-end; gap: 0.15rem; }
+.prijstabel-prijs-invoer-label { display: inline-flex; align-items: center; gap: 0.2rem; white-space: nowrap; }
+.prijstabel-prijs-invoer-label input { width: 80px; }
+.prijstabel-prijs-invoer-label small { color: var(--grijs); font-size: 0.75rem; }
 .prijstabel-saldo { font-weight: 700; }
 .prijstabel-saldo span:last-child { color: #b5390a; }
 .prijstabel-saldo.voldaan span:last-child { color: #1a7a3c; }

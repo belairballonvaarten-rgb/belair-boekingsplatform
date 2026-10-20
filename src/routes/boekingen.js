@@ -6,7 +6,7 @@ const { berekenAfstandKm, berekenTransportkost } = require('../utils/afstand');
 const { berekenAantalDagen, berekenMeerdaagsePrijs } = require('../utils/prijzen');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { verstuurMail, isGeconfigureerd: mailIsGeconfigureerd } = require('../utils/mailer');
-const { vulTemplateIn, bouwTemplateContext, tekenMailOmslag } = require('../utils/mailTemplates');
+const { vulTemplateIn, bouwTemplateContext, tekenMailOmslag, fmtDatumNl } = require('../utils/mailTemplates');
 const {
   isGeconfigureerd: efIsGeconfigureerd,
   zorgVoorKlant: efZorgVoorKlant,
@@ -243,7 +243,8 @@ router.post('/:id/eenvoudigfactureren', asyncHandler(async (req, res) => {
   }
 
   const { rows: boekingRows } = await db.query(
-    `SELECT b.id, k.id AS klant_id, k.naam AS klant_naam, k.email AS klant_email, k.adres AS klant_adres,
+    `SELECT b.id, b.gewenste_datum_start, b.gewenste_datum_einde,
+            k.id AS klant_id, k.naam AS klant_naam, k.email AS klant_email, k.adres AS klant_adres,
             k.postcode AS klant_postcode, k.gemeente AS klant_gemeente, k.eenvoudigfactureren_klant_id,
             k.btw_nummer, k.facturatie_adres, k.facturatie_postcode, k.facturatie_gemeente
      FROM boekingen b JOIN klanten k ON k.id = b.klant_id WHERE b.id = $1`,
@@ -258,9 +259,20 @@ router.post('/:id/eenvoudigfactureren', asyncHandler(async (req, res) => {
   );
   if (!producten.length) return res.status(400).json({ fout: 'Deze boeking heeft geen producten om te factureren' });
 
+  // Op vraag van Jonas: de omschrijving van elke productregel op het
+  // betaalverzoek/de factuur bij EenvoudigFactureren moet meteen duidelijk
+  // maken over welke verhuur (en welke datum) het gaat, i.p.v. enkel de
+  // kale productnaam — bv. "Huur : Disco Party op 17 april 2027". Zelfde
+  // datumnotatie als in de e-mailtemplates (fmtDatumNl), voor eenzelfde
+  // "klantvriendelijke" stijl als de rest van de communicatie.
+  const isoDatum = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '');
+  const periodeTekst = isoDatum(boeking.gewenste_datum_start) === isoDatum(boeking.gewenste_datum_einde)
+    ? fmtDatumNl(boeking.gewenste_datum_start)
+    : `${fmtDatumNl(boeking.gewenste_datum_start)} t.e.m. ${fmtDatumNl(boeking.gewenste_datum_einde)}`;
+
   const prijstabel = await berekenPrijstabel(req.params.id);
   const regels = producten.map((p) => ({
-    omschrijving: p.naam,
+    omschrijving: `Huur : ${p.naam} op ${periodeTekst}`,
     aantal: Number(p.aantal) || 1,
     bedrag_incl_btw: Number(p.prijs),
   }));
@@ -690,7 +702,12 @@ router.put('/:id', asyncHandler(async (req, res) => {
     );
     for (const p of producten) {
       const check = await checkBeschikbaarheid(p.product_id, nieuweStart, nieuweEinde, p.aantal, req.params.id);
-      if (!check.beschikbaar) {
+      // force_overboeken: Jonas bevestigde al dat dit bewust een overboeking is
+      // (bv. 's morgens nog afhalen, diezelfde namiddag al terug plaatsen) — zie
+      // magOverboekenNaBevestiging() in public/js/app.js. De boeking wordt dan
+      // wél bijgewerkt; het conflict blijft daarna gewoon zichtbaar bij het
+      // dossier (GET /:id/beschikbaarheid, dynamisch herberekend).
+      if (!check.beschikbaar && !req.body.force_overboeken) {
         // Productnaam mee in de foutmelding — anders weet je bij meerdere
         // producten op één boeking niet welk van de twee de botsing veroorzaakt.
         return res.status(409).json({ fout: `Niet beschikbaar op de nieuwe periode voor "${p.naam}": ${check.reden}`, product_id: p.product_id });
@@ -800,7 +817,9 @@ router.post('/:id/producten', asyncHandler(async (req, res) => {
   const check = await checkBeschikbaarheid(
     product_id, boeking.gewenste_datum_start, boeking.gewenste_datum_einde, aantalNum, req.params.id
   );
-  if (!check.beschikbaar) {
+  // force_overboeken: zie opmerking bij PUT /:id hierboven — bewust toegelaten
+  // na bevestiging door Jonas, blijft zichtbaar als conflict bij het dossier.
+  if (!check.beschikbaar && !req.body.force_overboeken) {
     return res.status(409).json({ fout: `Niet beschikbaar: ${check.reden}` });
   }
 
@@ -981,21 +1000,26 @@ router.post('/', asyncHandler(async (req, res) => {
   let uiteindelijkAdres = leveringsadres || null;
   if (adres_idem_klant) {
     const { rows: klantRows } = await db.query(
-      'SELECT adres, postcode, gemeente FROM klanten WHERE id = $1',
+      'SELECT adres, adres_lijn2, postcode, gemeente FROM klanten WHERE id = $1',
       [klant_id]
     );
     const k = klantRows[0];
     if (k) {
-      uiteindelijkAdres = [k.adres, [k.postcode, k.gemeente].filter(Boolean).join(' ')]
+      uiteindelijkAdres = [k.adres, k.adres_lijn2, [k.postcode, k.gemeente].filter(Boolean).join(' ')]
         .filter(Boolean)
         .join(', ') || null;
     }
   }
 
-  // Beschikbaarheid controleren voor elk gevraagd product
+  // Beschikbaarheid controleren voor elk gevraagd product. force_overboeken
+  // (na expliciete bevestiging door Jonas in het "Nieuwe boeking"-scherm) laat
+  // een bewuste overboeking toch door — bv. 's morgens nog afhalen bij een
+  // andere klant en diezelfde namiddag al terug plaatsen. Zo'n overboeking
+  // blijft daarna gewoon zichtbaar als conflict bij het dossier (zie
+  // GET /:id/beschikbaarheid), i.p.v. onopgemerkt te blijven.
   for (const p of producten) {
     const check = await checkBeschikbaarheid(p.product_id, gewenste_datum_start, datumEinde, p.aantal || 1);
-    if (!check.beschikbaar) {
+    if (!check.beschikbaar && !req.body.force_overboeken) {
       return res.status(409).json({ fout: `Niet beschikbaar: ${check.reden}`, product_id: p.product_id });
     }
   }

@@ -3,9 +3,17 @@ const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { berekenPrijstabel } = require('../utils/prijstabel');
+const { zoekGemeenteOpPostcode } = require('../utils/postcode');
 
 const router = express.Router();
 router.use(vereistIngelogd);
+
+// Gemeente opzoeken bij een postcode — gebruikt om die automatisch in te
+// vullen bij het aanmaken/bewerken van een klant (zie public/js/app.js).
+router.get('/postcode-opzoeken/:postcode', asyncHandler(async (req, res) => {
+  const gemeente = await zoekGemeenteOpPostcode(req.params.postcode);
+  res.json({ gemeente });
+}));
 
 // Lijst + zoeken (op naam, email of telefoon) — met aantal boekingen en totale
 // waarde erbij, zodat de Klanten-pagina in één oogopslag toont wie een
@@ -86,7 +94,7 @@ router.get('/:id', asyncHandler(async (req, res) => {
 
 router.post('/', asyncHandler(async (req, res) => {
   const {
-    naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in,
+    naam, klant_type, btw_nummer, adres, adres_lijn2, postcode, gemeente, telefoon, email, marketing_opt_in,
     facturatie_adres, facturatie_postcode, facturatie_gemeente,
   } = req.body;
   if (!naam) return res.status(400).json({ fout: 'Naam is verplicht' });
@@ -95,11 +103,11 @@ router.post('/', asyncHandler(async (req, res) => {
   }
 
   const { rows } = await db.query(
-    `INSERT INTO klanten (naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in,
+    `INSERT INTO klanten (naam, klant_type, btw_nummer, adres, adres_lijn2, postcode, gemeente, telefoon, email, marketing_opt_in,
                            facturatie_adres, facturatie_postcode, facturatie_gemeente)
-     VALUES ($1, COALESCE($2, 'particulier'), $3, $4, $5, $6, $7, $8, COALESCE($9, 'nog_niet_gevraagd'), $10, $11, $12)
+     VALUES ($1, COALESCE($2, 'particulier'), $3, $4, $5, $6, $7, $8, $9, COALESCE($10, 'nog_niet_gevraagd'), $11, $12, $13)
      RETURNING *`,
-    [naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in,
+    [naam, klant_type, btw_nummer, adres, adres_lijn2, postcode, gemeente, telefoon, email, marketing_opt_in,
       facturatie_adres, facturatie_postcode, facturatie_gemeente]
   );
   res.status(201).json(rows[0]);
@@ -107,7 +115,7 @@ router.post('/', asyncHandler(async (req, res) => {
 
 router.put('/:id', asyncHandler(async (req, res) => {
   const {
-    naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in,
+    naam, klant_type, btw_nummer, adres, adres_lijn2, postcode, gemeente, telefoon, email, marketing_opt_in,
     facturatie_adres, facturatie_postcode, facturatie_gemeente,
   } = req.body;
   const { rows } = await db.query(
@@ -116,18 +124,19 @@ router.put('/:id', asyncHandler(async (req, res) => {
        klant_type = COALESCE($2, klant_type),
        btw_nummer = COALESCE($3, btw_nummer),
        adres = COALESCE($4, adres),
-       postcode = COALESCE($5, postcode),
-       gemeente = COALESCE($6, gemeente),
-       telefoon = COALESCE($7, telefoon),
-       email = COALESCE($8, email),
-       marketing_opt_in = COALESCE($9, marketing_opt_in),
-       facturatie_adres = COALESCE($10, facturatie_adres),
-       facturatie_postcode = COALESCE($11, facturatie_postcode),
-       facturatie_gemeente = COALESCE($12, facturatie_gemeente),
+       adres_lijn2 = COALESCE($5, adres_lijn2),
+       postcode = COALESCE($6, postcode),
+       gemeente = COALESCE($7, gemeente),
+       telefoon = COALESCE($8, telefoon),
+       email = COALESCE($9, email),
+       marketing_opt_in = COALESCE($10, marketing_opt_in),
+       facturatie_adres = COALESCE($11, facturatie_adres),
+       facturatie_postcode = COALESCE($12, facturatie_postcode),
+       facturatie_gemeente = COALESCE($13, facturatie_gemeente),
        bijgewerkt_op = now()
-     WHERE id = $13
+     WHERE id = $14
      RETURNING *`,
-    [naam, klant_type, btw_nummer, adres, postcode, gemeente, telefoon, email, marketing_opt_in,
+    [naam, klant_type, btw_nummer, adres, adres_lijn2, postcode, gemeente, telefoon, email, marketing_opt_in,
       facturatie_adres, facturatie_postcode, facturatie_gemeente, req.params.id]
   );
   if (!rows[0]) return res.status(404).json({ fout: 'Klant niet gevonden' });

@@ -303,4 +303,4 @@ function vulTemplateIn(tekst, context) {
   });
 }
 
-module.exports = { vulTemplateIn, bouwTemplateContext, tekenMailOmslag };
+module.exports = { vulTemplateIn, bouwTemplateContext, tekenMailOmslag, fmtDatumNl };

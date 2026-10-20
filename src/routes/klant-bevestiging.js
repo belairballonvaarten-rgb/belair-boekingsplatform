@@ -21,10 +21,19 @@ const { plandWebsiteSync } = require('../utils/wordpressSync');
 const router = express.Router();
 
 // Statussen waarin een aanvraag nog "open staat" voor bevestiging door de
-// klant. Staat de boeking al verder (bv. al bevestigd, of net geweigerd),
-// dan doet de link niets meer — dat voorkomt dat een oude e-mail nog een
-// allang afgehandeld dossier terug zou kunnen opentrekken.
-const BEVESTIGBARE_STATUSSEN = ['nieuw', 'in_behandeling'];
+// klant. Dit is bewust exact dezelfde groep als de fase "In verwerking" in
+// het dossier (zie STATUS_FASEN in public/js/app.js) — Jonas behandelt/accepteert
+// een aanvraag intern (en plant ze soms al in) VOORDAT de klant de kans krijgt
+// om de link in de mail te openen, en dat telt voor hem nog niet als "al
+// bevestigd". Stond hier enkel 'nieuw'/'in_behandeling' (zoals voorheen), dan
+// brak de link van de klant zodra Jonas al 'Geaccepteerd' of 'Ingepland' had
+// aangeklikt — de klant kreeg dan "kan niet meer bevestigd worden, neem
+// contact op met Belair-Fun" te zien over een aanvraag die net nog wél open
+// stond. Enkel voorbij deze fase (bevestigd, geweigerd, ...) is een aanvraag
+// echt "al afgehandeld" en moet de link niets meer doen — dat voorkomt dat
+// een oude e-mail nog een allang afgehandeld dossier terug zou kunnen
+// opentrekken.
+const BEVESTIGBARE_STATUSSEN = ['nieuw', 'in_behandeling', 'geaccepteerd', 'ingepland'];
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

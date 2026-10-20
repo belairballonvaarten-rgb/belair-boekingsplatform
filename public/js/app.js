@@ -204,6 +204,51 @@ async function api(pad, opties = {}) {
   return data;
 }
 
+// Overboeken: een product mag dubbel geboekt worden (bv. 's morgens nog
+// afhalen bij klant A en diezelfde namiddag al terug plaatsen bij klant B) —
+// dit wordt niet zomaar stilzwijgend toegelaten, maar enkel na expliciete
+// bevestiging door Jonas, zodra de normale beschikbaarheidscheck een conflict
+// vond (409, "Niet beschikbaar..."). Zo'n overboeking blijft daarna overal
+// zichtbaar als conflict (zie laadConflictmelding() bij het dossier) i.p.v.
+// gewoon onopgemerkt te blijven.
+function magOverboekenNaBevestiging(err) {
+  if (err.status !== 409 || !err.data || !/^Niet beschikbaar/.test(err.data.fout || '')) return false;
+  return confirm(
+    `${err.data.fout}\n\nToch doorzetten? Dit product wordt dan dubbel geboekt (overboeking) — dit blijft duidelijk als conflict gemarkeerd bij de betrokken reservatie(s).`
+  );
+}
+
+// Voert een aanroep uit die op zo'n beschikbaarheidsconflict kan botsen; vraagt
+// bij een conflict bevestiging (hierboven) en herhaalt de aanroep dan met
+// force_overboeken: true toegevoegd aan de body. Bij elke andere fout, of als
+// Jonas annuleert, gooit dit gewoon de oorspronkelijke fout door.
+async function apiMetOverboekenRetry(pad, opties, body) {
+  try {
+    return await api(pad, { ...opties, body: JSON.stringify(body) });
+  } catch (err) {
+    if (!magOverboekenNaBevestiging(err)) throw err;
+    return await api(pad, { ...opties, body: JSON.stringify({ ...body, force_overboeken: true }) });
+  }
+}
+
+// Vult het gemeente-veld automatisch in zodra een geldige postcode is ingetypt
+// EN het gemeente-veld zelf nog leeg staat — zo wordt een reeds ingevulde of
+// handmatig aangepaste gemeente nooit overschreven. Faalt de opzoeking (geen
+// internet, onbekende postcode, ...), dan gebeurt er gewoon niets: manueel
+// invullen blijft altijd mogelijk, zoals voorheen.
+async function vulGemeenteAutomatischIn(postcodeVeldId, gemeenteVeldId) {
+  const postcodeVeld = document.getElementById(postcodeVeldId);
+  const gemeenteVeld = document.getElementById(gemeenteVeldId);
+  const postcode = postcodeVeld.value.trim();
+  if (gemeenteVeld.value.trim() || !/^\d{4}$/.test(postcode)) return;
+  try {
+    const { gemeente } = await api(`/api/klanten/postcode-opzoeken/${postcode}`);
+    if (gemeente && !gemeenteVeld.value.trim()) gemeenteVeld.value = gemeente;
+  } catch (_) {
+    // Stil falen — gemeente blijft leeg, manueel invullen kan nog altijd.
+  }
+}
+
 function fmtDatum(iso) {
   if (!iso) return '—';
   const d = new Date(iso);
@@ -2525,7 +2570,7 @@ async function openKlantDetail(klantId) {
             ${k.klant_type === 'bedrijf' ? `<div class="detail-rij"><span>BTW-nummer</span><span>${k.btw_nummer || '—'}</span></div>` : ''}
             <div class="detail-rij"><span>Telefoon</span><span>${k.telefoon || '—'}</span></div>
             <div class="detail-rij"><span>E-mail</span><span>${k.email || '—'}</span></div>
-            <div class="detail-rij"><span>Adres</span><span>${[k.adres, [k.postcode, k.gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '—'}</span></div>
+            <div class="detail-rij"><span>Adres</span><span>${[k.adres, k.adres_lijn2, [k.postcode, k.gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '—'}</span></div>
             <div class="detail-rij"><span>Facturatieadres</span><span>${[k.facturatie_adres, [k.facturatie_postcode, k.facturatie_gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ') || '— (zelfde als adres)'}</span></div>
             <div class="detail-rij"><span>Marketing opt-in</span><span>${{ ja: 'Ja', nee: 'Nee', nog_niet_gevraagd: 'Nog niet gevraagd' }[k.marketing_opt_in] || '—'}</span></div>
           </div>
@@ -2541,6 +2586,7 @@ async function openKlantDetail(klantId) {
             <label>Telefoon<input type="text" id="kb-telefoon" value="${k.telefoon || ''}" /></label>
             <label>E-mail<input type="email" id="kb-email" value="${k.email || ''}" /></label>
             <label>Adres<input type="text" id="kb-adres" value="${k.adres || ''}" /></label>
+            <label>2de adreslijn (optioneel)<input type="text" id="kb-adres-lijn2" value="${k.adres_lijn2 || ''}" placeholder="bv. naam feestzaal, indien openbare locatie" /></label>
             <label>Postcode<input type="text" id="kb-postcode" value="${k.postcode || ''}" /></label>
             <label>Gemeente<input type="text" id="kb-gemeente" value="${k.gemeente || ''}" /></label>
             <p class="uitleg">Facturatieadres — enkel invullen als dit afwijkt van het adres hierboven (bv. boekhouding op een ander adres). Leeg = facturen gebruiken gewoon het adres hierboven. Wordt meegestuurd naar EenvoudigFactureren.</p>
@@ -2578,6 +2624,8 @@ async function openKlantDetail(klantId) {
     tr.addEventListener('click', () => openDetail(tr.dataset.boekingId));
   });
 
+  document.getElementById('kb-postcode').addEventListener('blur', () => vulGemeenteAutomatischIn('kb-postcode', 'kb-gemeente'));
+
   document.getElementById('btn-klant-bewerken').addEventListener('click', () => {
     document.getElementById('klant-gegevens-weergave').hidden = true;
     document.getElementById('form-klant-bewerken').hidden = false;
@@ -2600,6 +2648,7 @@ async function openKlantDetail(klantId) {
           telefoon: document.getElementById('kb-telefoon').value.trim() || null,
           email: document.getElementById('kb-email').value.trim() || null,
           adres: document.getElementById('kb-adres').value.trim() || null,
+          adres_lijn2: document.getElementById('kb-adres-lijn2').value.trim() || null,
           postcode: document.getElementById('kb-postcode').value.trim() || null,
           gemeente: document.getElementById('kb-gemeente').value.trim() || null,
           facturatie_adres: document.getElementById('kb-fact-adres').value.trim() || null,
@@ -3271,6 +3320,15 @@ async function openDetail(boekingId) {
   const dpOnbeschikbaar = await bepaalOnbeschikbareProductIds(b.gewenste_datum_start, b.gewenste_datum_einde, boekingId);
   const dpEersteCategorie = eersteCategorieMetProducten();
 
+  // Overboeking-conflict: zijn de producten die AL op deze boeking staan zelf
+  // (deels) dubbel geboekt met een andere reservatie op dezelfde periode? Dit
+  // kan bewust zo zijn (Jonas bevestigde dat via magOverboekenNaBevestiging bij
+  // het aanmaken/wijzigen) — dit toont dat conflict dan gewoon duidelijk, in
+  // plaats van het onopgemerkt te laten. Dezelfde check als de badge in de
+  // Aanvragen-inbox, die de boeking zelf al uitsluit bij het tellen.
+  const conflictInfo = await api(`/api/boekingen/${boekingId}/beschikbaarheid`).catch(() => ({ beschikbaar: true, problemen: [] }));
+  const productHeeftConflict = (p) => conflictInfo.problemen.some((msg) => msg.startsWith(`${p.product_naam}:`));
+
   // De prijs zelf wordt niet meer hier, maar in de Prijstabel hiernaast getoond/
   // bewerkt (zie prijstabelProductenHtml) — hier enkel welke producten (en
   // hoeveel) er op deze boeking staan, en de mogelijkheid om er één te verwijderen.
@@ -3295,17 +3353,51 @@ async function openDetail(boekingId) {
       const certificaatKnop = p.product_heeft_certificaat
         ? `<button type="button" class="linkbtn btn-stuur-certificaat" data-product-id="${p.product_id}" title="Stuur het certificaat van ${p.product_naam} naar ${b.klant_email || 'de klant'}">📄 Certificaat</button>`
         : '';
-      return `<div class="detail-rij product-regel"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}</span><span>${certificaatKnop}${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
+      // Overboeking: dit product is op deze periode ook (deels) bezet door een
+      // andere reservatie — zie conflictInfo hierboven. Blijft rood zichtbaar
+      // zolang dat conflict bestaat, zodat het nooit onopgemerkt blijft.
+      const conflict = productHeeftConflict(p);
+      const conflictHtml = conflict ? ' ⚠️ <span class="conflict-tekst">dubbel geboekt op deze periode</span>' : '';
+      return `<div class="detail-rij product-regel${conflict ? ' product-regel-conflict' : ''}"><span>${productThumbnailHtml(p)}<strong>${p.product_naam}</strong>${aantalHtml}${conflictHtml}</span><span>${certificaatKnop}${fmtEuro(p.prijs)} <button type="button" class="linkbtn gevaar btn-product-verwijderen" data-id="${p.id}" title="Product verwijderen">✕</button></span></div>`;
     })
     .join('');
+
+  // Bovenaan de Producten-kaart een duidelijke samenvattende melding als er
+  // ergens een conflict is — niet enkel de rode rij zelf, zodat het ook opvalt
+  // zonder dat je elke productregel afzonderlijk moet lezen.
+  const conflictBannerHtml = !conflictInfo.beschikbaar
+    ? `<p class="beschikbaarheid-badge beschikbaarheid-fout">⚠ Overboeking: ${conflictInfo.problemen.join('; ')}</p>`
+    : '';
 
   // In de Prijstabel zelf staat elk product als aparte, manueel bij te sturen
   // regel (automatisch voorgesteld o.b.v. dagprijs/weekendprijs en het aantal
   // dagen, maar hier altijd te overschrijven) — dat is waar Jonas de prijzen
   // effectief controleert/aanpast, los van de Producten-lijst hiernaast die
   // enkel gaat over wélke producten (en hoeveel) er op deze boeking staan.
+  // boeking_producten.prijs is overal in de rest van de app (subtotaal, CSV,
+  // facturatie, ...) de prijs PER STUK (totaal = prijs × aantal). Bij een
+  // aantal > 1 (bv. 11 tafels) was dat met maar één bewerkbaar veld niet
+  // duidelijk — Jonas typte daar soms per ongeluk het totaalbedrag i.p.v. de
+  // stuksprijs in, wat dan foutief vermenigvuldigd werd. Vanaf aantal > 1
+  // tonen we daarom expliciet "stuksprijs = totaal", allebei bewerkbaar en
+  // met elkaar gesynchroniseerd (zie de event listeners verderop) — bij
+  // aantal 1 blijft het gewoon één veld, want daar is stuksprijs = totaal
+  // toch al hetzelfde bedrag.
   const prijstabelProductenHtml = b.producten.length
-    ? b.producten.map((pr) => `<div class="prijstabel-rij prijstabel-productregel"><span>${pr.product_naam}${pr.aantal > 1 ? ' × ' + pr.aantal : ''}</span><span class="prijstabel-prijs-invoer-wrap">€<input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${pr.id}" value="${Number(pr.prijs)}" title="Automatisch voorgestelde prijs o.b.v. dagprijs/weekendprijs — hier manueel bij te sturen" /></span></div>`).join('')
+    ? b.producten.map((pr) => {
+        const eenheidsprijs = Number(pr.prijs);
+        if (pr.aantal > 1) {
+          const totaal = eenheidsprijs * pr.aantal;
+          return `<div class="prijstabel-rij prijstabel-productregel">
+            <span>${pr.product_naam} × ${pr.aantal}</span>
+            <span class="prijstabel-prijs-invoer-wrap prijstabel-prijs-invoer-wrap-dubbel">
+              <span class="prijstabel-prijs-invoer-label">€<input type="number" step="0.01" min="0" class="product-eenheidsprijs-invoer" data-id="${pr.id}" data-aantal="${pr.aantal}" value="${eenheidsprijs}" title="Prijs per stuk — hier manueel bij te sturen" /><small>/stuk</small></span>
+              <span class="prijstabel-prijs-invoer-label">= €<input type="number" step="0.01" min="0" class="product-totaalprijs-invoer" data-id="${pr.id}" data-aantal="${pr.aantal}" value="${totaal.toFixed(2)}" title="Totaalprijs voor deze regel — hier manueel bij te sturen (herberekent dan de prijs per stuk)" /><small>totaal</small></span>
+            </span>
+          </div>`;
+        }
+        return `<div class="prijstabel-rij prijstabel-productregel"><span>${pr.product_naam}</span><span class="prijstabel-prijs-invoer-wrap">€<input type="number" step="0.01" min="0" class="product-prijs-invoer" data-id="${pr.id}" value="${eenheidsprijs}" title="Automatisch voorgestelde prijs o.b.v. dagprijs/weekendprijs — hier manueel bij te sturen" /></span></div>`;
+      }).join('')
     : '<div class="prijstabel-rij prijstabel-sub"><span>Geen producten</span><span></span></div>';
 
   const historiekHtml = b.historiek
@@ -3437,6 +3529,7 @@ async function openDetail(boekingId) {
 
         <div class="detail-kolom-producten paneel">
           <h4>Producten</h4>
+          ${conflictBannerHtml}
           <div id="detail-producten-lijst">${productenHtml || '<p class="leeg-bericht">Geen producten</p>'}</div>
           <div class="product-toevoegen-rij">
             <select id="dp-categorie">${bouwCategorieOpties(dpEersteCategorie)}</select>
@@ -3887,10 +3980,11 @@ async function openDetail(boekingId) {
       elFout.textContent = '';
       const ditVerzoek = ++periodeVerzoekVolgnummer;
       try {
-        await api(`/api/boekingen/${boekingId}`, {
-          method: 'PUT',
-          body: JSON.stringify({ gewenste_datum_start: start, gewenste_datum_einde: einde || start }),
-        });
+        await apiMetOverboekenRetry(
+          `/api/boekingen/${boekingId}`,
+          { method: 'PUT' },
+          { gewenste_datum_start: start, gewenste_datum_einde: einde || start }
+        );
         if (ditVerzoek !== periodeVerzoekVolgnummer) return; // ondertussen alweer een nieuwere klik gebeurd
         toonToast('Periode opgeslagen');
         openDetail(boekingId);
@@ -3923,10 +4017,11 @@ async function openDetail(boekingId) {
     const elAantal = document.getElementById('dp-aantal');
     const aantal = elAantal.hidden ? 1 : (parseInt(elAantal.value, 10) || 1);
     try {
-      await api(`/api/boekingen/${boekingId}/producten`, {
-        method: 'POST',
-        body: JSON.stringify({ product_id: productId, aantal }),
-      });
+      await apiMetOverboekenRetry(
+        `/api/boekingen/${boekingId}/producten`,
+        { method: 'POST' },
+        { product_id: productId, aantal }
+      );
       openDetail(boekingId);
       laadBoekingenOverzicht();
     } catch (err) {
@@ -3967,21 +4062,54 @@ async function openDetail(boekingId) {
   });
 
   // Prijs per productregel: automatisch voorgesteld o.b.v. dagprijs/weekendprijs
-  // en het aantal dagen, maar hier altijd manueel bij te sturen.
+  // en het aantal dagen, maar hier altijd manueel bij te sturen. De server slaat
+  // altijd de prijs PER STUK op (boeking_producten.prijs) — bij aantal 1 is dat
+  // meteen ook het totaal.
+  async function slaProductEenheidsprijsOp(regelId, eenheidsprijs) {
+    try {
+      await api(`/api/boekingen/${boekingId}/producten/${regelId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ prijs: eenheidsprijs }),
+      });
+      toonToast('Prijs opgeslagen');
+      await openDetail(boekingId);
+      laadBoekingenOverzicht();
+    } catch (err) {
+      document.getElementById('product-toevoegen-fout').textContent = `Kon prijs niet opslaan: ${err.message}`;
+    }
+  }
+
   inhoud.querySelectorAll('.product-prijs-invoer').forEach((el) => {
-    el.addEventListener('change', async () => {
-      const nieuwePrijs = el.value !== '' ? parseFloat(el.value) : 0;
-      try {
-        await api(`/api/boekingen/${boekingId}/producten/${el.dataset.id}`, {
-          method: 'PUT',
-          body: JSON.stringify({ prijs: nieuwePrijs }),
-        });
-        toonToast('Prijs opgeslagen');
-        await openDetail(boekingId);
-        laadBoekingenOverzicht();
-      } catch (err) {
-        document.getElementById('product-toevoegen-fout').textContent = `Kon prijs niet opslaan: ${err.message}`;
-      }
+    el.addEventListener('change', () => {
+      slaProductEenheidsprijsOp(el.dataset.id, el.value !== '' ? parseFloat(el.value) : 0);
+    });
+  });
+
+  // Bij aantal > 1: stuksprijs en totaalprijs blijven met elkaar
+  // gesynchroniseerd — wijzig je de ene, dan herberekent de andere meteen
+  // zichtbaar mee (nog vóór het opslaan). Opgeslagen wordt altijd de
+  // stuksprijs (zie slaProductEenheidsprijsOp hierboven).
+  inhoud.querySelectorAll('.product-eenheidsprijs-invoer').forEach((el) => {
+    const aantal = Number(el.dataset.aantal) || 1;
+    const totaalEl = inhoud.querySelector(`.product-totaalprijs-invoer[data-id="${el.dataset.id}"]`);
+    el.addEventListener('input', () => {
+      const eenheidsprijs = el.value !== '' ? parseFloat(el.value) : 0;
+      if (totaalEl) totaalEl.value = (eenheidsprijs * aantal).toFixed(2);
+    });
+    el.addEventListener('change', () => {
+      slaProductEenheidsprijsOp(el.dataset.id, el.value !== '' ? parseFloat(el.value) : 0);
+    });
+  });
+  inhoud.querySelectorAll('.product-totaalprijs-invoer').forEach((el) => {
+    const aantal = Number(el.dataset.aantal) || 1;
+    const eenheidsEl = inhoud.querySelector(`.product-eenheidsprijs-invoer[data-id="${el.dataset.id}"]`);
+    el.addEventListener('input', () => {
+      const totaal = el.value !== '' ? parseFloat(el.value) : 0;
+      if (eenheidsEl) eenheidsEl.value = (totaal / aantal).toFixed(2);
+    });
+    el.addEventListener('change', () => {
+      const totaal = el.value !== '' ? parseFloat(el.value) : 0;
+      slaProductEenheidsprijsOp(el.dataset.id, totaal / aantal);
     });
   });
 
@@ -4301,11 +4429,16 @@ function bouwModelOpties(categorie, geselecteerdWaarde, onbeschikbareSetOverride
   const placeholder = geselecteerdWaarde
     ? ''
     : '<option value="" selected disabled hidden>Selecteren...</option>';
+  // Een al bezet product blijft WEL kiesbaar (niet disabled) — Jonas moet soms
+  // bewust kunnen overboeken (bv. 's morgens nog afhalen, diezelfde namiddag al
+  // terug plaatsen bij een andere klant). De ⚠️-markering waarschuwt alvast; bij
+  // het opslaan vraagt de app expliciet bevestiging (zie magOverboekenNaBevestiging)
+  // en blijft zo'n overboeking daarna zichtbaar als conflict bij de reservatie(s).
   return placeholder + producten
     .map((p) => {
       const onbeschikbaar = onbeschikbareSet.has(p.id);
       const selected = p.id === geselecteerdWaarde ? 'selected' : '';
-      return `<option value="${p.id}" ${selected} ${onbeschikbaar ? 'disabled' : ''}>${p.naam}${onbeschikbaar ? ' (niet beschikbaar op deze datum)' : ''}</option>`;
+      return `<option value="${p.id}" ${selected}>${p.naam}${onbeschikbaar ? ' ⚠️ (al bezet op deze datum)' : ''}</option>`;
     })
     .join('');
 }
@@ -4316,7 +4449,9 @@ function herbouwAlleProductSelects() {
     const productSelect = rij.querySelector('.rij-product');
     const huidigeWaarde = productSelect.value;
     productSelect.innerHTML = bouwModelOpties(categorieSelect.value, huidigeWaarde);
-    if (huidigeWaarde && !onbeschikbareProductIds.has(huidigeWaarde)) {
+    // Een al bezet product blijft kiesbaar (zie bouwModelOpties), dus de eerder
+    // gekozen waarde altijd herstellen — ook als die nu als ⚠️ bezet gemarkeerd is.
+    if (huidigeWaarde) {
       productSelect.value = huidigeWaarde;
     }
   });
@@ -4737,13 +4872,13 @@ function nieuweProductRij(voorkeurProductId) {
 
 document.getElementById('btn-product-toevoegen').addEventListener('click', nieuweProductRij);
 
+document.getElementById('nk-postcode').addEventListener('blur', () => vulGemeenteAutomatischIn('nk-postcode', 'nk-gemeente'));
+
 // Formulier indienen
 document.getElementById('form-nieuwe-boeking').addEventListener('submit', async (e) => {
   e.preventDefault();
   const elFout = document.getElementById('nieuwe-boeking-fout');
-  const elSucces = document.getElementById('nieuwe-boeking-succes');
   elFout.textContent = '';
-  elSucces.hidden = true;
 
   try {
     let klantId = document.getElementById('klant-id').value;
@@ -4760,6 +4895,7 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
           telefoon: document.getElementById('nk-telefoon').value || null,
           email: document.getElementById('nk-email').value || null,
           adres: document.getElementById('nk-adres').value || null,
+          adres_lijn2: document.getElementById('nk-adres-lijn2').value || null,
           postcode: document.getElementById('nk-postcode').value || null,
           gemeente: document.getElementById('nk-gemeente').value || null,
         }),
@@ -4787,9 +4923,10 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
       ? [nbStraat, [nbPostcode, nbGemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ')
       : null;
 
-    const boeking = await api('/api/boekingen', {
-      method: 'POST',
-      body: JSON.stringify({
+    const boeking = await apiMetOverboekenRetry(
+      '/api/boekingen',
+      { method: 'POST' },
+      {
         klant_id: klantId,
         producten,
         gewenste_datum_start: document.getElementById('datum-start').value,
@@ -4804,11 +4941,9 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
         huurvoorwaarden_geaccepteerd: document.getElementById('huurvoorwaarden').checked,
         notities: document.getElementById('notities').value || null,
         bron: 'manueel',
-      }),
-    });
+      }
+    );
 
-    elSucces.hidden = false;
-    elSucces.textContent = `Boeking aangemaakt (status: ${STATUS_LABELS[boeking.status]}).`;
     document.getElementById('form-nieuwe-boeking').reset();
     document.getElementById('producten-rijen').innerHTML = '';
     document.getElementById('klant-id').value = '';
@@ -4817,6 +4952,9 @@ document.getElementById('form-nieuwe-boeking').addEventListener('submit', async 
     onbeschikbareProductIds = new Set();
     nieuweProductRij();
     nieuweBoekingKalender.stelIn(null, null);
+
+    toonToast(`Boeking aangemaakt (status: ${STATUS_LABELS[boeking.status]}).`);
+    openDetail(boeking.id);
   } catch (err) {
     elFout.textContent = err.message;
   }
