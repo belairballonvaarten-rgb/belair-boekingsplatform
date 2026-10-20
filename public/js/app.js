@@ -343,11 +343,13 @@ function toonApp() {
   // en daarna periodiek verversen zolang de app openstaat.
   verversAanvragenBadge();
   verversOnlineBevestigdBadge();
+  verversWebinzendingenBadge();
   verversDagoverzichtSter();
   if (!navIndicatorenTimer) {
     navIndicatorenTimer = setInterval(() => {
       verversAanvragenBadge();
       verversOnlineBevestigdBadge();
+      verversWebinzendingenBadge();
       verversDagoverzichtSter();
     }, 5 * 60 * 1000);
   }
@@ -377,12 +379,14 @@ document.getElementById('btn-uitloggen').addEventListener('click', async () => {
 // ============================================================
 // NAVIGATIE
 // ============================================================
-const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'online-bevestigd', 'boekingen', 'geweigerd', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'logboek', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail', 'product-detail'];
-// Let op: de 'webinzendingen'-pagina (ruwe website-formulier-inzendingen, enkel
-// ter observatie/debug) is bewust uit de navigatie gehaald op vraag van Jonas —
-// de pagina, route en webhook zelf blijven gewoon bestaan en werken (de
-// binnenkomende aanvragen van de website blijven dus normaal binnenlopen),
-// enkel het "test"-tabblad is niet langer zichtbaar in het menu.
+const views = ['dashboard', 'planning', 'dagoverzicht', 'aanvragen', 'online-bevestigd', 'webinzendingen', 'boekingen', 'geweigerd', 'klanten', 'beschikbaarheid', 'nieuwe-boeking', 'producten', 'logboek', 'reservatie-import', 'statistieken', 'gebruikers', 'instellingen', 'crew', 'voertuigen', 'routeplanning', 'boeking-detail', 'klant-detail', 'product-detail'];
+// Let op: de 'webinzendingen'-pagina was eerder bewust uit de navigatie gehaald
+// (toen puur een "test"-tabblad). De pagina, route en webhook zelf bleven wel
+// altijd gewoon bestaan en werken — en een inzending die NIET automatisch kon
+// omgezet worden naar een aanvraag (onherkend product, ontbrekende datum, ...)
+// landt enkel hier, zonder dat er ergens een melding/badge voor was. Daardoor
+// kon zo'n website-reservatie makkelijk onopgemerkt blijven liggen. Daarom nu
+// terug in de navigatie, mét badge (zie verversWebinzendingenBadge hieronder).
 
 function huidigeViewNaam() {
   return views.find((v) => v !== 'boeking-detail' && v !== 'product-detail' && !document.getElementById(`view-${v}`).hidden) || 'boekingen';
@@ -2019,6 +2023,24 @@ async function verversOnlineBevestigdBadge() {
     zetOnlineBevestigdBadge(bevestigd.length);
   } catch (e) { /* stil falen */ }
 }
+
+// Badge naast "Website-inzendingen": een inzending met verwerkt=false is er
+// één waarvoor de automatische omzetting naar een aanvraag NIET gelukt is
+// (onherkend product, ontbrekende datum, ...) — zonder dit badge zag Jonas
+// zo'n inzending nergens vanzelf verschijnen (geen aanvraag, dus geen plek in
+// de Aanvragen-inbox), en kon een nieuwe website-reservatie dus onopgemerkt
+// blijven liggen totdat hij toevallig op deze pagina keek.
+function zetWebinzendingenBadge(aantal) {
+  const badge = document.getElementById('badge-webinzendingen');
+  badge.hidden = !(aantal > 0);
+  badge.textContent = aantal;
+}
+async function verversWebinzendingenBadge() {
+  try {
+    const inzendingen = await api('/api/webinzendingen/website-formulier');
+    zetWebinzendingenBadge(inzendingen.filter((i) => !i.verwerkt).length);
+  } catch (e) { /* stil falen */ }
+}
 async function laadOnlineBevestigd() {
   const container = document.getElementById('lijst-online-bevestigd');
   container.innerHTML = '<p class="leeg-bericht">Laden...</p>';
@@ -2281,9 +2303,12 @@ async function laadBoekingenOverzicht() {
   const boekingen = await api(`/api/boekingen?${params.toString()}`);
   laatsteBoekingenOverzichtData = boekingen;
 
-  const totaal = boekingen.reduce((som, b) => som + Number(b.waarde || 0), 0);
-  const ontvangen = boekingen.reduce((som, b) => som + Number(b.betaling_ontvangen || 0), 0);
-  const openstaand = totaal - ontvangen;
+  // Totaal/openstaand komen rechtstreeks van de server (BEREKEND_TOTAAL_SQL in
+  // routes/boekingen.js) — het echte, volledige saldo (incl. transportkost/
+  // toeslag-korting/vaste totaalprijs), niet enkel het productensubtotaal.
+  const totaal = boekingen.reduce((som, b) => som + Number(b.totaal || 0), 0);
+  const openstaand = boekingen.reduce((som, b) => som + Number(b.saldo_openstaand || 0), 0);
+  const ontvangen = totaal - openstaand;
   const gemiddeld = boekingen.length ? totaal / boekingen.length : 0;
   document.getElementById('stat-aantal').textContent = boekingen.length;
   document.getElementById('stat-totaal').textContent = fmtEuro(totaal);
@@ -2300,9 +2325,10 @@ async function laadBoekingenOverzicht() {
   }
   for (const b of boekingen) {
     const adres = ontleedAdres(b);
-    // Openstaand saldo i.p.v. de totale waarde: zo is in één oogopslag duidelijk
-    // of een boeking nog betaald moet worden, of al volledig voldaan is.
-    const saldo = Math.round((Number(b.waarde || 0) - Number(b.betaling_ontvangen || 0)) * 100) / 100;
+    // Het echte openstaand saldo (van de server, zie BEREKEND_TOTAAL_SQL in
+    // routes/boekingen.js) i.p.v. het eerder enkel op het productensubtotaal
+    // gebaseerde "berekende" saldo — dit is nu hetzelfde saldo als in het dossier.
+    const saldo = Number(b.saldo_openstaand) || 0;
     const saldoVoldaan = saldo <= 0.01;
     const tr = document.createElement('tr');
     tr.className = `rij-kleur-${STATUS_KLEUR[b.status] || 'grijs'}`;
@@ -2316,7 +2342,7 @@ async function laadBoekingenOverzicht() {
       <td>${adres.postcode}</td>
       <td>${adres.gemeente}</td>
       <td>${b.klant_naam}</td>
-      <td class="saldo-cel${saldoVoldaan ? ' voldaan' : ''}" title="Totale waarde: ${fmtEuro(b.waarde)}">${saldoVoldaan ? '✓ Voldaan' : fmtEuro(saldo)}</td>
+      <td class="saldo-cel${saldoVoldaan ? ' voldaan' : ''}" title="Totaal: ${fmtEuro(b.totaal)}">${saldoVoldaan ? '✓ Voldaan' : fmtEuro(saldo)}</td>
       <td>${statusKleurDotHtml(b.status, saldo)}${speciaalSterHtml(b)}</td>
       <td title="${b.type_ondergrond || ''}">${ondergrondAfkorting(b.type_ondergrond)}</td>
       <td>Bekijk →</td>
@@ -6400,6 +6426,7 @@ async function laadWebinzendingen() {
     container.innerHTML = `<p class="foutmelding">Kon inzendingen niet ophalen: ${err.message}</p>`;
     return;
   }
+  zetWebinzendingenBadge(inzendingen.filter((i) => !i.verwerkt).length);
   if (!inzendingen.length) {
     container.innerHTML = '<p class="leeg-bericht">Nog geen inzendingen ontvangen. Zodra de webhook op de website is ingesteld, verschijnen nieuwe formulier-inzendingen hier.</p>';
     return;

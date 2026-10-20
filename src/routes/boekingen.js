@@ -383,13 +383,12 @@ function bouwBoekingenFilter(query) {
     condities.push(`(k.naam ILIKE $${i} OR b.leveringsadres ILIKE $${i} OR k.adres ILIKE $${i} OR k.gemeente ILIKE $${i} OR k.postcode ILIKE $${i})`);
   }
   // "Nog te betalen": onafhankelijk van de status of gekozen periode — zowel
-  // toekomstige als reeds verlopen boekingen met een openstaand saldo. Let op:
-  // dit is een benadering op basis van het productensubtotaal (zoals ook in de
-  // "Waarde"-kolom/CSV-export), zonder transportkost/toeslag-korting mee te
-  // rekenen — dat vergt de volledige berekenPrijstabel()-logica per boeking,
-  // wat hier te duur zou zijn voor een overzichtslijst.
+  // toekomstige als reeds verlopen boekingen met een openstaand saldo. Gebruikt
+  // het echte totaal (zie BEREKEND_TOTAAL_SQL hieronder, incl. transportkost/
+  // toeslag-korting/vaste totaalprijs) i.p.v. enkel het productensubtotaal, zodat
+  // dit snelfilter hetzelfde saldo hanteert als de "Openstaand saldo"-kolom.
   if (open_saldo) {
-    condities.push(`COALESCE(bp_totaal.waarde, 0) - COALESCE(bet.betaald_bedrag, 0) > 0.01`);
+    condities.push(`(${BEREKEND_TOTAAL_SQL}) - COALESCE(bt_totaal.betaald_bedrag, 0) > 0.01`);
   }
   // Voor de "Online bevestigd"-inbox: enkel aanvragen die de klant ZELF via de
   // knop in de e-mail bevestigd heeft (zie routes/klant-bevestiging.js) i.p.v.
@@ -403,11 +402,33 @@ function bouwBoekingenFilter(query) {
   return { where, params };
 }
 
+// Het werkelijke totaal van een boeking — zelfde formule als berekenPrijstabel()
+// in utils/prijstabel.js: productensubtotaal + transportkost + toeslag/korting,
+// tenzij een vaste (afgesproken) totaalprijs dat volledig overrult. Hier als
+// SQL-fragment (i.p.v. via berekenPrijstabel() per boeking) zodat het hele
+// overzicht in één bevraging blijft i.p.v. één extra round-trip per rij.
+// Herbruikt in zowel de 'totaal'/'saldo_openstaand'-kolommen als het
+// "Nog te betalen"-snelfilter (open_saldo, zie bouwBoekingenFilter hieronder).
+const BEREKEND_TOTAAL_SQL = `
+  COALESCE(b.vaste_totaalprijs,
+    COALESCE(bp_totaal.waarde, 0) + COALESCE(b.transportkost, 0) +
+    CASE WHEN b.toeslag_korting_type = 'percentage'
+      THEN ROUND(COALESCE(bp_totaal.waarde, 0) * (COALESCE(b.toeslag_korting, 0) / 100), 2)
+      ELSE COALESCE(b.toeslag_korting, 0)
+    END
+  )
+`;
+
 const BOEKINGEN_OVERZICHT_SELECT = `
   SELECT b.*, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
          COALESCE(bp_totaal.waarde, 0) AS waarde,
          COALESCE(bet.betaald_bedrag, 0) AS betaling_ontvangen,
+         -- Het echte openstaand saldo (i.p.v. enkel het productensubtotaal
+         -- min betaling_ontvangen hierboven) — op vraag van Jonas, zodat dit
+         -- overzicht hetzelfde saldo toont als het dossier zelf.
+         (${BEREKEND_TOTAAL_SQL}) AS totaal,
+         ROUND((${BEREKEND_TOTAAL_SQL}) - COALESCE(bt_totaal.betaald_bedrag, 0), 2) AS saldo_openstaand,
          bp_namen.producten_namen,
          com_laatste.laatste_mail_verstuurd_op,
          l.leveringstijd, l.afhaaltijd
@@ -418,6 +439,13 @@ const BOEKINGEN_OVERZICHT_SELECT = `
     FROM boeking_producten GROUP BY boeking_id
   ) bp_totaal ON bp_totaal.boeking_id = b.id
   LEFT JOIN betalingen bet ON bet.boeking_id = b.id
+  -- Werkelijk betaald bedrag (zelfde bron als berekenPrijstabel(): de
+  -- transactielijst, niet het cache-veld betalingen.betaald_bedrag hierboven)
+  -- — nodig voor een kloppend saldo_openstaand/totaal hierboven.
+  LEFT JOIN (
+    SELECT boeking_id, SUM(bedrag) AS betaald_bedrag
+    FROM betaling_transacties GROUP BY boeking_id
+  ) bt_totaal ON bt_totaal.boeking_id = b.id
   LEFT JOIN (
     SELECT bp.boeking_id,
            string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen
@@ -494,18 +522,22 @@ router.get('/export.csv', asyncHandler(async (req, res) => {
     params
   );
 
-  const kolommen = ['Datum start', 'Datum einde', 'Product(en)', 'Straat + nr', 'Postcode', 'Gemeente', 'Klant', 'Telefoon', 'Status', 'Waarde', 'Betaald', 'Openstaand'];
+  const kolommen = ['Datum start', 'Datum einde', 'Product(en)', 'Straat + nr', 'Postcode', 'Gemeente', 'Klant', 'Telefoon', 'Status', 'Totaal', 'Betaald', 'Openstaand'];
   const regels = [kolommen.join(';')];
   for (const b of rows) {
     const adres = ontleedAdres(b);
-    const waarde = Number(b.waarde) || 0;
-    const betaald = Number(b.betaling_ontvangen) || 0;
+    // Totaal/openstaand komen rechtstreeks uit BOEKINGEN_OVERZICHT_SELECT (zie
+    // BEREKEND_TOTAAL_SQL hierboven) — het echte totaal (incl. transportkost/
+    // toeslag-korting/vaste totaalprijs), niet enkel het productensubtotaal.
+    const totaal = Number(b.totaal) || 0;
+    const openstaand = Number(b.saldo_openstaand) || 0;
+    const betaald = totaal - openstaand;
     const naarBedrag = (n) => String(Math.round(n));
     regels.push([
       b.gewenste_datum_start, b.gewenste_datum_einde, b.producten_namen || '',
       adres.straat, adres.postcode, adres.gemeente,
       b.klant_naam, b.klant_telefoon || '', b.status,
-      naarBedrag(waarde), naarBedrag(betaald), naarBedrag(waarde - betaald),
+      naarBedrag(totaal), naarBedrag(betaald), naarBedrag(openstaand),
     ].map(csvVeld).join(';'));
   }
   // BOM vooraan zodat Excel het bestand herkent als UTF-8 (anders lopen accenten fout).

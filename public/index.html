@@ -37,6 +37,7 @@
         <div class="sidebar-groep">
           <button class="navbtn" data-view="aanvragen"><span class="navbtn-icoon">📥</span> Aanvragen-inbox <span id="ster-aanvragen" class="navbtn-ster" hidden title="Nieuwe aanvragen">⭐</span> <span id="badge-aanvragen" class="badge" hidden>0</span></button>
           <button class="navbtn" data-view="online-bevestigd"><span class="navbtn-icoon">✅</span> Online bevestigd <span id="ster-online-bevestigd" class="navbtn-ster" hidden title="Klant heeft zelf bevestigd">⭐</span> <span id="badge-online-bevestigd" class="badge" hidden>0</span></button>
+          <button class="navbtn" data-view="webinzendingen"><span class="navbtn-icoon">📨</span> Website-inzendingen <span id="badge-webinzendingen" class="badge" hidden>0</span></button>
         </div>
         <div class="sidebar-groep">
           <p class="sidebar-groep-titel">Overzicht</p>
@@ -863,10 +864,10 @@
       </div>
     </section>
 
-    <!-- WEBSITE-FORMULIER (test-koppeling: enkel bekijken, nog niets automatisch) -->
+    <!-- WEBSITE-FORMULIER: koppeling met het aanvraagformulier op de website -->
     <section id="view-webinzendingen" class="pagina" hidden>
-      <h2>Website-formulier <span class="badge badge-test">test</span></h2>
-      <p class="uitleg">Koppeling met het aanvraagformulier op de website: inzendingen komen hier binnen náást (niet in plaats van) de gewone e-mail naar je mailbox. Wanneer alles duidelijk is (naam, datum en een herkend product) wordt er automatisch een echte aanvraag van gemaakt — die verschijnt dan gewoon in je Aanvragen-inbox alsof je ze zelf had ingevoerd. Is iets onduidelijk of onherkend, dan blijft de inzending hier staan met de reden erbij, zodat je ze zelf kan afhandelen.</p>
+      <h2>Website-inzendingen</h2>
+      <p class="uitleg">Koppeling met het aanvraagformulier op de website: inzendingen komen hier binnen náást (niet in plaats van) de gewone e-mail naar je mailbox. Wanneer alles duidelijk is (naam, datum en een herkend product) wordt er automatisch een echte aanvraag van gemaakt — die verschijnt dan gewoon in je Aanvragen-inbox alsof je ze zelf had ingevoerd. Is iets onduidelijk of onherkend (bv. een productnaam die niet herkend werd), dan wordt er GEEN aanvraag aangemaakt en blijft de inzending hier staan met de reden erbij — het badge-nummertje hiernaast toont hoeveel er zo op jouw actie wachten.</p>
       <div id="lijst-webinzendingen" class="kaarten-lijst"></div>
     </section>
 
