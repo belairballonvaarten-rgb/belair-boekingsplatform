@@ -37,7 +37,6 @@
         <div class="sidebar-groep">
           <button class="navbtn" data-view="aanvragen"><span class="navbtn-icoon">📥</span> Aanvragen-inbox <span id="ster-aanvragen" class="navbtn-ster" hidden title="Nieuwe aanvragen">⭐</span> <span id="badge-aanvragen" class="badge" hidden>0</span></button>
           <button class="navbtn" data-view="online-bevestigd"><span class="navbtn-icoon">✅</span> Online bevestigd <span id="ster-online-bevestigd" class="navbtn-ster" hidden title="Klant heeft zelf bevestigd">⭐</span> <span id="badge-online-bevestigd" class="badge" hidden>0</span></button>
-          <button class="navbtn" data-view="webinzendingen"><span class="navbtn-icoon">📨</span> Website-inzendingen <span id="badge-webinzendingen" class="badge" hidden>0</span></button>
         </div>
         <div class="sidebar-groep">
           <p class="sidebar-groep-titel">Overzicht</p>
@@ -69,6 +68,7 @@
         <div class="sidebar-groep">
           <p class="sidebar-groep-titel">Systeem</p>
           <button class="navbtn" data-view="gebruikers"><span class="navbtn-icoon">🔑</span> Gebruikers</button>
+          <button class="navbtn" data-view="webinzendingen"><span class="navbtn-icoon">📨</span> Website-inzendingen <span id="badge-webinzendingen" class="badge" hidden>0</span></button>
           <button class="navbtn" data-view="instellingen"><span class="navbtn-icoon">⚙️</span> Instellingen</button>
         </div>
       </nav>
@@ -786,6 +786,9 @@
         er wordt nog niets aangemaakt, je krijgt eerst een overzicht om na te kijken. Boekingen die mogelijk al
         bestaan (zelfde klant + leverdatum) worden gemarkeerd als "mogelijke dubbel" en staan standaard UIT; vink ze
         zelf aan als je ze toch wil importeren/kopiëren.
+      </p>
+      <p>
+        <a href="/downloads/reservaties-import-sjabloon.xlsx" download class="linkbtn">⬇️ Download sjabloon (.xlsx)</a>
       </p>
       <input type="file" id="ri-bestand" accept=".xlsx,.xls,.csv" />
       <p id="ri-laad-status" class="uitleg"></p>
