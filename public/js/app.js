@@ -3980,13 +3980,15 @@ async function openDetail(boekingId) {
   // Product toevoegen aan deze bestaande boeking (bv. telefonisch bijbesteld) —
   // via de productenkiezer (klik-om-toe-te-voegen, zie hieronder bij "PRODUCTENKIEZER").
   // Staat het product er al op en mag een aantal > 1 (zie AANTAL_CATEGORIEEN),
-  // dan telt een nieuwe klik er gewoon één bij i.p.v. een dubbele regel te maken.
-  async function dossierProductToevoegen(productId) {
+  // dan telt een nieuwe klik het gekozen aantal (zie het aantal-veld bij de rij
+  // in de kiezer, standaard 1) erbij i.p.v. een dubbele regel te maken.
+  async function dossierProductToevoegen(productId, aantal = 1) {
     const elFout = document.getElementById('product-toevoegen-fout');
     elFout.textContent = '';
     const product = productenCache.find((p) => p.id === productId);
     if (!product) return;
     const magAantal = (product.categorieen || []).some((c) => AANTAL_CATEGORIEEN.includes(c));
+    const toeTeVoegenAantal = magAantal ? aantal : 1;
     const bestaandeRegel = b.producten.find((p) => p.product_id === productId);
     try {
       if (bestaandeRegel) {
@@ -3997,13 +3999,13 @@ async function openDetail(boekingId) {
         await apiMetOverboekenRetry(
           `/api/boekingen/${boekingId}/producten/${bestaandeRegel.id}`,
           { method: 'PUT' },
-          { aantal: bestaandeRegel.aantal + 1 }
+          { aantal: bestaandeRegel.aantal + toeTeVoegenAantal }
         );
       } else {
         await apiMetOverboekenRetry(
           `/api/boekingen/${boekingId}/producten`,
           { method: 'POST' },
-          { product_id: productId, aantal: 1 }
+          { product_id: productId, aantal: toeTeVoegenAantal }
         );
       }
       openDetail(boekingId);
@@ -4012,7 +4014,7 @@ async function openDetail(boekingId) {
       elFout.textContent = `Kon product niet toevoegen: ${err.message}`;
     }
   }
-  ververProductenKiezer('dp-productenkiezer', b.gewenste_datum_start, b.gewenste_datum_einde, boekingId, dossierProductToevoegen);
+  ververProductenKiezer('dp-productenkiezer', b.gewenste_datum_start, b.gewenste_datum_einde, boekingId, dossierProductToevoegen, false);
   inhoud.querySelectorAll('.btn-product-verwijderen').forEach((btn) => {
     btn.addEventListener('click', async () => {
       if (!confirm('Dit product uit de boeking verwijderen?')) return;
@@ -4396,41 +4398,56 @@ function productenKiezerRijHtml(product, resterendInfo) {
   const resterendHtml = resterend === null
     ? ''
     : ` <span class="productenkiezer-resterend${bezet ? ' productenkiezer-resterend-bezet' : ''}">(${Math.max(resterend, 0)} vrij)</span>`;
+  // Bij Feestmaterialen/Servies-Bestek (zie AANTAL_CATEGORIEEN) kan je meer dan
+  // 1 stuk van hetzelfde product boeken (tafels, stoelen, glazen, ...) — daar
+  // een aantal-veld bij zodat je bv. meteen 20 stoelen toevoegt i.p.v. 20 keer
+  // te moeten klikken. Klikken op dit veld zelf telt niet als "toevoegen" (zie
+  // koppelProductenKiezerKlikken hieronder).
+  const magAantal = (product.categorieen || []).some((c) => AANTAL_CATEGORIEEN.includes(c));
+  const aantalVeldHtml = magAantal
+    ? `<input type="number" class="productenkiezer-aantal" min="1" value="1" title="Aantal om toe te voegen" />`
+    : '';
   return `<div class="productenkiezer-rij${bezet ? ' productenkiezer-rij-bezet' : ''}" data-id="${product.id}" data-naam="${(product.naam || '').toLowerCase()}" title="${bezet ? 'Al (deels) bezet op deze periode — klik om toch (over) te boeken' : 'Klik om toe te voegen'}">
     <span class="productenkiezer-plus">+</span>
     <span class="productenkiezer-naam">${product.naam}</span>
     ${resterendHtml}
+    ${aantalVeldHtml}
     <span class="productenkiezer-prijs">${fmtEuro(product.prijs || 0)}</span>
   </div>`;
 }
 
 // Bouwt de volledige kiezer-inhoud: per categorie een uitklapbare lijst van de
-// nog vrije producten (dicht bij binnenkomst, net als het Beschikbaarheid-
-// overzicht), en helemaal onderaan — buiten de categorieën — alle producten
-// die op deze periode al (deels) bezet zijn.
-function bouwProductenKiezerHtml(resterendeKaart) {
+// producten. Bij Nieuwe boeking (toonBezetBlok = true, standaard) komen de
+// producten die op deze periode al (deels) bezet zijn apart, helemaal
+// onderaan — handig daar om meteen te zien wat nog vrij is over het hele
+// assortiment. Bij een bestaand dossier (toonBezetBlok = false) wil Jonas die
+// aparte lijst niet zien — daar staat elk product gewoon in zijn eigen
+// categorie, met het resterend aantal (en dus eventueel "0 vrij" in het rood)
+// gewoon zichtbaar op de rij zelf, zonder apart "reeds bezet"-blok.
+function bouwProductenKiezerHtml(resterendeKaart, toonBezetBlok = true) {
   const groepen = productenPerCategorie();
   let beschikbaarHtml = '';
   let bezetHtml = '';
   groepen.forEach((producten, categorie) => {
     if (!producten.length) return;
-    const beschikbaar = [];
+    const rijenHtml = [];
     producten.forEach((p) => {
       const info = resterendeKaart.get(p.id);
-      if (info && info.resterend <= 0) {
+      const bezet = info && info.resterend <= 0;
+      if (bezet && toonBezetBlok) {
         bezetHtml += productenKiezerRijHtml(p, info);
       } else {
-        beschikbaar.push(p);
+        rijenHtml.push(productenKiezerRijHtml(p, info));
       }
     });
-    if (beschikbaar.length) {
+    if (rijenHtml.length) {
       beschikbaarHtml += `<details class="productenkiezer-categorie">
-        <summary>${categorie} (${beschikbaar.length})</summary>
-        ${beschikbaar.map((p) => productenKiezerRijHtml(p, resterendeKaart.get(p.id))).join('')}
+        <summary>${categorie} (${rijenHtml.length})</summary>
+        ${rijenHtml.join('')}
       </details>`;
     }
   });
-  const bezetBlokHtml = bezetHtml
+  const bezetBlokHtml = (toonBezetBlok && bezetHtml)
     ? `<div class="productenkiezer-categorie productenkiezer-bezet-blok">
          <h5>⚠️ Reeds (deels) bezet op deze periode</h5>
          ${bezetHtml}
@@ -4459,15 +4476,26 @@ function koppelProductenKiezerZoek(container) {
 
 function koppelProductenKiezerKlikken(container, opKiezen) {
   container.addEventListener('click', (e) => {
+    // Klikken/typen in het aantal-veld zelf telt niet als "toevoegen" — anders
+    // zou je het veld niet rustig kunnen aanklikken om een aantal te wijzigen.
+    if (e.target.closest('.productenkiezer-aantal')) return;
     const rij = e.target.closest('.productenkiezer-rij');
-    if (rij) opKiezen(rij.dataset.id);
+    if (!rij) return;
+    const aantalVeld = rij.querySelector('.productenkiezer-aantal');
+    const aantal = aantalVeld ? (parseInt(aantalVeld.value, 10) || 1) : 1;
+    opKiezen(rij.dataset.id, aantal);
+    // Terug op 1 na het toevoegen, zodat een volgende klik niet per ongeluk
+    // hetzelfde (grotere) aantal herhaalt.
+    if (aantalVeld) aantalVeld.value = '1';
   });
 }
 
 // Herlaadt en herbouwt één productenkiezer-instantie volledig — aan te roepen
 // telkens de periode wijzigt (of bij een eerste render). `exclBoekingId` sluit
 // de boeking zelf uit bij het tellen (dossier-variant van de kiezer).
-async function ververProductenKiezer(containerId, datumStart, datumEinde, exclBoekingId, opKiezen) {
+// `toonBezetBlok`: zie bouwProductenKiezerHtml hierboven — bij Nieuwe boeking
+// true (standaard), bij het dossier (zie openDetail) expliciet false.
+async function ververProductenKiezer(containerId, datumStart, datumEinde, exclBoekingId, opKiezen, toonBezetBlok = true) {
   const container = document.getElementById(containerId);
   if (!container) return;
   if (!datumStart) {
@@ -4476,7 +4504,7 @@ async function ververProductenKiezer(containerId, datumStart, datumEinde, exclBo
   }
   const behoudenZoekterm = container.querySelector('.productenkiezer-zoek')?.value || '';
   const resterendeKaart = await laadResterendeAantallen(datumStart, datumEinde, exclBoekingId);
-  container.innerHTML = `<input type="text" class="productenkiezer-zoek" placeholder="🔍 Product zoeken..." value="${behoudenZoekterm}" />${bouwProductenKiezerHtml(resterendeKaart)}`;
+  container.innerHTML = `<input type="text" class="productenkiezer-zoek" placeholder="🔍 Product zoeken..." value="${behoudenZoekterm}" />${bouwProductenKiezerHtml(resterendeKaart, toonBezetBlok)}`;
   koppelProductenKiezerZoek(container);
   koppelProductenKiezerKlikken(container, opKiezen);
   if (behoudenZoekterm) container.querySelector('.productenkiezer-zoek').dispatchEvent(new Event('input'));
@@ -4845,8 +4873,9 @@ function werkProductRijTekstBij(rij, naam) {
 
 // Door de productenkiezer aangeroepen bij een klik op een product: staat het
 // al in de lijst en mag een aantal > 1 (zie AANTAL_CATEGORIEEN), dan telt een
-// volgende klik er gewoon één bij i.p.v. een dubbele rij te maken.
-function voegProductRijToe(productId) {
+// volgende klik het gekozen aantal (zie het aantal-veld bij de rij in de
+// kiezer, standaard 1) erbij i.p.v. een dubbele rij te maken.
+function voegProductRijToe(productId, aantal = 1) {
   const product = productenCache.find((p) => p.id === productId);
   if (!product) return;
   const magAantal = (product.categorieen || []).some((c) => AANTAL_CATEGORIEEN.includes(c));
@@ -4856,14 +4885,14 @@ function voegProductRijToe(productId) {
       toonToast(`${product.naam} staat al in de lijst`);
       return;
     }
-    bestaandeRij.dataset.aantal = Number(bestaandeRij.dataset.aantal) + 1;
+    bestaandeRij.dataset.aantal = Number(bestaandeRij.dataset.aantal) + (magAantal ? aantal : 1);
     werkProductRijTekstBij(bestaandeRij, product.naam);
     return;
   }
   const rij = document.createElement('div');
   rij.className = 'product-rij';
   rij.dataset.productId = productId;
-  rij.dataset.aantal = '1';
+  rij.dataset.aantal = String(magAantal ? aantal : 1);
   rij.innerHTML = `
     <span class="rij-tekst"></span>
     <button type="button" class="verwijder">✕</button>

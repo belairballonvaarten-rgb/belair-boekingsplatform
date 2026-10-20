@@ -446,6 +446,10 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .productenkiezer-rij .productenkiezer-naam { flex: 1 1 auto; font-weight: 600; }
 .productenkiezer-rij .productenkiezer-resterend { color: var(--grijs); font-size: 0.82rem; flex: 0 0 auto; }
 .productenkiezer-rij .productenkiezer-resterend-bezet { color: var(--rood); font-weight: 600; }
+.productenkiezer-rij .productenkiezer-aantal {
+  width: 3.2rem; flex: 0 0 auto; padding: 0.15rem 0.3rem; text-align: right;
+  border: 1px solid var(--rand); border-radius: 4px; cursor: text;
+}
 .productenkiezer-rij .productenkiezer-prijs { color: var(--grijs); font-size: 0.82rem; flex: 0 0 auto; }
 .productenkiezer-rij-bezet { border-color: #f3d0c4; background: #fdf6f2; }
 .productenkiezer-rij-bezet:hover { border-color: var(--oranje); }
