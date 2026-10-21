@@ -1,0 +1,212 @@
+-- Vervolg op migratie 050: Jonas leverde een uitgebreidere maandexport uit het
+-- vorige systeem aan (terug tot augustus 2022, en nu ook t.e.m. oktober 2026
+-- i.p.v. augustus 2026), plus een aparte "populairste producten"-export
+-- (totalen sinds de opstart van het vorige systeem, ruwweg de voorbije 2 jaar
+-- volgens Jonas — zonder maand/jaar-opsplitsing per product).
+--
+-- De overlappende maanden (dec. 2024 t.e.m. aug. 2026) worden hier gewoon
+-- overschreven met de nieuwe (vollediger/juistere) cijfers — bevestigd door
+-- Jonas, o.a. voor december 2024 waar de twee exports van elkaar afwijken.
+--
+-- BELANGRIJK: deze nieuwe export loopt door tot en met oktober 2026, dus ook
+-- over de periode waarin dit platform zelf al in gebruik is (sinds september
+-- 2026) — zie src/routes/statistieken.js: de statistieken-pagina telt per
+-- maand ENKEL de live cijfers als er al echte boekingen in onze eigen
+-- tabellen staan voor die maand, anders de historische — nooit beide samen,
+-- om dubbeltellingen te vermijden.
+INSERT INTO historische_maandstatistieken (maand, omzet, aantal_boekingen, eenheden, gemiddelde_waarde, online_pct, manual_pct) VALUES
+    ('2022-08-01',   370.00,   2,    2, 185.00, 100.00,   0.00),
+    ('2022-11-01',   195.00,   2,    2,  97.50,   0.00, 100.00),
+    ('2022-12-01',  1091.00,   4,   73, 272.75,   0.00, 100.00),
+    ('2023-01-01',  1505.00,   5,   44, 301.00,   0.00, 100.00),
+    ('2023-02-01',  1646.00,   8,    8, 205.75,   0.00, 100.00),
+    ('2023-03-01',  2836.00,  16,   45, 177.25,   0.00, 100.00),
+    ('2023-04-01', 21016.50, 107,  148, 196.42,   0.00, 100.00),
+    ('2023-05-01', 38362.00, 209,  605, 183.55,   0.00, 100.00),
+    ('2023-06-01', 25187.50, 128,  281, 196.78,   0.00, 100.00),
+    ('2023-07-01', 15727.50,  83,  222, 189.49,   0.00, 100.00),
+    ('2023-08-01', 16194.50,  81,  165, 199.93,   0.00, 100.00),
+    ('2023-09-01', 12644.00,  69,  161, 183.25,   0.00, 100.00),
+    ('2023-10-01',   806.00,   6,   17, 134.33,   0.00, 100.00),
+    ('2023-11-01',   925.00,   5,    5, 185.00,   0.00, 100.00),
+    ('2023-12-01',   435.00,   3,    3, 145.00,   0.00, 100.00),
+    ('2024-01-01',   380.00,   4,    2,  95.00,   0.00, 100.00),
+    ('2024-02-01',  1790.00,  12,   13, 149.17,   0.00, 100.00),
+    ('2024-03-01',  6205.00,  29,  308, 213.97,   0.00, 100.00),
+    ('2024-04-01', 35124.50, 168,  985, 209.07,   0.00, 100.00),
+    ('2024-05-01', 69174.50, 293, 3720, 236.09,   0.00, 100.00),
+    ('2024-06-01', 46130.00, 209,  902, 220.72,   0.00, 100.00),
+    ('2024-07-01', 21518.50,  94,  699, 228.92,   0.00, 100.00),
+    ('2024-08-01', 38274.10, 147, 1450, 260.37,   0.00, 100.00),
+    ('2024-09-01', 23510.10, 106, 1318, 221.79,   0.00, 100.00),
+    ('2024-10-01',  8796.50,  45,  421, 195.48,   0.00, 100.00),
+    ('2024-11-01',  6140.00,  23,  279, 266.96,   0.00, 100.00),
+    ('2024-12-01',  2189.00,  16,   91, 136.81,   0.00, 100.00),
+    ('2026-09-01', 25088.50,  88, 1114, 285.10,   0.00, 100.00),
+    ('2026-10-01',  7116.00,  28, 1000, 254.14,   0.00, 100.00)
+ON CONFLICT (maand) DO UPDATE SET
+    omzet = EXCLUDED.omzet,
+    aantal_boekingen = EXCLUDED.aantal_boekingen,
+    eenheden = EXCLUDED.eenheden,
+    gemiddelde_waarde = EXCLUDED.gemiddelde_waarde,
+    online_pct = EXCLUDED.online_pct,
+    manual_pct = EXCLUDED.manual_pct;
+
+-- Alle maanden dec. 2024 t.e.m. aug. 2026 opnieuw meegeven (identiek aan
+-- migratie 050, behalve dec. 2024) zodat deze migratie als geheel het
+-- volledige, juiste beeld bevat en niet afhankelijk is van exact wat 050
+-- ooit invoegde.
+INSERT INTO historische_maandstatistieken (maand, omzet, aantal_boekingen, eenheden, gemiddelde_waarde, online_pct, manual_pct) VALUES
+    ('2025-01-01',  1750.50,   9,  128, 194.50,   0.00, 100.00),
+    ('2025-02-01',  1865.00,  12,   13, 155.42,   0.00, 100.00),
+    ('2025-03-01',  8639.75,  43,   55, 200.92,   0.00, 100.00),
+    ('2025-04-01', 20283.00,  87,  473, 233.14,   0.00, 100.00),
+    ('2025-05-01', 71378.00, 298, 2884, 239.52,   0.00, 100.00),
+    ('2025-06-01', 45076.00, 195,  654, 231.16,   0.00, 100.00),
+    ('2025-07-01', 27139.00, 115,  447, 235.99,   0.00, 100.00),
+    ('2025-08-01', 33472.50, 128,  756, 261.50,   0.00, 100.00),
+    ('2025-09-01', 27137.00, 106,  845, 256.01,   0.00, 100.00),
+    ('2025-10-01',  8849.00,  42,  810, 210.69,   0.00, 100.00),
+    ('2025-11-01',  6727.00,  20,  322, 336.35,   0.00, 100.00),
+    ('2025-12-01',  2811.00,   8,   19, 351.38,   0.00, 100.00),
+    ('2026-01-01',  1194.00,   6,    9, 199.00,   0.00, 100.00),
+    ('2026-02-01',  2116.00,  11,   33, 192.36,   0.00, 100.00),
+    ('2026-03-01',  8265.00,  36,  301, 229.58,   0.00, 100.00),
+    ('2026-04-01', 35350.10, 131,  678, 269.85,   0.00, 100.00),
+    ('2026-05-01', 62069.70, 222, 1728, 279.59,   0.00, 100.00),
+    ('2026-06-01', 33263.40, 123, 1078, 270.43,   0.00, 100.00),
+    ('2026-07-01', 39384.50, 115, 1310, 342.47,   0.00, 100.00),
+    ('2026-08-01', 27220.50, 106,  611, 256.80,   0.00, 100.00)
+ON CONFLICT (maand) DO UPDATE SET
+    omzet = EXCLUDED.omzet,
+    aantal_boekingen = EXCLUDED.aantal_boekingen,
+    eenheden = EXCLUDED.eenheden,
+    gemiddelde_waarde = EXCLUDED.gemiddelde_waarde,
+    online_pct = EXCLUDED.online_pct,
+    manual_pct = EXCLUDED.manual_pct;
+
+-- "Populairste producten" uit het vorige systeem — één totaal per product,
+-- zonder maand/jaar-opsplitsing (volgens Jonas ruwweg de voorbije 2 jaar).
+-- Blijft daarom bewust LOS van de jaar-selector op de Statistieken-pagina
+-- (zie src/routes/statistieken.js) i.p.v. aan één specifiek jaar of aan de
+-- bestaande "Producten per categorie"-grafiek gekoppeld te worden — dat zou
+-- een jaar/periode voorwenden die deze data niet heeft, en zou kunnen
+-- dubbeltellen met de live productenstatistieken.
+CREATE TABLE historische_productpopulariteit (
+    id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    product_naam     TEXT NOT NULL,
+    aantal_boekingen NUMERIC(10,2) NOT NULL,
+    pct_boekingen    NUMERIC(5,2) NOT NULL,
+    omzet            NUMERIC(10,2) NOT NULL,
+    pct_omzet        NUMERIC(5,2) NOT NULL
+);
+
+INSERT INTO historische_productpopulariteit (product_naam, aantal_boekingen, pct_boekingen, omzet, pct_omzet) VALUES
+    ('Klapstoel', 13594.0, 50.6, 13594.0, 1.5),
+    ('Jade Stoel', 2634.0, 9.8, 6585.0, 0.7),
+    ('Biertafels', 1516.0, 5.6, 7580.0, 0.8),
+    ('Ocean tafel', 916.0, 3.4, 4580.0, 0.5),
+    ('Klapstoelen delux', 845.0, 3.1, 2112.5, 0.2),
+    ('Party Tafel', 654.0, 2.4, 5232.0, 0.6),
+    ('Kleine borden 19cm', 420.0, 1.6, 126.0, 0.0),
+    ('Grote borden 25cm (per10)', 389.0, 1.4, 1167.0, 0.1),
+    ('Barkruk hamburg', 362.0, 1.3, 1448.0, 0.2),
+    ('CM obstakelbaan', 232.0, 0.9, 51968.0, 5.8),
+    ('Koffietas + ondertas (per 10)', 224.0, 0.8, 784.0, 0.1),
+    ('Dino Multiplay', 158.0, 0.6, 25280.0, 2.8),
+    ('CM springkasteel', 155.0, 0.6, 32705.0, 3.6),
+    ('Summer Party', 151.0, 0.6, 26425.0, 2.9),
+    ('Super Dino', 131.0, 0.5, 24235.0, 2.7),
+    ('Obstakelbaan Time Run', 129.0, 0.5, 39990.0, 4.4),
+    ('Barkruk lux', 125.0, 0.5, 750.0, 0.1),
+    ('Pop Art Run 2delige Obstakelbaan', 123.0, 0.5, 37515.0, 4.2),
+    ('tafel vork (per 10)', 112.0, 0.4, 280.0, 0.0),
+    ('Aap Multifun springkasteel', 106.0, 0.4, 15900.0, 1.8),
+    ('Beach Paradise', 104.0, 0.4, 19760.0, 2.2),
+    ('Legopark', 98.0, 0.4, 15680.0, 1.7),
+    ('Vensterfrigo', 96.0, 0.4, 5760.0, 0.6),
+    ('Eenhoorn multiplay springkasteel', 95.0, 0.4, 14725.0, 1.6),
+    ('Unicorn XL multiplay', 92.0, 0.3, 15640.0, 1.7),
+    ('Party Animal Multiplay', 87.0, 0.3, 13050.0, 1.4),
+    ('Unicorn Combo', 87.0, 0.3, 13050.0, 1.4),
+    ('Gorilla Slide', 84.0, 0.3, 13860.0, 1.5),
+    ('Cowboy-run stormbaan 17m', 82.0, 0.3, 22550.0, 2.5),
+    ('tafel mes (per 10)', 80.0, 0.3, 200.0, 0.0),
+    ('Studio 100 Kidszone Bumba', 78.0, 0.3, 10920.0, 1.2),
+    ('Dinopark', 78.0, 0.3, 11700.0, 1.3),
+    ('Brandweer springkasteel', 75.0, 0.3, 13125.0, 1.5),
+    ('Unicorn XXL', 75.0, 0.3, 13875.0, 1.5),
+    ('Comic double slide', 72.0, 0.3, 11520.0, 1.3),
+    ('CM springkasteel 2', 71.0, 0.3, 14981.0, 1.7),
+    ('Pop Art Run 2delige Obstakelbaan ', 70.0, 0.3, 21350.0, 2.4),
+    ('Flamingo run', 70.0, 0.3, 21350.0, 2.4),
+    ('Buffettafel enkel', 70.0, 0.3, 350.0, 0.0),
+    ('Klimtoren Jungle', 69.0, 0.3, 16560.0, 1.8),
+    ('Pop Art Run 3de deel', 67.0, 0.2, 5695.0, 0.6),
+    ('Drakenburcht', 65.0, 0.2, 12350.0, 1.4),
+    ('Buffettafel plooibaar', 65.0, 0.2, 325.0, 0.0),
+    ('Safaripark', 59.0, 0.2, 8260.0, 0.9),
+    ('Vouwtent 6 op 4', 57.0, 0.2, 10260.0, 1.1),
+    ('IPS Arena', 54.0, 0.2, 10260.0, 1.1),
+    ('Studio 100 Nachtwacht Hindernisbaan', 53.0, 0.2, 17225.0, 1.9),
+    ('Studio 100 Campus 12 Hindernisbaan', 51.0, 0.2, 16575.0, 1.8),
+    ('Monkey Party', 51.0, 0.2, 6630.0, 0.7),
+    ('Frozen', 51.0, 0.2, 7650.0, 0.8),
+    ('Studio 100 Maya De Bij multiplay', 49.0, 0.2, 9310.0, 1.0),
+    ('Prinses', 49.0, 0.2, 8575.0, 0.9),
+    ('CM publiboog', 48.0, 0.2, 9600.0, 1.1),
+    ('4delige kinderspelen', 48.0, 0.2, 4800.0, 0.5),
+    ('Bellyslide', 48.0, 0.2, 12000.0, 1.3),
+    ('IPS pylonnen', 48.0, 0.2, 4800.0, 0.5),
+    ('Studio 100 Bumba Mini Bounce', 47.0, 0.2, 6580.0, 0.7),
+    ('Super Disco springkasteel', 47.0, 0.2, 8225.0, 0.9),
+    ('Studio 100 K3 Multislide', 45.0, 0.2, 8550.0, 0.9),
+    ('Speeleiland jungle', 45.0, 0.2, 6750.0, 0.7),
+    ('Terrasverwarmer', 44.0, 0.2, 1540.0, 0.2),
+    ('Rodeo stier', 44.0, 0.2, 18480.0, 2.0),
+    ('LikeME', 44.0, 0.2, 8360.0, 0.9),
+    ('Piraat shooter', 44.0, 0.2, 8140.0, 0.9),
+    ('Dessert Vork per 10', 43.0, 0.2, 107.5, 0.0),
+    ('Attractie Back To Base + IPS', 42.0, 0.2, 10500.0, 1.2),
+    ('Koelwagen', 42.0, 0.2, 4200.0, 0.5),
+    ('4 op een rij basket', 41.0, 0.2, 5945.0, 0.7),
+    ('Vouwtent 4x4m', 39.0, 0.1, 5070.0, 0.6),
+    ('Waterglazen ( 40stuks)', 39.0, 0.1, 390.0, 0.0),
+    ('Piraat Shooter springkasteel', 38.0, 0.1, 6270.0, 0.7),
+    ('Studio 100 Samson & Marie Multifun', 37.0, 0.1, 5550.0, 0.6),
+    ('Disco Party', 36.0, 0.1, 5940.0, 0.7),
+    ('Lessenaartafel', 35.0, 0.1, 140.0, 0.0),
+    ('Steakmes (per 10)', 34.0, 0.1, 85.0, 0.0),
+    ('Studio 100 Plop Activity Center', 33.0, 0.1, 6567.0, 0.7),
+    ('Swing him off', 33.0, 0.1, 7755.0, 0.9),
+    ('Whack-a-mole', 33.0, 0.1, 3960.0, 0.4),
+    ('Wijn glazen ( 33 stuks)', 33.0, 0.1, 330.0, 0.0),
+    ('IPS tafel', 30.0, 0.1, 3000.0, 0.3),
+    ('Rups kruiptunnel', 29.0, 0.1, 5365.0, 0.6),
+    ('Reuze Darts', 28.0, 0.1, 2520.0, 0.3),
+    ('Cava glazen (40stuks)', 27.0, 0.1, 270.0, 0.0),
+    ('Bungee-run army', 26.0, 0.1, 4680.0, 0.5),
+    ('gladiatoren spel', 26.0, 0.1, 4680.0, 0.5),
+    ('Koffielepel per 10', 26.0, 0.1, 65.0, 0.0),
+    ('Bakfrigo', 25.0, 0.1, 1125.0, 0.1),
+    ('Rodeo : Bully of Kamiel', 23.0, 0.1, 9660.0, 1.1),
+    ('Bospark', 22.0, 0.1, 2200.0, 0.2),
+    ('Studio 100 Prinsessia Kasteel', 20.0, 0.1, 3400.0, 0.4),
+    ('tafel lepel (per 10)', 20.0, 0.1, 50.0, 0.0),
+    ('Dessert mes per 10', 18.0, 0.1, 45.0, 0.0),
+    ('Studio 100 Nachtwacht Multifun', 17.0, 0.1, 3230.0, 0.4),
+    ('Popcorn Machine', 15.0, 0.1, 750.0, 0.1),
+    ('Bubble Soccer Set 6 Balls', 14.0, 0.1, 3500.0, 0.4),
+    ('Studio 100 Bumba Ballenbad', 14.0, 0.1, 1960.0, 0.2),
+    ('Percolator', 11.0, 0.0, 220.0, 0.0),
+    ('Starshade ST40', 10.0, 0.0, 2700.0, 0.3),
+    ('Super Slide XXL', 10.0, 0.0, 4200.0, 0.5),
+    ('Sumo worstelen', 8.0, 0.0, 960.0, 0.1),
+    ('Studio 100 Piet Piraat', 8.0, 0.0, 1520.0, 0.2),
+    ('Vouwtent 3 op 3', 7.0, 0.0, 560.0, 0.1),
+    ('Bain Marie 3 vaks', 6.0, 0.0, 150.0, 0.0),
+    ('Studio 100 Wicky De Viking', 6.0, 0.0, 1794.0, 0.2),
+    ('Studio 100 Melkherberg Plop', 4.0, 0.0, 796.0, 0.1),
+    ('Sweeper 9M', 4.0, 0.0, 1760.0, 0.2),
+    ('Spidertent', 3.0, 0.0, 0.0, 0.0),
+    ('Warme luchtkanon', 2.0, 0.0, 80.0, 0.0);

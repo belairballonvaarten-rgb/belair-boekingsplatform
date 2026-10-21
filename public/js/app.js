@@ -6411,6 +6411,20 @@ async function laadStatistieken() {
     document.getElementById('stat-producten-per-categorie').innerHTML = statRenderProductenPerCategorie(data.productenPerCategorie);
   }
 
+  const productenHistorischPaneel = document.getElementById('stat-paneel-producten-historisch');
+  const productenHistorisch = data.productenPopulariteitHistorisch || [];
+  productenHistorischPaneel.hidden = !productenHistorisch.length;
+  if (productenHistorisch.length) {
+    document.getElementById('tabel-producten-populariteit-historisch').innerHTML = productenHistorisch.map((p) => `
+      <tr>
+        <td>${p.product_naam}</td>
+        <td>${Math.round(Number(p.aantal_boekingen))}</td>
+        <td>${Number(p.pct_boekingen).toFixed(1)}%</td>
+        <td>${fmtEuro(p.omzet)}</td>
+        <td>${Number(p.pct_omzet).toFixed(1)}%</td>
+      </tr>`).join('');
+  }
+
   await laadTerugverdiendOverzicht();
 }
 

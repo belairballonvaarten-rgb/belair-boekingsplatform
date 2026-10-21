@@ -32,51 +32,105 @@ async function bepaalBeschikbareJaren() {
   return jaren;
 }
 
-// Maandtotalen uit het vorige systeem (Booking Online), vóór de overstap naar
-// dit platform in september 2026 — enkel omzet/aantal boekingen/eenheden per
-// maand, geen klant-, product- of gemeentedetail (zie migratie 050). Er is
-// geen overlap met de echte boekingen hieronder (die lopen pas vanaf de
-// overstap), maar we TELLEN OP i.p.v. te vervangen, zodat dit nooit per
-// ongeluk iets zou verbergen als dat ooit toch zou overlappen.
+// Maandtotalen uit het vorige systeem (Booking Online) — enkel omzet/aantal
+// boekingen/eenheden per maand, geen klant-, product- of gemeentedetail (zie
+// migratie 050/051). Deze export loopt intussen door tot in de periode dat
+// dit platform zelf al in gebruik is (sinds september 2026), dus kan NIET
+// zomaar overal bovenop de echte boekingen geteld worden — zie
+// bepaalMaandBron hieronder voor hoe dat opgelost wordt.
 async function berekenHistorischPerMaand(jaar) {
   const { rows } = await db.query(
     `SELECT EXTRACT(MONTH FROM maand)::int AS maand, aantal_boekingen, omzet, eenheden
      FROM historische_maandstatistieken WHERE EXTRACT(YEAR FROM maand) = $1`,
     [jaar]
   );
-  const perMaandMap = new Map(rows.map((r) => [r.maand, r]));
-  return perMaandMap;
+  return new Map(rows.map((r) => [r.maand, r]));
 }
 
-// "Reservaties per maand" = op basis van de datum van BEVESTIGING (eerste keer
-// dat de status naar "bevestigd" ging), niet de leverdatum of aanmaakdatum —
-// zo op vraag van Jonas. Losgetrokken in een functie zodat we zowel het
-// geselecteerde jaar als het vorige jaar (voor de jaar-op-jaar-vergelijking op
-// de grafiek) op dezelfde manier kunnen berekenen.
-async function berekenPerMaand(jaar) {
-  const bevestigdPerMaand = await db.query(
+// Live boekingen per maand (o.b.v. de leverdatum, geweigerd uitgesloten) —
+// dezelfde tijdsbasis als de "Month"-kolom uit het vorige systeem. Dient ook
+// als signaal of er voor een bepaalde maand al ECHTE data in onze eigen
+// tabellen staat.
+async function berekenLivePerMaand(jaar) {
+  const { rows } = await db.query(
     `
-    SELECT EXTRACT(MONTH FROM eerste_bevestiging)::int AS maand, COUNT(*)::int AS aantal
-    FROM (
-      SELECT boeking_id, MIN(gewijzigd_op) AS eerste_bevestiging
-      FROM boeking_status_historiek
-      WHERE naar_status = 'bevestigd'
+    SELECT
+      EXTRACT(MONTH FROM b.gewenste_datum_start)::int AS maand,
+      COUNT(*)::int AS aantal,
+      COALESCE(SUM(bp_totaal.waarde), 0) AS waarde,
+      COALESCE(SUM(bp_totaal.eenheden), 0) AS eenheden
+    FROM boekingen b
+    LEFT JOIN (
+      SELECT boeking_id, SUM(aantal * prijs) AS waarde, SUM(aantal) AS eenheden
+      FROM boeking_producten
       GROUP BY boeking_id
-    ) x
-    WHERE EXTRACT(YEAR FROM eerste_bevestiging) = $1
+    ) bp_totaal ON bp_totaal.boeking_id = b.id
+    WHERE EXTRACT(YEAR FROM b.gewenste_datum_start) = $1 AND b.status != 'geweigerd'
     GROUP BY maand
     `,
     [jaar]
   );
+  return new Map(rows.map((r) => [r.maand, r]));
+}
+
+// Per maand kiezen we ÉÉN bron, nooit beide samen opgeteld — dat zou
+// dubbeltellen zodra een maand (zoals vanaf september 2026) in zowel onze
+// eigen tabellen als in de export uit het vorige systeem voorkomt. Is er al
+// een echte boeking met leverdatum in die maand, dan telt ENKEL de live data
+// (ook als die toevallig op 0 zou uitkomen); anders de historische maand,
+// indien bekend.
+async function bepaalMaandBron(jaar) {
+  const [livePerMaand, historischPerMaand] = await Promise.all([
+    berekenLivePerMaand(jaar),
+    berekenHistorischPerMaand(jaar),
+  ]);
+  const perMaand = new Map();
+  for (let maand = 1; maand <= 12; maand++) {
+    const live = livePerMaand.get(maand);
+    if (live && live.aantal > 0) {
+      perMaand.set(maand, { bron: 'live', aantal: live.aantal, waarde: Number(live.waarde), eenheden: live.eenheden });
+      continue;
+    }
+    const historisch = historischPerMaand.get(maand);
+    if (historisch) {
+      perMaand.set(maand, {
+        bron: 'historisch', aantal: historisch.aantal_boekingen, waarde: Number(historisch.omzet), eenheden: historisch.eenheden,
+      });
+      continue;
+    }
+    perMaand.set(maand, { bron: 'geen', aantal: 0, waarde: 0, eenheden: 0 });
+  }
+  return perMaand;
+}
+
+// "Reservaties per maand" = op basis van de datum van BEVESTIGING (eerste keer
+// dat de status naar "bevestigd" ging), niet de leverdatum of aanmaakdatum —
+// zo op vraag van Jonas. Voor een maand met historische bron (zie
+// bepaalMaandBron) gebruiken we het historische aantal i.p.v. de (voor die
+// maand onbestaande) bevestigingsdatum.
+async function berekenPerMaand(jaar) {
+  const [bevestigdPerMaand, maandBron] = await Promise.all([
+    db.query(
+      `
+      SELECT EXTRACT(MONTH FROM eerste_bevestiging)::int AS maand, COUNT(*)::int AS aantal
+      FROM (
+        SELECT boeking_id, MIN(gewijzigd_op) AS eerste_bevestiging
+        FROM boeking_status_historiek
+        WHERE naar_status = 'bevestigd'
+        GROUP BY boeking_id
+      ) x
+      WHERE EXTRACT(YEAR FROM eerste_bevestiging) = $1
+      GROUP BY maand
+      `,
+      [jaar]
+    ),
+    bepaalMaandBron(jaar),
+  ]);
   const perMaandMap = new Map(bevestigdPerMaand.rows.map((r) => [r.maand, r.aantal]));
-  // Maanden vóór de overstap (zie berekenHistorischPerMaand hierboven) hebben
-  // geen "bevestigd"-historiek in onze tabellen — die maandtotalen uit het
-  // vorige systeem worden hier gewoon bijgeteld.
-  const historischPerMaand = await berekenHistorischPerMaand(jaar);
   return MAAND_NAMEN.map((naam, i) => {
     const maandNr = i + 1;
-    const historisch = historischPerMaand.get(maandNr);
-    const aantal = (perMaandMap.get(maandNr) || 0) + (historisch ? historisch.aantal_boekingen : 0);
+    const bron = maandBron.get(maandNr);
+    const aantal = bron.bron === 'historisch' ? bron.aantal : (perMaandMap.get(maandNr) || 0);
     return { maand: maandNr, label: naam, aantal };
   });
 }
@@ -240,37 +294,31 @@ router.get('/', asyncHandler(async (req, res) => {
   const productTot = `${jaar}-12-31`;
   const productenPerCategorie = await berekenProductenPerCategorie(productVanaf, productTot);
 
-  const totalenDitJaar = await db.query(
-    `
-    SELECT
-      COUNT(*)::int AS aantal_boekingen,
-      COALESCE(SUM(bp_totaal.waarde), 0) AS totale_waarde,
-      COALESCE(SUM(bp_totaal.eenheden), 0) AS totale_eenheden
-    FROM boekingen b
-    LEFT JOIN (
-      SELECT boeking_id, SUM(aantal * prijs) AS waarde, SUM(aantal) AS eenheden
-      FROM boeking_producten
-      GROUP BY boeking_id
-    ) bp_totaal ON bp_totaal.boeking_id = b.id
-    WHERE EXTRACT(YEAR FROM b.gewenste_datum_start) = $1 AND b.status != 'geweigerd'
-    `,
-    [jaar]
-  );
-
-  // Jaartotalen uit het vorige systeem (zie berekenHistorischPerMaand) worden
-  // hier gewoon bijgeteld — geen overlap met de echte boekingen hierboven
-  // (die lopen pas vanaf de overstap in september 2026).
-  const historischPerMaand = await berekenHistorischPerMaand(jaar);
-  let historischAantal = 0;
-  let historischWaarde = 0;
-  let historischEenheden = 0;
-  for (const rij of historischPerMaand.values()) {
-    historischAantal += rij.aantal_boekingen;
-    historischWaarde += Number(rij.omzet);
-    historischEenheden += rij.eenheden;
+  // Jaartotalen: per maand ÉÉN bron (live of historisch, zie bepaalMaandBron)
+  // optellen — nooit beide samen, zodat een maand die in zowel onze eigen
+  // tabellen als in de export uit het vorige systeem voorkomt (bv. vanaf de
+  // overstap in september 2026) niet dubbel meetelt.
+  const maandBron = await bepaalMaandBron(jaar);
+  let totaalBoekingen = 0;
+  let totaleWaarde = 0;
+  let totaalEenheden = 0;
+  let heeftHistorischeData = false;
+  for (const m of maandBron.values()) {
+    totaalBoekingen += m.aantal;
+    totaleWaarde += m.waarde;
+    totaalEenheden += m.eenheden;
+    if (m.bron === 'historisch') heeftHistorischeData = true;
   }
 
   const beschikbareJaren = await bepaalBeschikbareJaren();
+
+  // "Populairste producten" uit het vorige systeem (zie migratie 051) — geen
+  // jaar/maand-opsplitsing beschikbaar, dus bewust los van de jaar-selector:
+  // telkens dezelfde volledige lijst, wat er ook geselecteerd staat.
+  const productenPopulariteitHistorisch = await db.query(
+    `SELECT product_naam, aantal_boekingen, pct_boekingen, omzet, pct_omzet
+     FROM historische_productpopulariteit ORDER BY aantal_boekingen DESC`
+  );
 
   res.json({
     jaar,
@@ -282,10 +330,11 @@ router.get('/', asyncHandler(async (req, res) => {
     productVanaf,
     productTot,
     productenPerCategorie,
-    totaalBoekingen: totalenDitJaar.rows[0].aantal_boekingen + historischAantal,
-    totaleWaarde: Number(totalenDitJaar.rows[0].totale_waarde) + historischWaarde,
-    totaalEenheden: Number(totalenDitJaar.rows[0].totale_eenheden) + historischEenheden,
-    heeftHistorischeData: historischPerMaand.size > 0,
+    totaalBoekingen,
+    totaleWaarde,
+    totaalEenheden,
+    heeftHistorischeData,
+    productenPopulariteitHistorisch: productenPopulariteitHistorisch.rows,
   });
 }));
 
