@@ -6380,6 +6380,8 @@ async function laadStatistieken() {
   document.getElementById('stat-tegel-aantal').textContent = data.totaalBoekingen;
   document.getElementById('stat-tegel-waarde').textContent = fmtEuro(data.totaleWaarde);
   document.getElementById('stat-tegel-bevestigd').textContent = data.totaalBevestigd;
+  document.getElementById('stat-tegel-eenheden').textContent = data.totaalEenheden;
+  document.getElementById('stat-historisch-notitie').hidden = !data.heeftHistorischeData;
 
   const toonVergelijking = document.getElementById('stat-vergelijk-vorig-jaar').checked;
   const huidigJaarLabel = String(data.jaar);

@@ -10,14 +10,19 @@ const MAAND_NAMEN = [
   'jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec',
 ];
 
-// Alle jaren waarvoor er zinvolle data bestaat (bevestigde boekingen of
-// geplande leverdatums), zodat de jaar-selector geen lege jaren aanbiedt.
+// Alle jaren waarvoor er zinvolle data bestaat (bevestigde boekingen,
+// geplande leverdatums, of een maand uit het vorige systeem — zie
+// historische_maandstatistieken/migratie 050), zodat de jaar-selector geen
+// lege jaren aanbiedt — ook niet voor 2024/2025, toen dit platform nog niet
+// in gebruik was.
 async function bepaalBeschikbareJaren() {
   const { rows } = await db.query(`
     SELECT DISTINCT EXTRACT(YEAR FROM jaar)::int AS jaar FROM (
       SELECT gewijzigd_op AS jaar FROM boeking_status_historiek WHERE naar_status = 'bevestigd'
       UNION ALL
       SELECT gewenste_datum_start::timestamptz AS jaar FROM boekingen
+      UNION ALL
+      SELECT maand::timestamptz AS jaar FROM historische_maandstatistieken
     ) x
     ORDER BY jaar DESC
   `);
@@ -25,6 +30,22 @@ async function bepaalBeschikbareJaren() {
   const huidigJaar = new Date().getFullYear();
   if (!jaren.includes(huidigJaar)) jaren.unshift(huidigJaar);
   return jaren;
+}
+
+// Maandtotalen uit het vorige systeem (Booking Online), vóór de overstap naar
+// dit platform in september 2026 — enkel omzet/aantal boekingen/eenheden per
+// maand, geen klant-, product- of gemeentedetail (zie migratie 050). Er is
+// geen overlap met de echte boekingen hieronder (die lopen pas vanaf de
+// overstap), maar we TELLEN OP i.p.v. te vervangen, zodat dit nooit per
+// ongeluk iets zou verbergen als dat ooit toch zou overlappen.
+async function berekenHistorischPerMaand(jaar) {
+  const { rows } = await db.query(
+    `SELECT EXTRACT(MONTH FROM maand)::int AS maand, aantal_boekingen, omzet, eenheden
+     FROM historische_maandstatistieken WHERE EXTRACT(YEAR FROM maand) = $1`,
+    [jaar]
+  );
+  const perMaandMap = new Map(rows.map((r) => [r.maand, r]));
+  return perMaandMap;
 }
 
 // "Reservaties per maand" = op basis van de datum van BEVESTIGING (eerste keer
@@ -48,7 +69,16 @@ async function berekenPerMaand(jaar) {
     [jaar]
   );
   const perMaandMap = new Map(bevestigdPerMaand.rows.map((r) => [r.maand, r.aantal]));
-  return MAAND_NAMEN.map((naam, i) => ({ maand: i + 1, label: naam, aantal: perMaandMap.get(i + 1) || 0 }));
+  // Maanden vóór de overstap (zie berekenHistorischPerMaand hierboven) hebben
+  // geen "bevestigd"-historiek in onze tabellen — die maandtotalen uit het
+  // vorige systeem worden hier gewoon bijgeteld.
+  const historischPerMaand = await berekenHistorischPerMaand(jaar);
+  return MAAND_NAMEN.map((naam, i) => {
+    const maandNr = i + 1;
+    const historisch = historischPerMaand.get(maandNr);
+    const aantal = (perMaandMap.get(maandNr) || 0) + (historisch ? historisch.aantal_boekingen : 0);
+    return { maand: maandNr, label: naam, aantal };
+  });
 }
 
 // Aantal verhuringen per product, gegroepeerd per categorie, binnen een vrij
@@ -214,10 +244,11 @@ router.get('/', asyncHandler(async (req, res) => {
     `
     SELECT
       COUNT(*)::int AS aantal_boekingen,
-      COALESCE(SUM(bp_totaal.waarde), 0) AS totale_waarde
+      COALESCE(SUM(bp_totaal.waarde), 0) AS totale_waarde,
+      COALESCE(SUM(bp_totaal.eenheden), 0) AS totale_eenheden
     FROM boekingen b
     LEFT JOIN (
-      SELECT boeking_id, SUM(aantal * prijs) AS waarde
+      SELECT boeking_id, SUM(aantal * prijs) AS waarde, SUM(aantal) AS eenheden
       FROM boeking_producten
       GROUP BY boeking_id
     ) bp_totaal ON bp_totaal.boeking_id = b.id
@@ -225,6 +256,19 @@ router.get('/', asyncHandler(async (req, res) => {
     `,
     [jaar]
   );
+
+  // Jaartotalen uit het vorige systeem (zie berekenHistorischPerMaand) worden
+  // hier gewoon bijgeteld — geen overlap met de echte boekingen hierboven
+  // (die lopen pas vanaf de overstap in september 2026).
+  const historischPerMaand = await berekenHistorischPerMaand(jaar);
+  let historischAantal = 0;
+  let historischWaarde = 0;
+  let historischEenheden = 0;
+  for (const rij of historischPerMaand.values()) {
+    historischAantal += rij.aantal_boekingen;
+    historischWaarde += Number(rij.omzet);
+    historischEenheden += rij.eenheden;
+  }
 
   const beschikbareJaren = await bepaalBeschikbareJaren();
 
@@ -238,8 +282,10 @@ router.get('/', asyncHandler(async (req, res) => {
     productVanaf,
     productTot,
     productenPerCategorie,
-    totaalBoekingen: totalenDitJaar.rows[0].aantal_boekingen,
-    totaleWaarde: Number(totalenDitJaar.rows[0].totale_waarde),
+    totaalBoekingen: totalenDitJaar.rows[0].aantal_boekingen + historischAantal,
+    totaleWaarde: Number(totalenDitJaar.rows[0].totale_waarde) + historischWaarde,
+    totaalEenheden: Number(totalenDitJaar.rows[0].totale_eenheden) + historischEenheden,
+    heeftHistorischeData: historischPerMaand.size > 0,
   });
 }));
 
