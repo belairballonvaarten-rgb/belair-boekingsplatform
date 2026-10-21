@@ -53,7 +53,10 @@ async function synchroniseerWebsiteBeschikbaarheid({ fullSync = false } = {}) {
      FROM boekingen b
      LEFT JOIN (
        SELECT bp.boeking_id,
-              string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen
+              string_agg(
+                p.naam || COALESCE(' — ' || bp.optie_naam, '') || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END,
+                ', ' ORDER BY p.naam
+              ) AS producten_namen
        FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id
        GROUP BY bp.boeking_id
      ) bp ON bp.boeking_id = b.id

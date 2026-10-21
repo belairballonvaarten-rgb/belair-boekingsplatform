@@ -47,6 +47,27 @@ const TOEGELATEN_OVERGANGEN = {
 // een betaling van het resterende bedrag moet ingeven.
 const STATUSSEN_MET_AUTOMATISCHE_VOLLEDIGE_BETALING = ['gefactureerd', 'voldaan_manueel'];
 
+// Zoekt een gekozen optie-keuze op (zie migratie 055 / routes/producten.js)
+// en controleert dat ze wel degelijk bij het opgegeven product hoort — anders
+// zou je per ongeluk de keuze van een ANDER product (met een toevallig
+// gelijkaardige meerkost) kunnen koppelen. Geeft null terug als er geen
+// optieKeuzeId werd meegegeven (het product heeft geen opties, of er werd
+// bewust geen keuze gemaakt). dbClient laat toe dit ook binnen een lopende
+// transactie (client.query) aan te roepen i.p.v. enkel via db.query.
+async function haalOptieKeuzeOp(dbClient, productId, optieKeuzeId) {
+  if (!optieKeuzeId) return null;
+  const { rows } = await dbClient.query(
+    'SELECT id, naam, meerkost FROM product_opties WHERE id = $1 AND product_id = $2',
+    [optieKeuzeId, productId]
+  );
+  if (!rows[0]) {
+    const err = new Error('Gekozen optie hoort niet bij dit product');
+    err.status = 400;
+    throw err;
+  }
+  return rows[0];
+}
+
 // Zelfde patroon als TIJDSTIP_HHMM_PATROON in public/js/app.js: een concreet
 // gekozen kwartiertijdstip (bv. "10:00"), in tegenstelling tot "Geen
 // voorkeur" (leeg) of het vaste gratis tijdsblok ("Tussen 07:00 en 12:00 uur
@@ -834,13 +855,41 @@ router.put('/:id', asyncHandler(async (req, res) => {
 }));
 
 // Prijs en/of aantal van één productregel manueel bijsturen (bv. na de
-// automatische dagprijs/weekendprijs-suggestie, of voor een uitzondering).
+// automatische dagprijs/weekendprijs-suggestie, of voor een uitzondering) —
+// ook de gekozen optie zelf kan hier achteraf gewisseld worden (optie_keuze_id,
+// null om de optie weer weg te halen).
 router.put('/:id/producten/:regelId', asyncHandler(async (req, res) => {
-  const { prijs, aantal } = req.body;
+  const { prijs, aantal, optie_keuze_id } = req.body;
   const updates = [];
   const params = [];
-  if (prijs !== undefined) { params.push(prijs); updates.push(`prijs = $${params.length}`); }
   if (aantal !== undefined) { params.push(aantal); updates.push(`aantal = $${params.length}`); }
+
+  let nieuwePrijs = prijs;
+  if (optie_keuze_id !== undefined) {
+    const { rows: regelRows } = await db.query(
+      'SELECT product_id, prijs, optie_meerkost FROM boeking_producten WHERE id = $1 AND boeking_id = $2',
+      [req.params.regelId, req.params.id]
+    );
+    if (!regelRows[0]) return res.status(404).json({ fout: 'Productregel niet gevonden' });
+    let optie;
+    try {
+      optie = await haalOptieKeuzeOp(db, regelRows[0].product_id, optie_keuze_id);
+    } catch (err) {
+      return res.status(err.status || 400).json({ fout: err.message });
+    }
+    params.push(optie ? optie.id : null); updates.push(`optie_keuze_id = $${params.length}`);
+    params.push(optie ? optie.naam : null); updates.push(`optie_naam = $${params.length}`);
+    params.push(optie ? optie.meerkost : null); updates.push(`optie_meerkost = $${params.length}`);
+    // Geen expliciete nieuwe prijs meegegeven? Dan de prijs automatisch
+    // bijsturen met het verschil tussen de oude en de nieuwe meerkost, zodat
+    // het wisselen van optie meteen doorwerkt in de totaalprijs van deze regel.
+    if (nieuwePrijs === undefined) {
+      const huidigeMeerkost = Number(regelRows[0].optie_meerkost) || 0;
+      const nieuweMeerkost = optie ? Number(optie.meerkost) : 0;
+      nieuwePrijs = Number(regelRows[0].prijs) - huidigeMeerkost + nieuweMeerkost;
+    }
+  }
+  if (nieuwePrijs !== undefined) { params.push(nieuwePrijs); updates.push(`prijs = $${params.length}`); }
   if (!updates.length) return res.status(400).json({ fout: 'Geen velden om te updaten' });
   params.push(req.params.regelId, req.params.id);
   const { rows } = await db.query(
@@ -861,7 +910,7 @@ router.put('/:id/producten/:regelId', asyncHandler(async (req, res) => {
 
 // Extra product toevoegen aan een bestaande boeking (bv. telefonisch bijbesteld).
 router.post('/:id/producten', asyncHandler(async (req, res) => {
-  const { product_id, aantal } = req.body;
+  const { product_id, aantal, optie_keuze_id } = req.body;
   if (!product_id) return res.status(400).json({ fout: 'product_id is verplicht' });
   const aantalNum = aantal ? Number(aantal) : 1;
 
@@ -884,11 +933,20 @@ router.post('/:id/producten', asyncHandler(async (req, res) => {
   // Automatisch voorstel o.b.v. dagprijs/weekendprijs en het aantal dagen van de
   // huidige periode — Jonas kan dit nadien nog manueel bijsturen per productregel.
   const aantalDagen = berekenAantalDagen(boeking.gewenste_datum_start, boeking.gewenste_datum_einde);
-  const prijs = req.body.prijs !== undefined ? req.body.prijs : berekenMeerdaagsePrijs(productRows[0], aantalDagen);
+  const basisprijs = req.body.prijs !== undefined ? req.body.prijs : berekenMeerdaagsePrijs(productRows[0], aantalDagen);
+
+  let optie;
+  try {
+    optie = await haalOptieKeuzeOp(db, product_id, optie_keuze_id);
+  } catch (err) {
+    return res.status(err.status || 400).json({ fout: err.message });
+  }
+  const prijs = basisprijs + (optie ? Number(optie.meerkost) : 0);
 
   await db.query(
-    'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, $3, $4)',
-    [req.params.id, product_id, aantalNum, prijs]
+    `INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs, optie_keuze_id, optie_naam, optie_meerkost)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [req.params.id, product_id, aantalNum, prijs, optie ? optie.id : null, optie ? optie.naam : null, optie ? optie.meerkost : null]
   );
 
   const { rows: producten } = await db.query(
@@ -1116,10 +1174,15 @@ router.post('/', asyncHandler(async (req, res) => {
       const { rows: productRows } = await client.query('SELECT prijs, weekendprijs FROM producten WHERE id = $1', [p.product_id]);
       // Automatisch voorstel o.b.v. dagprijs/weekendprijs en het aantal dagen — een
       // expliciet meegegeven prijs (bv. vanuit de automatische website-omzetting) wint.
-      const prijs = p.prijs !== undefined ? p.prijs : berekenMeerdaagsePrijs(productRows[0] || {}, aantalDagen);
+      const basisprijs = p.prijs !== undefined ? p.prijs : berekenMeerdaagsePrijs(productRows[0] || {}, aantalDagen);
+      // Gekozen optie (bv. "met zwembadje", zie migratie 055): de meerkost telt
+      // automatisch mee in de prijs van deze regel, op vraag van Jonas.
+      const optie = await haalOptieKeuzeOp(client, p.product_id, p.optie_keuze_id);
+      const prijs = basisprijs + (optie ? Number(optie.meerkost) : 0);
       await client.query(
-        'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, $3, $4)',
-        [boeking.id, p.product_id, p.aantal || 1, prijs]
+        `INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs, optie_keuze_id, optie_naam, optie_meerkost)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [boeking.id, p.product_id, p.aantal || 1, prijs, optie ? optie.id : null, optie ? optie.naam : null, optie ? optie.meerkost : null]
       );
     }
 
@@ -1152,6 +1215,10 @@ router.post('/', asyncHandler(async (req, res) => {
     res.status(201).json(boeking);
   } catch (err) {
     await client.query('ROLLBACK');
+    // Validatiefouten (zoals een optie die niet bij het product hoort, zie
+    // haalOptieKeuzeOp) netjes met hun eigen statuscode/boodschap teruggeven,
+    // i.p.v. via de centrale foutafhandeling als generieke 500 te eindigen.
+    if (err.status) return res.status(err.status).json({ fout: err.message });
     throw err;
   } finally {
     client.release();

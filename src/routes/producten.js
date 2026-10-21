@@ -15,7 +15,7 @@ router.use(vereistIngelogd);
 const PRODUCT_KOLOMMEN_ZONDER_BESTAND = `
   id, naam, categorieen, sku, prijs, weekendprijs, afhaalprijs, weekdagprijs, meerdaagse_prijstabel,
   max_boekingen_per_dag, availability_buffer_dagen, overnachting_mogelijk,
-  overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid,
+  overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid, optie_label,
   afbeeldingen, afmetingen, leeftijdscategorie, kostprijs, aankoopdatum, staat, staat_bijgewerkt_op,
   serienummer, bouwjaar,
   motor_type, gewicht_kg, aantal_valmatten, aantal_piketten, aantal_zandzakken,
@@ -44,7 +44,21 @@ router.get('/', asyncHandler(async (req, res) => {
   }
   const where = condities.length ? `WHERE ${condities.join(' AND ')}` : '';
   const { rows } = await db.query(`SELECT ${PRODUCT_KOLOMMEN_ZONDER_BESTAND} FROM producten ${where} ORDER BY naam`, params);
-  res.json(rows);
+
+  // Opties (keuzelijst) per product meteen meegeven — de productenkiezer
+  // (public/js/app.js, productenCache) heeft dit nodig om bij het toevoegen
+  // van een product meteen de keuze-dropdown te kunnen tonen, zonder voor elk
+  // product apart een aparte aanroep te moeten doen.
+  const { rows: alleOpties } = await db.query(
+    'SELECT id, product_id, naam, meerkost, standaard FROM product_opties ORDER BY standaard DESC, id'
+  );
+  const optiesPerProduct = new Map();
+  for (const o of alleOpties) {
+    if (!optiesPerProduct.has(o.product_id)) optiesPerProduct.set(o.product_id, []);
+    optiesPerProduct.get(o.product_id).push(o);
+  }
+  const resultaat = rows.map((p) => ({ ...p, opties: optiesPerProduct.get(p.id) || [] }));
+  res.json(resultaat);
 }));
 
 // Let op: deze route moet vóór '/:id' staan, anders vangt '/:id' dit pad ook af
@@ -147,7 +161,11 @@ router.get('/:id', asyncHandler(async (req, res) => {
     'SELECT * FROM product_logboek WHERE product_id = $1 ORDER BY datum DESC, aangemaakt_op DESC',
     [req.params.id]
   );
-  res.json({ ...rows[0], keuringen, logboek });
+  const { rows: opties } = await db.query(
+    'SELECT * FROM product_opties WHERE product_id = $1 ORDER BY standaard DESC, id',
+    [req.params.id]
+  );
+  res.json({ ...rows[0], keuringen, logboek, opties });
 }));
 
 // "Logboek per kasteel" (PDF, vroeger "rapport" genoemd) — op vraag van Jonas
@@ -330,7 +348,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
     'max_boekingen_per_dag', 'availability_buffer_dagen', 'overnachting_mogelijk',
     'overnachting_toeslag', 'parent_id', 'korting_toegelaten', 'zichtbaarheid',
     'afbeeldingen', 'afmetingen', 'leeftijdscategorie', 'kostprijs', 'aankoopdatum', 'staat',
-    'serienummer', 'bouwjaar',
+    'serienummer', 'bouwjaar', 'optie_label',
     'motor_type', 'gewicht_kg', 'aantal_valmatten', 'aantal_piketten', 'aantal_zandzakken',
     'aantal_motors', 'verlengkabel_standaard', 'verlengkabel_dubbel', 'overige_benodigdheden',
     'materiaal_opmerking', 'gemiddelde_opsteltijd_minuten',
@@ -387,6 +405,82 @@ router.post('/:id/keuringen', asyncHandler(async (req, res) => {
     [req.params.id, type_keuring, vervaldatum]
   );
   res.status(201).json(rows[0]);
+}));
+
+// ============================================================
+// OPTIES (keuzelijst bij het boeken, bv. "met/zonder zwembadje" of
+// "met/zonder hoezen" — zie migratie 055). Bewust max. 1 keuzelijst per
+// product (op vraag van Jonas): elke rij hier is gewoon één keuze binnen die
+// ene lijst, er is geen aparte "optiegroep" nodig. Verwijderen van een keuze
+// is altijd toegelaten, ook als ze al op bestaande boekingen staat — daar
+// staat de gekozen naam/meerkost immers als vaste momentopname (optie_naam/
+// optie_meerkost op boeking_producten), die blijft gewoon staan.
+// ============================================================
+router.post('/:id/opties', asyncHandler(async (req, res) => {
+  const { naam, meerkost, standaard } = req.body;
+  if (!naam || !naam.trim()) return res.status(400).json({ fout: 'Naam van de keuze is verplicht' });
+
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    // Hooguit 1 standaard-keuze per product (zie unieke index, migratie 055) —
+    // bij het aanvinken van een nieuwe standaard eerst de vorige(n) afzetten.
+    if (standaard) {
+      await client.query('UPDATE product_opties SET standaard = false WHERE product_id = $1', [req.params.id]);
+    }
+    const { rows } = await client.query(
+      'INSERT INTO product_opties (product_id, naam, meerkost, standaard) VALUES ($1, $2, $3, $4) RETURNING *',
+      [req.params.id, naam.trim(), meerkost || 0, standaard || false]
+    );
+    await client.query('COMMIT');
+    res.status(201).json(rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}));
+
+// Let op: eigen pad (niet onder /:id) — zelfde opzet als /logboek/:logboekId
+// hieronder, de keuze zelf (optieId) is hier de sleutel.
+router.put('/opties/:optieId', asyncHandler(async (req, res) => {
+  const { naam, meerkost, standaard } = req.body;
+  const { rows: huidigeRows } = await db.query('SELECT product_id FROM product_opties WHERE id = $1', [req.params.optieId]);
+  if (!huidigeRows[0]) return res.status(404).json({ fout: 'Optie niet gevonden' });
+  const productId = huidigeRows[0].product_id;
+
+  const client = await db.getClient();
+  try {
+    await client.query('BEGIN');
+    if (standaard) {
+      await client.query('UPDATE product_opties SET standaard = false WHERE product_id = $1', [productId]);
+    }
+    const updates = [];
+    const params = [];
+    if (naam !== undefined) { params.push(naam.trim()); updates.push(`naam = $${params.length}`); }
+    if (meerkost !== undefined) { params.push(meerkost); updates.push(`meerkost = $${params.length}`); }
+    if (standaard !== undefined) { params.push(standaard); updates.push(`standaard = $${params.length}`); }
+    if (!updates.length) { await client.query('ROLLBACK'); return res.status(400).json({ fout: 'Geen velden om te updaten' }); }
+    params.push(req.params.optieId);
+    const { rows } = await client.query(
+      `UPDATE product_opties SET ${updates.join(', ')} WHERE id = $${params.length} RETURNING *`,
+      params
+    );
+    await client.query('COMMIT');
+    res.json(rows[0]);
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  } finally {
+    client.release();
+  }
+}));
+
+router.delete('/opties/:optieId', asyncHandler(async (req, res) => {
+  const { rows } = await db.query('DELETE FROM product_opties WHERE id = $1 RETURNING id', [req.params.optieId]);
+  if (!rows[0]) return res.status(404).json({ fout: 'Optie niet gevonden' });
+  res.status(204).end();
 }));
 
 // ============================================================

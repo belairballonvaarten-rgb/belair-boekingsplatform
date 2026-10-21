@@ -264,7 +264,10 @@ async function haalOndertekendData(boekingId) {
      LEFT JOIN leveringen l ON l.boeking_id = b.id
      LEFT JOIN (
        SELECT bp.boeking_id,
-              string_agg(p.naam || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END, ', ' ORDER BY p.naam) AS producten_namen
+              string_agg(
+                p.naam || COALESCE(' — ' || bp.optie_naam, '') || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END,
+                ', ' ORDER BY p.naam
+              ) AS producten_namen
        FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id
        GROUP BY bp.boeking_id
      ) bp_namen ON bp_namen.boeking_id = b.id

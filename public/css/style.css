@@ -453,6 +453,11 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .productenkiezer-rij .productenkiezer-prijs { color: var(--grijs); font-size: 0.82rem; flex: 0 0 auto; }
 .productenkiezer-rij-bezet { border-color: #f3d0c4; background: #fdf6f2; }
 .productenkiezer-rij-bezet:hover { border-color: var(--oranje); }
+.productenkiezer-rij .productenkiezer-optie {
+  flex: 0 0 auto; max-width: 11rem; padding: 0.15rem 0.3rem; font-size: 0.82rem;
+  border: 1px solid var(--rand); border-radius: 4px; cursor: pointer;
+}
+.product-regel-optie { color: var(--grijs); font-size: 0.85rem; }
 .productenkiezer-bezet-blok { margin-top: 0.4rem; border-top: 1px solid var(--grijs-licht); padding-top: 0.4rem; }
 
 /* BESCHIKBAARHEID-OVERZICHT */
