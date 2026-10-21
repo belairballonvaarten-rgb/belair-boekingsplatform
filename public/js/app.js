@@ -6282,29 +6282,81 @@ function statEscapeHtml(s) {
 // basislijn omhoog groeien, hoogte relatief t.o.v. de drukste maand. Bij
 // "geen enkele boeking bevestigd dit jaar" krijgt elke kolom een minimale,
 // duidelijk grijze streep i.p.v. een misleidend lege grafiek.
-// Optioneel (toonVergelijking) een tweede reeks (vorig jaar) ernaast als
-// gegroepeerde kolommen, zodat het verschil met vorig jaar in één oogopslag
-// te zien is — beide reeksen delen dezelfde schaal (max over beide jaren).
-function statRenderKolomgrafiek(perMaand, perMaandVorigJaar, toonVergelijking, huidigJaarLabel, vorigJaarLabel) {
+// Een "mooi" afgerond maximum voor de y-as (bv. 237 -> 250, 1842 -> 2000),
+// zodat de gridlines op ronde getallen vallen i.p.v. willekeurige waarden.
+function statBerekenNiceMax(waarde) {
+  if (waarde <= 0) return 10;
+  const stap = waarde <= 20 ? 5 : waarde <= 50 ? 10 : waarde <= 100 ? 20 : waarde <= 300 ? 50 : waarde <= 1000 ? 100 : waarde <= 3000 ? 500 : 1000;
+  return Math.ceil(waarde / stap) * stap;
+}
+
+// Lijngrafiek (i.p.v. gegroepeerde kolommen) voor "Reservaties per maand" —
+// op vraag van Jonas, die exact zo'n lijngrafiek (jaar-over-jaar, elke lijn
+// een eigen kleur) uit zijn vorige systeem liet zien: een trend volgen is
+// met lijnen veel duidelijker af te lezen dan met kolommen naast elkaar,
+// zeker met twaalf maanden op de x-as. Optioneel (toonVergelijking) een
+// tweede lijn (vorig jaar) erbij, zelfde schaal (max over beide jaren).
+// Kleuren (blauw/oranje) herbruikt uit de bestaande legende hiernaast —
+// gevalideerd als kleurenblind-veilig paar (zie dataviz-skill).
+function statRenderLijngrafiekPerMaand(perMaand, perMaandVorigJaar, toonVergelijking, huidigJaarLabel, vorigJaarLabel) {
+  const W = 760;
+  const H = 300;
+  const marge = { boven: 26, rechts: 16, onder: 34, links: 38 };
+  const breedte = W - marge.links - marge.rechts;
+  const hoogte = H - marge.boven - marge.onder;
+
   const reeksen = toonVergelijking ? perMaand.concat(perMaandVorigJaar) : perMaand;
-  const maxAantal = Math.max(1, ...reeksen.map((m) => m.aantal));
-  const hoogtePct = (aantal) => (aantal > 0 ? Math.max(4, Math.round((aantal / maxAantal) * 100)) : 3);
-  return perMaand.map((m, i) => {
-    const vorigM = perMaandVorigJaar[i];
-    const huidigeBalk = `<div class="stat-kolom stat-kolom-huidig${m.aantal === 0 ? ' stat-leeg' : ''}" style="height: ${hoogtePct(m.aantal)}%" title="${huidigJaarLabel}: ${m.aantal}"></div>`;
-    const vorigeBalk = toonVergelijking
-      ? `<div class="stat-kolom stat-kolom-vorig${vorigM.aantal === 0 ? ' stat-leeg' : ''}" style="height: ${hoogtePct(vorigM.aantal)}%" title="${vorigJaarLabel}: ${vorigM.aantal}"></div>`
-      : '';
+  const niceMax = statBerekenNiceMax(Math.max(1, ...reeksen.map((m) => m.aantal)));
+  const x = (i) => marge.links + (i / (perMaand.length - 1)) * breedte;
+  const y = (waarde) => marge.boven + hoogte - (waarde / niceMax) * hoogte;
+
+  const puntenNaarPolylineEnPunten = (reeks, labelJaar) => {
+    const polylinePunten = reeks.map((m, i) => `${x(i).toFixed(1)},${y(m.aantal).toFixed(1)}`).join(' ');
+    const punten = reeks.map((m, i) => `<circle class="stat-lijn-punt" cx="${x(i).toFixed(1)}" cy="${y(m.aantal).toFixed(1)}" r="8" fill="transparent"><title>${labelJaar} ${m.label}: ${m.aantal} reservaties</title></circle>`).join('');
+    const stippen = reeks.map((m, i) => `<circle cx="${x(i).toFixed(1)}" cy="${y(m.aantal).toFixed(1)}" r="3"></circle>`).join('');
+    return { polylinePunten, punten, stippen };
+  };
+
+  const huidig = puntenNaarPolylineEnPunten(perMaand, huidigJaarLabel);
+  const vorig = toonVergelijking ? puntenNaarPolylineEnPunten(perMaandVorigJaar, vorigJaarLabel) : null;
+
+  // 4 horizontale gridlines (0, 1/3, 2/3, max) met waarde-labels.
+  const gridlines = [0, niceMax / 3, (niceMax / 3) * 2, niceMax].map((waarde) => {
+    const gy = y(waarde).toFixed(1);
     return `
-      <div class="stat-kolom-item">
-        <div class="stat-kolom-waarden">
-          <span class="stat-kolom-waarde">${m.aantal > 0 ? m.aantal : ''}</span>
-          ${toonVergelijking ? `<span class="stat-kolom-waarde stat-kolom-waarde-vorig">${vorigM.aantal > 0 ? vorigM.aantal : ''}</span>` : ''}
-        </div>
-        <div class="stat-kolom-paar">${huidigeBalk}${vorigeBalk}</div>
-        <span class="stat-kolom-label">${m.label}</span>
-      </div>`;
+      <line x1="${marge.links}" y1="${gy}" x2="${W - marge.rechts}" y2="${gy}" class="stat-lijn-grid" />
+      <text x="${marge.links - 8}" y="${gy}" class="stat-lijn-as-label" text-anchor="end" dominant-baseline="middle">${Math.round(waarde)}</text>`;
   }).join('');
+
+  const maandLabels = perMaand.map((m, i) => `<text x="${x(i).toFixed(1)}" y="${H - 10}" class="stat-lijn-as-label" text-anchor="middle">${m.label}</text>`).join('');
+
+  // Geen cijfer op elk punt (dat botst al snel, zeker waar de twee lijnen
+  // dicht bij elkaar liggen) — enkel het laatste bekende punt van elke lijn
+  // krijgt een label, zodat de actuele stand in één oogopslag te zien is.
+  // Exacte waarde per maand: zie de title-tooltip op elk punt (hover).
+  // Altijd in neutrale tekstkleur, nooit in de lijnkleur (identiteit zit al
+  // in de lijn/legende).
+  const laatsteLabel = (reeks, dy) => {
+    let laatsteIndex = -1;
+    reeks.forEach((m, i) => { if (m.aantal > 0) laatsteIndex = i; });
+    if (laatsteIndex === -1) return '';
+    const m = reeks[laatsteIndex];
+    return `<text x="${(x(laatsteIndex) + 8).toFixed(1)}" y="${(y(m.aantal) + dy).toFixed(1)}" class="stat-lijn-waarde-label" text-anchor="start">${m.aantal}</text>`;
+  };
+  const huidigeLabels = laatsteLabel(perMaand, -8);
+  const vorigeLabels = toonVergelijking ? laatsteLabel(perMaandVorigJaar, 14) : '';
+
+  return `
+    <svg viewBox="0 0 ${W} ${H}" class="stat-lijn-svg" role="img" aria-label="Reservaties per maand, ${huidigJaarLabel}${toonVergelijking ? ' vergeleken met ' + vorigJaarLabel : ''}">
+      ${gridlines}
+      ${maandLabels}
+      ${toonVergelijking ? `<polyline points="${vorig.polylinePunten}" class="stat-lijn stat-lijn-vorig" /><g class="stat-lijn-stip stat-lijn-stip-vorig">${vorig.stippen}</g>${vorig.punten}` : ''}
+      <polyline points="${huidig.polylinePunten}" class="stat-lijn stat-lijn-huidig" />
+      <g class="stat-lijn-stip stat-lijn-stip-huidig">${huidig.stippen}</g>
+      ${huidig.punten}
+      ${huidigeLabels}
+      ${vorigeLabels}
+    </svg>`;
 }
 
 // Balkgrafiek voor de top-gemeentes/top-producten — horizontale balken
@@ -6386,7 +6438,7 @@ async function laadStatistieken() {
   const toonVergelijking = document.getElementById('stat-vergelijk-vorig-jaar').checked;
   const huidigJaarLabel = String(data.jaar);
   const vorigJaarLabel = String(data.jaar - 1);
-  document.getElementById('stat-grafiek-maand').innerHTML = statRenderKolomgrafiek(
+  document.getElementById('stat-grafiek-maand').innerHTML = statRenderLijngrafiekPerMaand(
     data.perMaand, data.perMaandVorigJaar, toonVergelijking, huidigJaarLabel, vorigJaarLabel
   );
   // Legende enkel tonen bij twee reeksen — bij één reeks zegt de titel al genoeg.

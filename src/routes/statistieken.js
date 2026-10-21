@@ -312,12 +312,13 @@ router.get('/', asyncHandler(async (req, res) => {
 
   const beschikbareJaren = await bepaalBeschikbareJaren();
 
-  // "Populairste producten" uit het vorige systeem (zie migratie 051) — geen
-  // jaar/maand-opsplitsing beschikbaar, dus bewust los van de jaar-selector:
-  // telkens dezelfde volledige lijst, wat er ook geselecteerd staat.
+  // "Populairste producten" uit het vorige systeem — per jaar aangeleverd
+  // door Jonas (zie migraties 053/054), dus hier ook gewoon gefilterd op het
+  // geselecteerde jaar i.p.v. één ongescheiden lijst over alle jaren samen.
   const productenPopulariteitHistorisch = await db.query(
     `SELECT product_naam, aantal_boekingen, pct_boekingen, omzet, pct_omzet
-     FROM historische_productpopulariteit ORDER BY aantal_boekingen DESC`
+     FROM historische_productpopulariteit WHERE jaar = $1 ORDER BY aantal_boekingen DESC`,
+    [jaar]
   );
 
   res.json({

@@ -824,29 +824,24 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .stat-legende-huidig { background: var(--blauw); }
 .stat-legende-vorig { background: var(--stat-vorig-jaar-kleur); }
 
-/* Kolomgrafiek (reservaties per maand) — 12 kolommen die vanaf eenzelfde
-   basislijn omhoog groeien; hoogte in % van de hoogste maand. Elke kolom kan
-   uit één balk (enkel dit jaar) of een gegroepeerd paar (+ vorig jaar)
-   bestaan, met een 2px tussenruimte tussen de twee balken van eenzelfde maand. */
+/* Lijngrafiek (reservaties per maand) — twaalf maanden op de x-as, één lijn
+   per jaar (max. twee: dit jaar + optioneel vorig jaar). Dunne lijnen (2px),
+   kleine stippen op elk datapunt met een onzichtbare grotere hit-target
+   eromheen (voor de title-tooltip), waarde-labels altijd in neutrale
+   tekstkleur (nooit in de lijnkleur — die zit al in de lijn/legende). */
 :root { --stat-vorig-jaar-kleur: #eb6834; }
-.stat-kolomgrafiek {
-  display: flex; align-items: flex-end; gap: 6px; height: 180px;
-  border-bottom: 1px solid var(--rand); padding-top: 1.6rem;
-}
-.stat-kolom-item { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; }
-.stat-kolom-waarden { display: flex; gap: 2px; margin-bottom: 0.2rem; min-height: 1em; }
-.stat-kolom-waarde { font-size: 0.75rem; color: var(--grijs); }
-.stat-kolom-waarde-vorig { color: var(--stat-vorig-jaar-kleur); }
-.stat-kolom-paar { display: flex; align-items: flex-end; gap: 2px; width: 100%; justify-content: center; height: 100%; }
-.stat-kolom {
-  width: 100%; max-width: 26px; background: var(--blauw);
-  border-radius: 4px 4px 0 0; min-height: 2px; transition: background 0.12s;
-}
-.stat-kolom-paar .stat-kolom { max-width: 16px; }
-.stat-kolom-vorig { background: var(--stat-vorig-jaar-kleur); }
-.stat-kolom-item:hover .stat-kolom-huidig { background: var(--blauw-donker); }
-.stat-kolom.stat-leeg { background: var(--grijs-licht); }
-.stat-kolom-label { font-size: 0.78rem; color: var(--grijs); margin-top: 0.4rem; }
+.stat-lijngrafiek { width: 100%; }
+.stat-lijn-svg { width: 100%; height: auto; display: block; }
+.stat-lijn-grid { stroke: var(--rand); stroke-width: 1; }
+.stat-lijn-as-label { font-size: 10px; fill: var(--grijs); font-family: inherit; }
+.stat-lijn-waarde-label { font-size: 10px; fill: var(--grijs); font-family: inherit; }
+.stat-lijn { fill: none; stroke-width: 2.5; stroke-linejoin: round; stroke-linecap: round; }
+.stat-lijn-huidig { stroke: var(--blauw); }
+.stat-lijn-vorig { stroke: var(--stat-vorig-jaar-kleur); }
+.stat-lijn-stip circle { r: 3; }
+.stat-lijn-stip-huidig circle { fill: var(--blauw); }
+.stat-lijn-stip-vorig circle { fill: var(--stat-vorig-jaar-kleur); }
+.stat-lijn-punt { cursor: pointer; }
 
 /* Balkgrafiek (gemeentes/producten) — horizontale balken vanaf een gedeelde
    linker basislijn, lengte in % van het hoogste aantal in de lijst. */
