@@ -131,16 +131,14 @@ router.get('/terugverdiend-overzicht', asyncHandler(async (req, res) => {
      FROM producten p
      LEFT JOIN boeking_producten bp ON bp.product_id = p.id
      LEFT JOIN boekingen b ON b.id = bp.boeking_id
+     -- Op expliciete vraag van Jonas: een product zonder kostprijs toont hier
+     -- helemaal niet, ook niet met enkel zijn omzet — pas van zodra er een
+     -- kostprijs ingevuld is op de productpagina, komt het product in dit
+     -- overzicht te staan. (Eerder liet dit ook producten zonder kostprijs
+     -- maar met omzet zien, met een leeg terugverdiend-percentage — dat wilde
+     -- Jonas niet.)
+     WHERE p.kostprijs IS NOT NULL
      GROUP BY p.id, p.naam, p.kostprijs, p.aankoopdatum
-     -- Vroeger WHERE p.kostprijs IS NOT NULL: dat verborg een product
-     -- VOLLEDIG (ook zijn omzet) zodra er geen kostprijs was ingevuld — een
-     -- product zonder kostprijs kreeg zo nooit een percentage_terugverdiend
-     -- (terecht, zie hieronder), maar verdween ook meteen helemaal uit dit
-     -- overzicht, zelfs als het wel degelijk verhuurd werd. Nu: enkel
-     -- producten zonder kostprijs ÉN zonder omzet weglaten (die zijn hier
-     -- gewoon niet relevant) — de rest toont gewoon, met een lege/null
-     -- terugverdiend-percentage waar de kostprijs ontbreekt.
-     HAVING p.kostprijs IS NOT NULL OR ${omzetSql} > 0
      ORDER BY p.naam`,
     OMZET_STATUSSEN_UITGESLOTEN
   );

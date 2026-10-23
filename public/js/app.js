@@ -6532,6 +6532,34 @@ function statRenderProductenPerCategorie(productenPerCategorie) {
   }).join('');
 }
 
+// "Populairste producten" (historisch, vorig systeem): zelfde ingeklapt-per-
+// categorie-patroon als statRenderProductenPerCategorie hierboven, maar met
+// de volledige tabel (aantal/%/omzet/%) i.p.v. een balkgrafiek, want deze
+// rijen komen zonder product_id/live aantal binnen. "(overig)" bevat elke
+// naam die niet aan een huidig product gekoppeld kon worden (vaak
+// catering/materiaal) — zie vindCategorieVoorNaam in statistieken.js.
+function statRenderProductenPopulariteitHistorisch(groepen) {
+  if (!groepen.length) return '';
+  return groepen.map((groep) => {
+    const rijenHtml = groep.producten.map((p) => `
+      <tr>
+        <td>${statEscapeHtml(p.product_naam)}</td>
+        <td>${Math.round(Number(p.aantal_boekingen))}</td>
+        <td>${Number(p.pct_boekingen).toFixed(1)}%</td>
+        <td>${fmtEuro(p.omzet)}</td>
+        <td>${Number(p.pct_omzet).toFixed(1)}%</td>
+      </tr>`).join('');
+    return `
+    <details class="stat-categorie-blok">
+      <summary class="stat-categorie-titel">${statEscapeHtml(groep.categorie)} <span class="stat-categorie-totaal">(${groep.producten.length})</span></summary>
+      <table class="tabel">
+        <thead><tr><th>Product</th><th>Aantal boekingen</th><th>% boekingen</th><th>Omzet</th><th>% omzet</th></tr></thead>
+        <tbody>${rijenHtml}</tbody>
+      </table>
+    </details>`;
+  }).join('');
+}
+
 // Ververst enkel het "Producten per categorie"-paneel, o.b.v. de vrij gekozen
 // vanaf/tot-periode — losgekoppeld van de jaar-selector die de rest van de
 // pagina stuurt, want Jonas moet dit binnen élke gekozen periode kunnen zien.
@@ -6597,17 +6625,11 @@ async function laadStatistieken() {
   }
 
   const productenHistorischPaneel = document.getElementById('stat-paneel-producten-historisch');
-  const productenHistorisch = data.productenPopulariteitHistorisch || [];
-  productenHistorischPaneel.hidden = !productenHistorisch.length;
-  if (productenHistorisch.length) {
-    document.getElementById('tabel-producten-populariteit-historisch').innerHTML = productenHistorisch.map((p) => `
-      <tr>
-        <td>${p.product_naam}</td>
-        <td>${Math.round(Number(p.aantal_boekingen))}</td>
-        <td>${Number(p.pct_boekingen).toFixed(1)}%</td>
-        <td>${fmtEuro(p.omzet)}</td>
-        <td>${Number(p.pct_omzet).toFixed(1)}%</td>
-      </tr>`).join('');
+  const productenHistorischGroepen = data.productenPopulariteitHistorischPerCategorie || [];
+  const totaalProductenHistorisch = productenHistorischGroepen.reduce((som, g) => som + g.producten.length, 0);
+  productenHistorischPaneel.hidden = !totaalProductenHistorisch;
+  if (totaalProductenHistorisch) {
+    document.getElementById('stat-producten-populariteit-historisch').innerHTML = statRenderProductenPopulariteitHistorisch(productenHistorischGroepen);
   }
 
   await laadTerugverdiendOverzicht();

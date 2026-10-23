@@ -173,6 +173,66 @@ async function berekenProductenPerCategorie(vanaf, tot) {
   return perCategorie;
 }
 
+// Zelfde normalisatie/match-aanpak als vindProduct() in reservatie-import.js
+// (lowercase, diakritische tekens weg, niet-alfanumeriek naar spatie, dan
+// eerst exacte match, anders substring) — hier lokaal herhaald omdat dit
+// bestand niets importeert van reservatie-import.js en dit een kleine,
+// zelfstandige helper is.
+function normaliseerProductnaam(s) {
+  return (s || '')
+    .toString()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function vindCategorieVoorNaam(alleProducten, naamRuw) {
+  const zoek = normaliseerProductnaam(naamRuw);
+  if (!zoek) return null;
+  let match = alleProducten.find((p) => normaliseerProductnaam(p.naam) === zoek);
+  if (!match) {
+    match = alleProducten.find((p) => {
+      const n = normaliseerProductnaam(p.naam);
+      return n && (n.includes(zoek) || zoek.includes(n));
+    });
+  }
+  return match && match.categorieen && match.categorieen.length ? match.categorieen[0] : null;
+}
+
+// "Populairste producten" komt uit het vorige systeem (Booking Online) met
+// enkel vrije productnamen, zonder koppeling aan een categorie — dat gaf een
+// lange, platte lijst die moeilijk te doorzoeken was. We koppelen elke naam
+// hier best-effort aan een categorie van de huidige productencatalogus (zie
+// vindCategorieVoorNaam hierboven); een naam zonder duidelijke match (vaak
+// catering/materiaal zoals tafels, stoelen, bestek — dat nooit als "product"
+// met categorie werd aangemaakt) komt in "(overig)" terecht, net als een
+// gematcht product zonder categorie.
+async function groepeerHistorischePopulariteitPerCategorie(jaar) {
+  const [{ rows: historisch }, { rows: alleProducten }] = await Promise.all([
+    db.query(
+      `SELECT product_naam, aantal_boekingen, pct_boekingen, omzet, pct_omzet
+       FROM historische_productpopulariteit WHERE jaar = $1 ORDER BY aantal_boekingen DESC`,
+      [jaar]
+    ),
+    db.query('SELECT naam, categorieen FROM producten'),
+  ]);
+  const index = new Map();
+  for (const rij of historisch) {
+    const categorie = vindCategorieVoorNaam(alleProducten, rij.product_naam) || '(overig)';
+    if (!index.has(categorie)) index.set(categorie, { categorie, producten: [] });
+    index.get(categorie).producten.push(rij);
+  }
+  // Categorieën alfabetisch, "(overig)" altijd laatst — dat is de grote
+  // restgroep en hoort niet vooraan te staan.
+  return [...index.values()].sort((a, b) => {
+    if (a.categorie === '(overig)') return 1;
+    if (b.categorie === '(overig)') return -1;
+    return a.categorie.localeCompare(b.categorie);
+  });
+}
+
 // ---------- Kort overzicht (Dashboard) ----------
 // Compact "Boekingen"/"Waarde"-blokje bovenaan het Dashboard — Vandaag/Deze
 // week/Deze maand/Dit jaar, telkens met de wijziging t.o.v. hetzelfde moment
@@ -323,11 +383,9 @@ router.get('/', asyncHandler(async (req, res) => {
   // "Populairste producten" uit het vorige systeem — per jaar aangeleverd
   // door Jonas (zie migraties 053/054), dus hier ook gewoon gefilterd op het
   // geselecteerde jaar i.p.v. één ongescheiden lijst over alle jaren samen.
-  const productenPopulariteitHistorisch = await db.query(
-    `SELECT product_naam, aantal_boekingen, pct_boekingen, omzet, pct_omzet
-     FROM historische_productpopulariteit WHERE jaar = $1 ORDER BY aantal_boekingen DESC`,
-    [jaar]
-  );
+  // Op vraag van Jonas ingedeeld per categorie i.p.v. één lange platte lijst
+  // (zie groepeerHistorischePopulariteitPerCategorie hierboven).
+  const productenPopulariteitHistorischPerCategorie = await groepeerHistorischePopulariteitPerCategorie(jaar);
 
   res.json({
     jaar,
@@ -343,7 +401,7 @@ router.get('/', asyncHandler(async (req, res) => {
     totaleWaarde,
     totaalEenheden,
     heeftHistorischeData,
-    productenPopulariteitHistorisch: productenPopulariteitHistorisch.rows,
+    productenPopulariteitHistorischPerCategorie,
   });
 }));
 
