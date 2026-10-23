@@ -124,14 +124,23 @@ const OMZET_STATUSSEN_UITGESLOTEN = ['geweigerd', 'nieuw', 'in_behandeling'];
 // over alle niet-geweigerde/niet-nieuwe boekingen heen) + de aankoopdatum
 // erbij (migratie 043) om ook "sinds wanneer loopt dit al mee" te tonen.
 router.get('/terugverdiend-overzicht', asyncHandler(async (req, res) => {
+  const statusPlaceholders = OMZET_STATUSSEN_UITGESLOTEN.map((_, i) => `$${i + 1}`).join(', ');
+  const omzetSql = `COALESCE(SUM(bp.prijs * bp.aantal) FILTER (WHERE b.status NOT IN (${statusPlaceholders})), 0)`;
   const { rows } = await db.query(
-    `SELECT p.id, p.naam, p.kostprijs, p.aankoopdatum,
-            COALESCE(SUM(bp.prijs * bp.aantal) FILTER (WHERE b.status NOT IN (${OMZET_STATUSSEN_UITGESLOTEN.map((_, i) => `$${i + 1}`).join(', ')})), 0) AS omzet
+    `SELECT p.id, p.naam, p.kostprijs, p.aankoopdatum, ${omzetSql} AS omzet
      FROM producten p
      LEFT JOIN boeking_producten bp ON bp.product_id = p.id
      LEFT JOIN boekingen b ON b.id = bp.boeking_id
-     WHERE p.kostprijs IS NOT NULL
      GROUP BY p.id, p.naam, p.kostprijs, p.aankoopdatum
+     -- Vroeger WHERE p.kostprijs IS NOT NULL: dat verborg een product
+     -- VOLLEDIG (ook zijn omzet) zodra er geen kostprijs was ingevuld — een
+     -- product zonder kostprijs kreeg zo nooit een percentage_terugverdiend
+     -- (terecht, zie hieronder), maar verdween ook meteen helemaal uit dit
+     -- overzicht, zelfs als het wel degelijk verhuurd werd. Nu: enkel
+     -- producten zonder kostprijs ÉN zonder omzet weglaten (die zijn hier
+     -- gewoon niet relevant) — de rest toont gewoon, met een lege/null
+     -- terugverdiend-percentage waar de kostprijs ontbreekt.
+     HAVING p.kostprijs IS NOT NULL OR ${omzetSql} > 0
      ORDER BY p.naam`,
     OMZET_STATUSSEN_UITGESLOTEN
   );

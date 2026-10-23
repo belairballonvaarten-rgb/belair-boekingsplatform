@@ -88,13 +88,21 @@ async function bepaalMaandBron(jaar) {
   for (let maand = 1; maand <= 12; maand++) {
     const live = livePerMaand.get(maand);
     if (live && live.aantal > 0) {
-      perMaand.set(maand, { bron: 'live', aantal: live.aantal, waarde: Number(live.waarde), eenheden: live.eenheden });
+      // Number()-cast ook op eenheden: live.eenheden komt uit een SUM() over
+      // een INTEGER-kolom, en Postgres geeft zo'n SUM (bigint) via de
+      // node-pg-driver als TEKST terug, niet als getal (zelfde reden waarom
+      // waarde hieronder al wél Number() had — eenheden werd hier over het
+      // hoofd gezien). Zonder deze cast telt totaalEenheden hieronder (zie
+      // router.get('/') verderop) de maandcijfers niet op maar plakt ze als
+      // tekst aan elkaar (bv. "12" + "9" => "129" i.p.v. 21) — dat gaf de
+      // absurd grote "Eenheden verhuurd"-waarde die Jonas meldde.
+      perMaand.set(maand, { bron: 'live', aantal: live.aantal, waarde: Number(live.waarde), eenheden: Number(live.eenheden) });
       continue;
     }
     const historisch = historischPerMaand.get(maand);
     if (historisch) {
       perMaand.set(maand, {
-        bron: 'historisch', aantal: historisch.aantal_boekingen, waarde: Number(historisch.omzet), eenheden: historisch.eenheden,
+        bron: 'historisch', aantal: historisch.aantal_boekingen, waarde: Number(historisch.omzet), eenheden: Number(historisch.eenheden),
       });
       continue;
     }

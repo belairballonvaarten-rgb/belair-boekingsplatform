@@ -79,18 +79,27 @@ async function verwerkRij(rij, client) {
     aantalPerNaam.set(key, (aantalPerNaam.get(key) || 0) + 1);
   });
 
+  // Niet-herkend product: vroeger werd zo'n item gewoon stilzwijgend
+  // weggelaten (enkel een waarschuwing in de preview, die Jonas kon missen
+  // of vergeten na te kijken vóór hij bevestigde) — dat zorgde ervoor dat
+  // boekingen uit deze import wél bestonden, maar een deel van hun producten
+  // nooit een regel kregen, en dus nergens in de productenstatistieken
+  // meetelden. Zelfde oplossing als bij een website-inzending (ruwe_naam,
+  // migratie 049): een echte, rood gemarkeerde "niet herkend"-regel op de
+  // boeking, die Jonas in het dossier zelf kan corrigeren naar het juiste
+  // product i.p.v. dat de informatie gewoon verdwijnt.
   const producten = [];
   const onherkendeProducten = [];
   for (const [itemNaam, aantal] of aantalPerNaam) {
     const product = await vindProduct(alleProducten, itemNaam);
     if (product) {
-      producten.push({ product_id: product.id, naam: product.naam, aantal, prijs: Number(product.prijs) });
+      producten.push({ product_id: product.id, naam: product.naam, aantal, prijs: Number(product.prijs), niet_herkend: false });
     } else {
+      producten.push({ product_id: null, naam: itemNaam, aantal, prijs: 0, niet_herkend: true });
       onherkendeProducten.push(itemNaam);
     }
   }
   if (aantalPerNaam.size === 0) problemen.push('Geen producten in de "Item"-kolom gevonden');
-  else if (!producten.length) problemen.push('Geen enkel product uit deze rij herkend in de productenlijst');
 
   const totaalProducten = rond(producten.reduce((s, p) => s + p.prijs * p.aantal, 0));
   const balance = rij.balance != null && rij.balance !== '' ? Number(rij.balance) : 0;
@@ -127,7 +136,7 @@ async function verwerkRij(rij, client) {
   }
 
   const waarschuwingen = [];
-  if (onherkendeProducten.length) waarschuwingen.push(`Onherkend product(en): ${onherkendeProducten.join(', ')} — voeg deze eventueel manueel toe in het dossier.`);
+  if (onherkendeProducten.length) waarschuwingen.push(`Onherkend product(en): ${onherkendeProducten.join(', ')} — komt als rode "niet herkend"-regel op de boeking, kies in het dossier zelf het juiste product.`);
   if (ondergrondOnzeker) waarschuwingen.push(`"${rij.ondergrondRuw}" is aangenomen als "Steen" — controleer dit.`);
   if (balansAfwijking) waarschuwingen.push(`Berekend bedrag (o.b.v. huidige prijzen) en het openstaand saldo uit het bestand kwamen niet overeen — betaald bedrag is aangepast zodat het saldo klopt.`);
 
@@ -230,10 +239,20 @@ router.post('/bevestig', asyncHandler(async (req, res) => {
       const boekingId = boekingRows[0].id;
 
       for (const p of (rij.producten || [])) {
-        await client.query(
-          'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, $3, $4)',
-          [boekingId, p.product_id, p.aantal, p.prijs]
-        );
+        if (p.product_id) {
+          await client.query(
+            'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, $3, $4)',
+            [boekingId, p.product_id, p.aantal, p.prijs]
+          );
+        } else {
+          // Niet herkend bij de preview (zie verwerkRij hierboven) — dezelfde
+          // ruwe_naam-placeholder als bij een website-inzending, i.p.v. deze
+          // regel stilzwijgend weg te laten.
+          await client.query(
+            'INSERT INTO boeking_producten (boeking_id, product_id, ruwe_naam, aantal, prijs) VALUES ($1, NULL, $2, $3, 0)',
+            [boekingId, p.naam, p.aantal]
+          );
+        }
       }
 
       await client.query(
