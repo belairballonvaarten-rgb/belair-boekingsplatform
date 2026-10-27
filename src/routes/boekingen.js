@@ -321,7 +321,15 @@ router.post('/:id/eenvoudigfactureren', asyncHandler(async (req, res) => {
     regels.push({ omschrijving: 'Transportkost', aantal: 1, bedrag_incl_btw: prijstabel.transportkost });
   }
   if (prijstabel.toeslag_korting) {
-    regels.push({ omschrijving: prijstabel.toeslag_korting > 0 ? 'Toeslag' : 'Korting', aantal: 1, bedrag_incl_btw: prijstabel.toeslag_korting });
+    const isKorting = prijstabel.toeslag_korting < 0;
+    // Bij een percentage-toeslag/korting (bv. "10% korting") is het voor de
+    // klant op de factuur/offerte duidelijker om dat percentage zelf te tonen
+    // i.p.v. enkel het kale label "Korting" — het bedrag zelf blijft uiteraard
+    // gewoon het effectief verrekende bedrag (zie berekenPrijstabel).
+    const omschrijving = prijstabel.toeslag_korting_type === 'percentage'
+      ? `${Math.abs(prijstabel.toeslag_korting_waarde)}% ${isKorting ? 'korting' : 'toeslag'}`
+      : (isKorting ? 'Korting' : 'Toeslag');
+    regels.push({ omschrijving, aantal: 1, bedrag_incl_btw: prijstabel.toeslag_korting });
   }
 
   try {
@@ -339,13 +347,17 @@ router.post('/:id/eenvoudigfactureren', asyncHandler(async (req, res) => {
       eenvoudigfactureren_klant_id: boeking.eenvoudigfactureren_klant_id,
     });
 
-    const notitie = `Belair-Fun boeking ${req.params.id.slice(0, 8)}`;
+    // Geen interne boekingsreferentie meer als 'notitie' meegeven — die kwam
+    // zichtbaar op het document zelf te staan (bv. "Belair-Fun boeking
+    // 8a5e5d7f"), wat niet de bedoeling is voor iets dat de klant te zien
+    // krijgt. De koppeling blijft intern bewaard via de communicatie-notitie
+    // en eenvoudigfactureren_laatste_url hieronder.
     const EF_LABEL = { factuur: 'Factuur', betaalverzoek: 'Betaalverzoek', offerte: 'Offerte' };
     const resultaat = soort === 'betaalverzoek'
-      ? await efMaakBetaalverzoek(klantId, regels, notitie)
+      ? await efMaakBetaalverzoek(klantId, regels)
       : soort === 'offerte'
-        ? await efMaakOfferte(klantId, regels, notitie)
-        : await efMaakFactuur(klantId, regels, notitie);
+        ? await efMaakOfferte(klantId, regels)
+        : await efMaakFactuur(klantId, regels);
 
     if (resultaat.url) {
       await db.query('UPDATE boekingen SET eenvoudigfactureren_laatste_url = $1 WHERE id = $2', [resultaat.url, req.params.id]);
