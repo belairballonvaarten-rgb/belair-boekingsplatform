@@ -12,6 +12,7 @@ const {
   zorgVoorKlant: efZorgVoorKlant,
   maakFactuur: efMaakFactuur,
   maakBetaalverzoek: efMaakBetaalverzoek,
+  maakOfferte: efMaakOfferte,
 } = require('../utils/eenvoudigFactureren');
 // Verhuisd naar utils/prijstabel.js zodat ook Dashboard/klantdetail het echte
 // openstaande saldo kunnen tonen i.p.v. enkel de status (een status als
@@ -274,8 +275,10 @@ router.post('/:id/verstuur-template', asyncHandler(async (req, res) => {
 // voor de belangrijke kanttekeningen — dit is niet live getest tegen een
 // echte account, dus foutmeldingen van EenvoudigFactureren zelf komen zo veel
 // mogelijk letterlijk terug naar Jonas toe.
+const EF_SOORTEN = ['factuur', 'betaalverzoek', 'offerte'];
+
 router.post('/:id/eenvoudigfactureren', asyncHandler(async (req, res) => {
-  const soort = req.body && req.body.soort === 'betaalverzoek' ? 'betaalverzoek' : 'factuur';
+  const soort = EF_SOORTEN.includes(req.body && req.body.soort) ? req.body.soort : 'factuur';
   if (!efIsGeconfigureerd()) {
     return res.status(501).json({ fout: 'EenvoudigFactureren is nog niet gekoppeld — EENVOUDIGFACTUREREN_API_KEY ontbreekt bij Render.' });
   }
@@ -337,16 +340,19 @@ router.post('/:id/eenvoudigfactureren', asyncHandler(async (req, res) => {
     });
 
     const notitie = `Belair-Fun boeking ${req.params.id.slice(0, 8)}`;
+    const EF_LABEL = { factuur: 'Factuur', betaalverzoek: 'Betaalverzoek', offerte: 'Offerte' };
     const resultaat = soort === 'betaalverzoek'
       ? await efMaakBetaalverzoek(klantId, regels, notitie)
-      : await efMaakFactuur(klantId, regels, notitie);
+      : soort === 'offerte'
+        ? await efMaakOfferte(klantId, regels, notitie)
+        : await efMaakFactuur(klantId, regels, notitie);
 
     if (resultaat.url) {
       await db.query('UPDATE boekingen SET eenvoudigfactureren_laatste_url = $1 WHERE id = $2', [resultaat.url, req.params.id]);
     }
     await db.query(
       `INSERT INTO communicatie (boeking_id, type, richting, onderwerp, inhoud) VALUES ($1, 'notitie', 'intern', $2, $3)`,
-      [req.params.id, `${soort === 'betaalverzoek' ? 'Betaalverzoek' : 'Factuur'} aangemaakt in EenvoudigFactureren`, resultaat.url || `id: ${resultaat.id || '?'}`]
+      [req.params.id, `${EF_LABEL[soort]} aangemaakt in EenvoudigFactureren`, resultaat.url || `id: ${resultaat.id || '?'}`]
     );
 
     res.json({ url: resultaat.url, id: resultaat.id, viaFallback: !!resultaat.viaFallback });

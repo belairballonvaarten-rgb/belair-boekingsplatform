@@ -185,4 +185,54 @@ async function maakBetaalverzoek(klantId, regels, notitie) {
   throw fout;
 }
 
-module.exports = { isGeconfigureerd, zorgVoorKlant, maakFactuur, maakBetaalverzoek };
+// Een "offerte" is bij EenvoudigFactureren bevestigd een EIGEN documenttype,
+// los van een factuur/betaalverzoek — hun eigen Make.com-koppeling heeft er
+// een volledige eigen module-set voor (het Engelse "Quote": aanmaken/
+// opvragen/zoeken/bijwerken/verwijderen/PDF/mailen/notitie toevoegen — zie
+// hun integratiepagina op apps.make.com). Het exacte API-pad daarvoor kon,
+// net als bij het betaalverzoek hierboven, niet met zekerheid uit hun
+// documentatie gehaald worden — hun eigen factuur-/klantenpad is Engels en
+// meervoud ('/invoices', '/clients'), dus '/quotes' is de voor de hand
+// liggende eerste gok, met een paar varianten erna.
+//
+// Zelfde regel als bij het betaalverzoek: lukt geen van deze paden, dan
+// valt dit NIET terug op een gewone factuur (die verbruikt mogelijk een
+// echt factuurnummer) — Jonas krijgt dan een duidelijke foutmelding i.p.v.
+// een verkeerd document.
+const OFFERTE_PADEN = ['/quotes', '/quote', '/estimates'];
+
+async function maakOfferte(klantId, regels, notitie) {
+  const payload = {
+    client_id: Number.isFinite(Number(klantId)) ? Number(klantId) : klantId,
+    items: regels.map((r) => ({
+      type: 'item',
+      description: r.omschrijving,
+      quantity: r.aantal,
+      amount_with_tax: r.bedrag_incl_btw,
+      tax_rate: 21,
+    })),
+    note: notitie || undefined,
+  };
+  let laatsteFout = null;
+  for (const pad of OFFERTE_PADEN) {
+    try {
+      const resultaat = await efRequest('POST', pad, payload);
+      return {
+        id: resultaat.quote_id || resultaat.id || null,
+        url: maakWeergaveUrl(resultaat),
+        viaFallback: false,
+      };
+    } catch (err) {
+      if (err.status !== 404 && err.status !== 405) throw err;
+      laatsteFout = err;
+    }
+  }
+  const fout = new Error(
+    `Geen van de geprobeerde offerte-eindpunten (${OFFERTE_PADEN.join(', ')}) bestaat bij EenvoudigFactureren. `
+    + `Er werd NIETS aangemaakt — vraag het juiste API-pad op bij EenvoudigFactureren (Instellingen → API-documentatie) zodat dit opgelost kan worden.`
+  );
+  fout.status = laatsteFout ? laatsteFout.status : undefined;
+  throw fout;
+}
+
+module.exports = { isGeconfigureerd, zorgVoorKlant, maakFactuur, maakBetaalverzoek, maakOfferte };

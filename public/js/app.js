@@ -3657,19 +3657,25 @@ async function openDetail(boekingId) {
           </label>
 
           <div class="afwijkende-datum-blok" title="Laat de dag waarop je ploeg effectief plaatst afwijken van de huurperiode hierboven — bv. plaatsing al een dag vroeger om logistieke redenen, terwijl met de klant de huurperiode hierboven afgesproken blijft. De huurperiode (en dus de prijs/factuur) verandert hierdoor NIET. Geldt voor Dashboard, Planning én de leveringen-app.">
-            <label>⚡ Leverdatum, indien anders dan de huurperiode (${fmtDatum(b.gewenste_datum_start)})
-              <input type="date" id="dd-leverdatum-afwijkend"
-                value="${(b.levering && b.levering.leverdatum_afwijkend && b.levering.leveringstijd) ? new Date(b.levering.leveringstijd).toISOString().slice(0, 10) : ''}" />
-            </label>
+            <div class="afwijkende-datum-label">⚡ Leverdatum, indien anders dan de huurperiode (${fmtDatum(b.gewenste_datum_start)})</div>
+            <button type="button" class="afwijkende-datum-waarde-knop" id="dd-leverdatum-afwijkend-knop">
+              ${(b.levering && b.levering.leverdatum_afwijkend && b.levering.leveringstijd)
+                ? fmtDatum(b.levering.leveringstijd)
+                : 'Geen afwijking — klik om een datum te kiezen'}
+            </button>
+            <div id="dd-leverdatum-afwijkend-kalender" class="kalender-popover" hidden></div>
             ${(b.levering && b.levering.leverdatum_afwijkend)
               ? '<button type="button" id="btn-leverdatum-afwijkend-wissen" class="linkbtn">Afwijking opheffen</button>'
               : ''}
           </div>
           <div class="afwijkende-datum-blok" title="Laat de dag waarop je ploeg effectief afhaalt afwijken van de huurperiode hierboven. De huurperiode (en dus de prijs/factuur) verandert hierdoor NIET. Geldt voor Dashboard, Planning én de leveringen-app.">
-            <label>⚡ Afhaaldatum, indien anders dan de huurperiode (${fmtDatum(b.gewenste_datum_einde)})
-              <input type="date" id="dd-afhaaldatum-afwijkend"
-                value="${(b.levering && b.levering.afhaaldatum_afwijkend && b.levering.afhaaltijd) ? new Date(b.levering.afhaaltijd).toISOString().slice(0, 10) : ''}" />
-            </label>
+            <div class="afwijkende-datum-label">⚡ Afhaaldatum, indien anders dan de huurperiode (${fmtDatum(b.gewenste_datum_einde)})</div>
+            <button type="button" class="afwijkende-datum-waarde-knop" id="dd-afhaaldatum-afwijkend-knop">
+              ${(b.levering && b.levering.afhaaldatum_afwijkend && b.levering.afhaaltijd)
+                ? fmtDatum(b.levering.afhaaltijd)
+                : 'Geen afwijking — klik om een datum te kiezen'}
+            </button>
+            <div id="dd-afhaaldatum-afwijkend-kalender" class="kalender-popover" hidden></div>
             ${(b.levering && b.levering.afhaaldatum_afwijkend)
               ? '<button type="button" id="btn-afhaaldatum-afwijkend-wissen" class="linkbtn">Afwijking opheffen</button>'
               : ''}
@@ -3725,6 +3731,7 @@ async function openDetail(boekingId) {
           <div class="ef-blok">
             <button type="button" class="linkbtn btn-ef" data-boeking-id="${b.id}" data-soort="factuur">🧾 Factuur (EenvoudigFactureren)</button>
             <button type="button" class="linkbtn btn-ef" data-boeking-id="${b.id}" data-soort="betaalverzoek">💳 Betaalverzoek aanmaken</button>
+            <button type="button" class="linkbtn btn-ef" data-boeking-id="${b.id}" data-soort="offerte">📄 Offerte aanmaken</button>
             ${b.eenvoudigfactureren_laatste_url ? `<a href="${b.eenvoudigfactureren_laatste_url}" target="_blank" rel="noopener" class="uitleg">Laatst aangemaakte document ↗</a>` : ''}
             <p id="ef-resultaat" class="melding" hidden></p>
           </div>
@@ -3854,9 +3861,10 @@ async function openDetail(boekingId) {
   // Afwijkende leverdatum/afhaaldatum (⚡, zie routes/dashboard.js ->
   // PUT /:boekingId/afwijkende-datum) — laat de dag waarop de ploeg effectief
   // rijdt afwijken van de huurperiode hierboven, zonder de prijs/factuur aan
-  // te raken. Opslaan op "change" (datum ingevuld) of via de wis-knop (datum
-  // weer op null, enkel zichtbaar zolang de afwijking actief staat) — dossier
-  // telkens herladen zodat de wis-knop/badges meteen kloppen.
+  // te raken. Opslaan zodra een dag in de kalender-popover gekozen wordt, of
+  // via de wis-knop (datum weer op null, enkel zichtbaar zolang de afwijking
+  // actief staat) — dossier telkens herladen zodat de wis-knop/badges/waarde
+  // meteen kloppen.
   async function slaAfwijkendeDatumOp(type, datum) {
     try {
       await api(`/api/dashboard/${b.id}/afwijkende-datum`, {
@@ -3869,12 +3877,50 @@ async function openDetail(boekingId) {
       alert(err.message);
     }
   }
-  document.getElementById('dd-leverdatum-afwijkend').addEventListener('change', (e) => {
-    if (e.target.value) slaAfwijkendeDatumOp('levering', e.target.value);
-  });
-  document.getElementById('dd-afhaaldatum-afwijkend').addEventListener('change', (e) => {
-    if (e.target.value) slaAfwijkendeDatumOp('afhaling', e.target.value);
-  });
+  // Eigen kalender-popover i.p.v. de native <input type="date"> (op vraag van
+  // Jonas: die toonde mm/dd/jjjj i.p.v. dag/maand/jaar — browserafhankelijk en
+  // niet via de pagina zelf bij te sturen — en opende altijd op de huidige
+  // maand i.p.v. meteen op de maand van de huurperiode, dus veel scrollen bij
+  // een afwijking verder in de toekomst). Hergebruikt dezelfde kalenderwidget
+  // en dag/maand/jaar-opmaak (fmtDatum) als de rest van het scherm.
+  function koppelAfwijkendeDatumKalender(type, veldPrefix, huurperiodeDatum, bestaandeWaarde) {
+    const knop = document.getElementById(`${veldPrefix}-knop`);
+    const popoverEl = document.getElementById(`${veldPrefix}-kalender`);
+    if (!knop || !popoverEl) return;
+    const widget = maakKalenderWidget({
+      container: popoverEl,
+      // initieleStart bepaalt bij het aanmaken meteen de getoonde maand (zie
+      // hieronder) — de daaropvolgende stelIn() corrigeert de selectie zelf
+      // (leeg, of de echt bestaande waarde) zonder de maand te laten
+      // terugspringen, zie de uitleg bij maakKalenderWidget/stelIn.
+      initieleStart: bestaandeWaarde || huurperiodeDatum,
+      altijdEnkeleDag: true,
+      altijdEnkeleDagLabelTekst: (dag) => (dag ? `Gekozen: ${fmtDatum(dag)}` : 'Kies een datum.'),
+      opWijziging: (dag) => {
+        if (!dag) return; // zelfde dag opnieuw aangeklikt -> niets doen, "Afwijking opheffen" doet dat expliciet
+        popoverEl.hidden = true;
+        slaAfwijkendeDatumOp(type, dag);
+      },
+    });
+    widget.stelIn(bestaandeWaarde || null, bestaandeWaarde || null);
+
+    knop.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const wordtGeopend = popoverEl.hidden;
+      // Andere open kalender-popovers in dit dossier eerst sluiten.
+      document.querySelectorAll('.kalender-popover').forEach((el) => { el.hidden = true; });
+      popoverEl.hidden = !wordtGeopend;
+    });
+    popoverEl.addEventListener('click', (e) => e.stopPropagation());
+  }
+  koppelAfwijkendeDatumKalender(
+    'levering', 'dd-leverdatum-afwijkend', b.gewenste_datum_start,
+    (b.levering && b.levering.leverdatum_afwijkend && b.levering.leveringstijd) ? new Date(b.levering.leveringstijd).toISOString().slice(0, 10) : null
+  );
+  koppelAfwijkendeDatumKalender(
+    'afhaling', 'dd-afhaaldatum-afwijkend', b.gewenste_datum_einde,
+    (b.levering && b.levering.afhaaldatum_afwijkend && b.levering.afhaaltijd) ? new Date(b.levering.afhaaltijd).toISOString().slice(0, 10) : null
+  );
   const btnLeverdatumWissen = document.getElementById('btn-leverdatum-afwijkend-wissen');
   if (btnLeverdatumWissen) btnLeverdatumWissen.addEventListener('click', () => slaAfwijkendeDatumOp('levering', null));
   const btnAfhaaldatumWissen = document.getElementById('btn-afhaaldatum-afwijkend-wissen');
@@ -4317,11 +4363,12 @@ async function openDetail(boekingId) {
     openDetail(boekingId);
   });
 
+  const EF_LABEL = { factuur: 'Factuur', betaalverzoek: 'Betaalverzoek', offerte: 'Offerte' };
   document.querySelectorAll('.btn-ef').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const resultaat = document.getElementById('ef-resultaat');
       const soort = btn.dataset.soort;
-      if (!confirm(`${soort === 'betaalverzoek' ? 'Betaalverzoek' : 'Factuur'} aanmaken in EenvoudigFactureren voor deze boeking?`)) return;
+      if (!confirm(`${EF_LABEL[soort] || 'Document'} aanmaken in EenvoudigFactureren voor deze boeking?`)) return;
       resultaat.hidden = true;
       btn.disabled = true;
       const oorspronkelijk = btn.textContent;
@@ -4334,7 +4381,7 @@ async function openDetail(boekingId) {
         resultaat.hidden = false;
         resultaat.className = 'melding ok';
         resultaat.innerHTML = (data.viaFallback
-          ? 'Betaalverzoek-eindpunt niet gevonden bij EenvoudigFactureren — in plaats daarvan een factuur aangemaakt. '
+          ? `${EF_LABEL[soort] || 'Document'}-eindpunt niet gevonden bij EenvoudigFactureren — in plaats daarvan een factuur aangemaakt. `
           : '✓ Aangemaakt. ')
           + (data.url ? `<a href="${data.url}" target="_blank" rel="noopener">Openen ↗</a>` : '');
         // Meteen zelf in een nieuw tabblad openen — Jonas moet daarvoor niet
@@ -4582,7 +4629,11 @@ function productenKiezerRijHtml(product, resterendInfo) {
         ${opties.map((o) => `<option value="${o.id}" data-meerkost="${o.meerkost}" ${o.standaard ? 'selected' : ''}>${o.naam}${Number(o.meerkost) ? ` (+${fmtEuro(o.meerkost)})` : ''}</option>`).join('')}
       </select>`
     : '';
-  return `<div class="productenkiezer-rij${bezet ? ' productenkiezer-rij-bezet' : ''}" data-id="${product.id}" data-naam="${(product.naam || '').toLowerCase()}" title="${bezet ? 'Al (deels) bezet op deze periode — klik om toch (over) te boeken' : 'Klik om toe te voegen'}">
+  // data-resterend: het ruwe (mogelijk negatieve) cijfer bijgehouden op de rij
+  // zelf, zodat werkProductenKiezerResterendBij() dit meteen client-side kan
+  // bijstellen zodra Jonas een product aanklikt — zonder daarvoor een nieuwe
+  // ronde naar de server te moeten doen (zie ook de uitleg daar).
+  return `<div class="productenkiezer-rij${bezet ? ' productenkiezer-rij-bezet' : ''}" data-id="${product.id}" data-naam="${(product.naam || '').toLowerCase()}" data-resterend="${resterend === null ? '' : resterend}" title="${bezet ? 'Al (deels) bezet op deze periode — klik om toch (over) te boeken' : 'Klik om toe te voegen'}">
     <span class="productenkiezer-plus">+</span>
     <span class="productenkiezer-naam">${product.naam}</span>
     ${resterendHtml}
@@ -4690,6 +4741,28 @@ async function ververProductenKiezer(containerId, datumStart, datumEinde, exclBo
   if (behoudenZoekterm) container.querySelector('.productenkiezer-zoek').dispatchEvent(new Event('input'));
 }
 
+// Stelt het getoonde "(X vrij)"-cijfer van één rij in een productenkiezer
+// meteen client-side bij — op vraag van Jonas: bij Nieuwe boeking wordt een
+// aangeklikt product pas bij het indienen effectief opgeslagen, dus een
+// nieuwe ronde naar de server (zoals ververProductenKiezer dat doet) zou het
+// net-toegevoegde product nog niet meetellen. deltaAantal is negatief bij
+// toevoegen, positief bij verwijderen uit de "gekozen producten"-lijst.
+function werkProductenKiezerResterendBij(containerId, productId, deltaAantal) {
+  const container = document.getElementById(containerId);
+  const rij = container?.querySelector(`.productenkiezer-rij[data-id="${productId}"]`);
+  if (!rij || rij.dataset.resterend === '') return; // geen cijfer gekend (bv. nog geen datum) -> niets bij te stellen
+  const nieuweWaarde = Number(rij.dataset.resterend) + deltaAantal;
+  rij.dataset.resterend = String(nieuweWaarde);
+  const bezet = nieuweWaarde <= 0;
+  rij.classList.toggle('productenkiezer-rij-bezet', bezet);
+  rij.title = bezet ? 'Al (deels) bezet op deze periode — klik om toch (over) te boeken' : 'Klik om toe te voegen';
+  const elResterend = rij.querySelector('.productenkiezer-resterend');
+  if (elResterend) {
+    elResterend.textContent = `(${Math.max(nieuweWaarde, 0)} vrij)`;
+    elResterend.classList.toggle('productenkiezer-resterend-bezet', bezet);
+  }
+}
+
 // Zelfde beschikbaarheidscheck, maar dan met de concrete overlappende boeking(en)
 // erbij — enkel gebruikt door het Beschikbaarheid-overzicht, om vanuit "reeds
 // bezet" rechtstreeks naar die boeking te kunnen doorklikken.
@@ -4739,7 +4812,7 @@ function volgendeDagIso(iso) {
 
 function maakKalenderWidget({
   container, initieleStart, initieleEinde, opWijziging, toonBekijkKnop, bekijkKnopTekst, opBekijk,
-  toonDagBereikKnoppen, altijdEnkeleDag, opMaandWijziging,
+  toonDagBereikKnoppen, altijdEnkeleDag, opMaandWijziging, altijdEnkeleDagLabelTekst,
 }) {
   let start = initieleStart || null;
   let einde = initieleEinde || start;
@@ -4914,9 +4987,15 @@ function maakKalenderWidget({
     }
 
     if (altijdEnkeleDag) {
-      elLabel.textContent = start
-        ? `Gefilterd op ${fmtDatum(start)} — klik opnieuw om te wissen.`
-        : 'Alle reservaties worden getoond — klik op een dag om te filteren.';
+      // altijdEnkeleDagLabelTekst: optionele override van de onderstaande
+      // standaardtekst (geschreven voor de kalender-filter op het
+      // Reservatieoverzicht) — bv. voor de afwijkende-leverdatum/afhaaldatum-
+      // popovers in het dossier, waar "filteren" niet van toepassing is.
+      elLabel.textContent = altijdEnkeleDagLabelTekst
+        ? altijdEnkeleDagLabelTekst(start)
+        : (start
+          ? `Gefilterd op ${fmtDatum(start)} — klik opnieuw om te wissen.`
+          : 'Alle reservaties worden getoond — klik op een dag om te filteren.');
     } else if (start && einde && start !== einde) {
       elLabel.textContent = `Periode: ${fmtDatum(start)} t.e.m. ${fmtDatum(einde)}`;
     } else if (start) {
@@ -5185,23 +5264,37 @@ function voegProductRijToe(productId, aantal = 1, optieKeuzeId = null) {
       toonToast(`${product.naam} staat al in de lijst`);
       return;
     }
-    bestaandeRij.dataset.aantal = Number(bestaandeRij.dataset.aantal) + (magAantal ? aantal : 1);
+    const toegevoegd = magAantal ? aantal : 1;
+    bestaandeRij.dataset.aantal = Number(bestaandeRij.dataset.aantal) + toegevoegd;
     werkProductRijTekstBij(bestaandeRij, product.naam);
+    // Op vraag van Jonas: het "(X vrij)"-cijfer in de kiezer eronder meteen
+    // bijstellen — dit product is nog niet opgeslagen (pas bij indienen van
+    // het formulier), dus een nieuwe ronde naar de server zou dit nog niet
+    // meetellen (zie werkProductenKiezerResterendBij hierboven).
+    werkProductenKiezerResterendBij('nb-productenkiezer', productId, -toegevoegd);
     return;
   }
+  const toegevoegd = magAantal ? aantal : 1;
   const rij = document.createElement('div');
   rij.className = 'product-rij';
   rij.dataset.productId = productId;
-  rij.dataset.aantal = String(magAantal ? aantal : 1);
+  rij.dataset.aantal = String(toegevoegd);
   rij.dataset.optieKeuzeId = gekozenOptieId;
   rij.dataset.optieNaam = gekozenOptie ? gekozenOptie.naam : '';
   rij.innerHTML = `
     <span class="rij-tekst"></span>
     <button type="button" class="verwijder">✕</button>
   `;
-  rij.querySelector('.verwijder').addEventListener('click', () => rij.remove());
+  rij.querySelector('.verwijder').addEventListener('click', () => {
+    // Terugdraaien van de hieronder gedane client-side aftrek: dit product
+    // staat niet meer in de "gekozen producten"-lijst, dus het cijfer in de
+    // kiezer moet terug omhoog.
+    werkProductenKiezerResterendBij('nb-productenkiezer', productId, Number(rij.dataset.aantal));
+    rij.remove();
+  });
   document.getElementById('producten-rijen').appendChild(rij);
   werkProductRijTekstBij(rij, product.naam);
+  werkProductenKiezerResterendBij('nb-productenkiezer', productId, -toegevoegd);
 }
 
 document.getElementById('nk-postcode').addEventListener('blur', () => vulGemeenteAutomatischIn('nk-postcode', 'nk-gemeente'));

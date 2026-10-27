@@ -353,9 +353,26 @@ main { padding: 1.5rem 2rem; max-width: 1440px; margin: 0 auto; }
 .afwijkende-datum-blok {
   display: flex; align-items: center; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.6rem;
   font-size: 0.85rem; color: var(--tekst);
+  position: relative; /* zodat .kalender-popover hieronder er t.o.v. kan positioneren */
 }
 .afwijkende-datum-blok label { display: flex; align-items: center; gap: 0.4rem; }
 .afwijkende-datum-blok input[type="date"] { font-size: 0.85rem; padding: 0.15rem 0.3rem; border: 1px solid var(--rand); border-radius: 4px; }
+/* Eigen kalender-popover i.p.v. de native <input type="date"> (op vraag van
+   Jonas: toont altijd dag/maand/jaar via fmtDatum, i.p.v. het mm/dd/jjjj dat
+   de browser/OS-taal soms oplegt bij een native datumveld, en opent meteen op
+   de maand van de huurperiode i.p.v. de huidige maand). */
+.afwijkende-datum-waarde-knop {
+  font-size: 0.85rem; padding: 0.3rem 0.6rem; border: 1px solid var(--rand); border-radius: 4px;
+  background: white; cursor: pointer; color: var(--tekst);
+}
+.afwijkende-datum-waarde-knop:hover { border-color: var(--blauw); }
+/* .kalender-widget.kalender-popover (i.p.v. enkel .kalender-popover): hogere
+   specificiteit dan de basis .kalender-widget-regel verderop in dit bestand
+   (die width/margin zet), zodat deze zeker wint ongeacht volgorde. */
+.kalender-widget.kalender-popover {
+  position: absolute; top: 100%; left: 0; z-index: 20; margin-top: 0.3rem;
+  width: 280px; max-width: 90vw; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+}
 .speciaal-verzoek-banner {
   background: #f3e8ff; color: var(--paars); border: 1px solid var(--paars);
   border-radius: 6px; padding: 0.5rem 0.8rem; font-weight: 600; font-size: 0.88rem; margin: 0.5rem 0;
