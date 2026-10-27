@@ -4739,7 +4739,7 @@ function volgendeDagIso(iso) {
 
 function maakKalenderWidget({
   container, initieleStart, initieleEinde, opWijziging, toonBekijkKnop, bekijkKnopTekst, opBekijk,
-  toonDagBereikKnoppen, altijdEnkeleDag,
+  toonDagBereikKnoppen, altijdEnkeleDag, opMaandWijziging,
 }) {
   let start = initieleStart || null;
   let einde = initieleEinde || start;
@@ -4754,6 +4754,12 @@ function maakKalenderWidget({
   // precies de bron van de "werkt soms niet zuiver"-verwarring bij de impliciete
   // twee-klik-interactie (een derde klik die je niet als "nieuwe start" verwachtte).
   let modus = (initieleEinde && initieleEinde !== initieleStart) ? 'bereik' : 'dag';
+  // Dagen die een lichte kleurmarkering krijgen (bv. "heeft al een reservatie") —
+  // leeg tot de consument dit zelf instelt via stelGemarkeerdeDagenIn(). Welke
+  // maand net getoond wordt, wordt via opMaandWijziging teruggekoppeld zodat de
+  // consument enkel de relevante maand moet ophalen (en niet elke maand vooraf).
+  let gemarkeerdeDagen = new Set();
+  let laatstGemeldeMaand = null;
   let weergaveMaand = new Date();
   if (start) {
     const d = new Date(start);
@@ -4880,6 +4886,7 @@ function maakKalenderWidget({
       const iso = naarISO(new Date(jaar, maand, dag));
       let klasse = 'kalender-dag';
       if (iso === vandaag) klasse += ' kalender-vandaag';
+      if (gemarkeerdeDagen.has(iso)) klasse += ' kalender-dag-heeft-boeking';
       if (iso === start || iso === einde) klasse += ' kalender-geselecteerd';
       else if (start && einde && iso > start && iso < einde) klasse += ' kalender-in-bereik';
       html += `<button type="button" class="${klasse}" data-iso="${iso}">${dag}</button>`;
@@ -4888,6 +4895,17 @@ function maakKalenderWidget({
     elGrid.querySelectorAll('.kalender-dag:not(.kalender-dag-leeg)').forEach((el) => {
       el.addEventListener('click', () => kiesDag(el.dataset.iso));
     });
+
+    // Enkel melden wanneer de getoonde maand ook echt wijzigt (niet bij elke
+    // render, bv. na een gewone dagklik) — zo haalt de consument de "dagen met
+    // reservaties" maar één keer per bezochte maand op i.p.v. bij elke klik.
+    if (opMaandWijziging) {
+      const maandIso = `${jaar}-${String(maand + 1).padStart(2, '0')}`;
+      if (maandIso !== laatstGemeldeMaand) {
+        laatstGemeldeMaand = maandIso;
+        opMaandWijziging(maandIso);
+      }
+    }
 
     if (toonDagBereikKnoppen) {
       container.querySelectorAll('.kal-modus-knop').forEach((btn) => {
@@ -4920,6 +4938,10 @@ function maakKalenderWidget({
         const d = new Date(start);
         if (!Number.isNaN(d.getTime())) weergaveMaand = new Date(d.getFullYear(), d.getMonth(), 1);
       }
+      render();
+    },
+    stelGemarkeerdeDagenIn(dagen) {
+      gemarkeerdeDagen = new Set(dagen || []);
       render();
     },
   };
@@ -4956,6 +4978,16 @@ function wisBoekingenKalenderSelectie() {
 const boekingenKalenderWidget = maakKalenderWidget({
   container: document.getElementById('kalender-boekingenoverzicht'),
   altijdEnkeleDag: true,
+  // Lichte kleurmarkering op dagen die al een reservatie hebben (op vraag van
+  // Jonas) — enkel voor de getoonde maand opgehaald, en opnieuw bij elke
+  // maandwissel (zie opMaandWijziging in maakKalenderWidget). Faalt de
+  // oproep (bv. netwerkhapering), dan blijft de kalender gewoon bruikbaar,
+  // enkel zonder markering.
+  opMaandWijziging: (maandIso) => {
+    api(`/api/boekingen/dagen-met-reservaties?maand=${maandIso}`)
+      .then((data) => boekingenKalenderWidget.stelGemarkeerdeDagenIn(data.dagen))
+      .catch(() => {});
+  },
   opWijziging: (dag) => {
     if (!dag) {
       // Zelfde dag opnieuw aangeklikt -> kalenderfilter uit, vorige Vanaf/Tot terug.

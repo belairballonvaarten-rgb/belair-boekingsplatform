@@ -486,6 +486,10 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .kalender-dag:hover { background: var(--grijs-licht); }
 .kalender-dag-leeg { cursor: default; }
 .kalender-dag-leeg:hover { background: none; }
+/* Lichte markering voor een dag die al minstens één reservatie heeft (op vraag
+   van Jonas) — bewust subtiel, en vóór .kalender-geselecteerd/.kalender-in-bereik
+   gedefinieerd zodat die bij een gekozen/bereik-dag gewoon overheersen. */
+.kalender-dag-heeft-boeking { background: #eaf1fa; }
 .kalender-vandaag { border: 1px solid var(--blauw); }
 .kalender-geselecteerd { background: var(--blauw); color: white; font-weight: 700; }
 .kalender-geselecteerd:hover { background: var(--blauw); }
@@ -512,10 +516,13 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
   .kalender-widget { width: 100%; }
 }
 
-/* Kalender bovenaan het Reservatieoverzicht — eigen, kleinere marge dan de
+/* Kalender bovenaan het Reservatieoverzicht — gecentreerd i.p.v. links
+   uitgelijnd (op vraag van Jonas), met een kleinere onderste marge dan de
    .kalender-widget-compact-gevallen in het dossier (die al in een eigen kolom
-   zitten), zodat de snelfilters/tabel er niet te dicht onder beginnen. */
-.kalender-boekingenoverzicht { margin: 0 0 1.1rem; }
+   zitten), zodat de snelfilters/tabel er niet te dicht onder beginnen.
+   Specificiteit .kalender-widget.kalender-widget-compact (die "margin: 0"
+   zet) moet hier dus mee overschreven worden, anders wint die regel. */
+.kalender-widget.kalender-widget-compact.kalender-boekingenoverzicht { margin: 0 auto 1.1rem; }
 
 /* Kort-zichtbare bevestigingsmelding onderaan het scherm (zie toonToast() in app.js). */
 #globale-toast {

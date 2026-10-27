@@ -569,6 +569,50 @@ router.get('/export.csv', asyncHandler(async (req, res) => {
   res.send(csv);
 }));
 
+// Welke dagen van een maand hebben minstens één reservatie — voor de lichte
+// kleurmarkering in de kalender bovenaan het Reservatieoverzicht. Let op: deze
+// route moet vóór '/:id' staan, anders wordt "dagen-met-reservaties" als :id gezien.
+// Zelfde standaard-statusfilter als het overzicht zelf (zie bouwBoekingenFilter):
+// geweigerd/nieuw/in_behandeling tellen hier niet mee, dat zijn geen "echte"
+// geplande reservaties. Een boeking telt mee op elke dag van haar volledige
+// huurperiode (niet enkel de leverdatum) — dat komt overeen met wat een klik op
+// die dag effectief toont (de Vanaf/Tot-filter gebruikt ook de volledige periode).
+router.get('/dagen-met-reservaties', asyncHandler(async (req, res) => {
+  const isoRegex = /^\d{4}-\d{2}$/;
+  const maand = isoRegex.test(req.query.maand || '')
+    ? req.query.maand
+    : new Date().toISOString().slice(0, 7);
+  const vanaf = `${maand}-01`;
+
+  const { rows } = await db.query(
+    `SELECT to_char(b.gewenste_datum_start, 'YYYY-MM-DD') AS start,
+            to_char(b.gewenste_datum_einde, 'YYYY-MM-DD') AS einde
+     FROM boekingen b
+     WHERE b.status NOT IN ('geweigerd', 'nieuw', 'in_behandeling')
+       AND b.gewenste_datum_start <= (date_trunc('month', $1::date) + interval '1 month - 1 day')::date
+       AND b.gewenste_datum_einde >= date_trunc('month', $1::date)::date`,
+    [vanaf]
+  );
+
+  // Elke boeking-periode uitschrijven naar losse dagen, maar enkel de dagen die
+  // ook effectief binnen de opgevraagde maand vallen (een meerdaagse boeking kan
+  // over de maandgrens heen lopen).
+  const maandStart = new Date(`${maand}-01T00:00:00Z`);
+  const maandEinde = new Date(Date.UTC(maandStart.getUTCFullYear(), maandStart.getUTCMonth() + 1, 0));
+  const dagen = new Set();
+  for (const rij of rows) {
+    let d = new Date(`${rij.start}T00:00:00Z`);
+    const einde = new Date(`${rij.einde}T00:00:00Z`);
+    if (d < maandStart) d = maandStart;
+    const stop = einde < maandEinde ? einde : maandEinde;
+    while (d <= stop) {
+      dagen.add(d.toISOString().slice(0, 10));
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+  }
+  res.json({ maand, dagen: [...dagen].sort() });
+}));
+
 // Volledig adres van een boeking samenstellen (plaatsingsadres, of anders dat van de klant).
 function bepaalVolledigAdres(boeking) {
   return boeking.leveringsadres
