@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { EFFECTIEVE_DATUM_SQL } = require('../utils/effectieveDatum');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -58,6 +59,8 @@ router.post('/leveringen-app', asyncHandler(async (req, res) => {
   const { rows } = await db.query(
     `SELECT b.id, b.leveringswijze, b.leveringsadres,
             b.gewenste_datum_start, b.gewenste_datum_einde,
+            ${EFFECTIEVE_DATUM_SQL.levering} AS effectieve_leverdatum,
+            ${EFFECTIEVE_DATUM_SQL.afhaling} AS effectieve_afhaaldatum,
             k.naam AS klant_naam, k.telefoon AS klant_telefoon, k.email AS klant_email,
             k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
             l.leveringstijd, l.afhaaltijd, l.voertuig_levering, l.voertuig_afhaling,
@@ -90,9 +93,14 @@ router.post('/leveringen-app', asyncHandler(async (req, res) => {
     telefoon: b.klant_telefoon || '',
     email: b.klant_email || '',
     adres: bepaalAdres(b),
-    datum: naarDatum(b.gewenste_datum_start),
+    // "datum"/"afhaaldatum" zijn de EFFECTIEVE dag waarop de ploeg moet rijden
+    // (standaard de huurperiode, maar een bewust afwijkende leverdatum/
+    // afhaaldatum — migratie 056, in te stellen in het dossier — weegt
+    // zwaarder), niet zomaar gewenste_datum_start/-einde — anders bleef deze
+    // sync de huurperiode doorsturen terwijl de ploeg op een andere dag rijdt.
+    datum: naarDatum(b.effectieve_leverdatum),
     tijdslot: naarTijd(b.leveringstijd),
-    afhaaldatum: naarDatum(b.gewenste_datum_einde),
+    afhaaldatum: naarDatum(b.effectieve_afhaaldatum),
     afhaaltijd: naarTijd(b.afhaaltijd),
     artikelen: b.producten_namen || '',
     bedrag: Number(b.totaal || 0),

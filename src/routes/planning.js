@@ -5,6 +5,7 @@ const { asyncHandler } = require('../utils/asyncHandler');
 const { geocodeAdres, ONS_MAGAZIJN_ADRES } = require('../utils/afstand');
 const { berekenRoute } = require('../utils/osrm');
 const { bepaalZekerAfhalenBoekingIds } = require('../utils/zekerAfhalen');
+const { EFFECTIEVE_DATUM_SQL } = require('../utils/effectieveDatum');
 
 // "Zeker afhalen"-vlag op elke afhaling: automatische berekening (zie
 // utils/zekerAfhalen.js) OF de manuele vlag die Jonas zelf in het
@@ -45,18 +46,23 @@ const GEPLANDE_STATUSSEN = [
   'betaald_deels', 'betaald_volledig', 'gefactureerd', 'voldaan_manueel',
 ];
 
-// "kolom" is altijd één van deze 2 letterlijke, hardgecodeerde waarden (nooit
-// user-input), dus veilig om rechtstreeks in de query te plakken.
-const DATUMKOLOM = { levering: 'gewenste_datum_start', afhaling: 'gewenste_datum_einde' };
+// Planning filtert/sorteert op EFFECTIEVE_DATUM_SQL (zie utils/effectieveDatum.js):
+// standaard de huurperiode (gewenste_datum_start/gewenste_datum_einde — die
+// blijft bepalen wat er gefactureerd wordt, puur voor weergave hieronder nog
+// apart geselecteerd), maar een bewust afwijkende leverdatum/afhaaldatum
+// (migratie 056) weegt zwaarder: dat is de dag waarop de ploeg ECHT moet
+// rijden. "type" en "voorwaarde" hieronder zijn altijd letterlijke,
+// hardgecodeerde waarden (nooit user-input), dus veilig om rechtstreeks in
+// de query te plakken.
 
 // producten_detail: naast de leesbare "producten_namen" ook de ruwe
 // logistieke gegevens per product (gewicht/motor/valmatten/piketten/
 // zandzakken, telkens x het aantal in deze boeking) — nodig om straks een
 // laadlijst met totalen per voertuig te kunnen opmaken.
-// "kolom" en "voorwaarde" zijn altijd letterlijke, hardgecodeerde stukjes SQL
+// "type" en "voorwaarde" zijn altijd letterlijke, hardgecodeerde stukjes SQL
 // (nooit user-input) — voorwaarde bevat zelf de placeholder(s) ($2, of
 // "BETWEEN $2 AND $3"), dus veilig om rechtstreeks te plakken.
-const PLANNING_SELECT = (kolom, voorwaarde) => `
+const PLANNING_SELECT = (type, voorwaarde) => `
   SELECT b.id, b.status, b.leveringswijze, b.leveringsadres,
          b.gewenste_datum_start, b.gewenste_datum_einde,
          b.voorkeur_tijdstip_levering, b.voorkeur_tijdstip_afhaling,
@@ -64,6 +70,8 @@ const PLANNING_SELECT = (kolom, voorwaarde) => `
          k.adres AS klant_adres, k.postcode AS klant_postcode, k.gemeente AS klant_gemeente,
          l.leveringstijd, l.afhaaltijd,
          COALESCE(l.afhaling_moet_zeker, false) AS afhaling_moet_zeker,
+         COALESCE(l.leverdatum_afwijkend, false) AS leverdatum_afwijkend,
+         COALESCE(l.afhaaldatum_afwijkend, false) AS afhaaldatum_afwijkend,
          l.voertuig_levering, l.voertuig_afhaling,
          l.volgorde_levering, l.volgorde_afhaling,
          l.lat, l.lng, l.geocode_adres,
@@ -97,7 +105,7 @@ const PLANNING_SELECT = (kolom, voorwaarde) => `
     JOIN producten p ON p.id = bp.product_id
     GROUP BY bp.boeking_id
   ) bp_namen ON bp_namen.boeking_id = b.id
-  WHERE b.status = ANY($1) AND b.${kolom} ${voorwaarde}
+  WHERE b.status = ANY($1) AND ${EFFECTIEVE_DATUM_SQL[type]} ${voorwaarde}
 `;
 
 router.get('/', asyncHandler(async (req, res) => {
@@ -110,13 +118,13 @@ router.get('/', asyncHandler(async (req, res) => {
   // frontend, per dag apart), gewoon alle items in de periode, gesorteerd op
   // datum + tijdstip zodat een logisch overzicht ontstaat.
   if (vanaf && tot) {
-    const queryVoorKolomBereik = (kolom) => {
-      const tijdKolom = kolom === 'gewenste_datum_start' ? 'l.leveringstijd' : 'l.afhaaltijd';
-      return `${PLANNING_SELECT(kolom, 'BETWEEN $2 AND $3')} ORDER BY b.${kolom}, ${tijdKolom} NULLS LAST, k.naam`;
+    const queryVoorTypeBereik = (type) => {
+      const tijdKolom = type === 'levering' ? 'l.leveringstijd' : 'l.afhaaltijd';
+      return `${PLANNING_SELECT(type, 'BETWEEN $2 AND $3')} ORDER BY ${EFFECTIEVE_DATUM_SQL[type]}, ${tijdKolom} NULLS LAST, k.naam`;
     };
     const [{ rows: leveringen }, { rows: ophalingen }] = await Promise.all([
-      db.query(queryVoorKolomBereik('gewenste_datum_start'), [GEPLANDE_STATUSSEN, vanaf, tot]),
-      db.query(queryVoorKolomBereik('gewenste_datum_einde'), [GEPLANDE_STATUSSEN, vanaf, tot]),
+      db.query(queryVoorTypeBereik('levering'), [GEPLANDE_STATUSSEN, vanaf, tot]),
+      db.query(queryVoorTypeBereik('afhaling'), [GEPLANDE_STATUSSEN, vanaf, tot]),
     ]);
     await zorgVoorZekerAfhalen(ophalingen);
     return res.json({ vanaf, tot, leveringen, ophalingen });
@@ -126,11 +134,11 @@ router.get('/', asyncHandler(async (req, res) => {
     ? req.query.datum
     : new Date().toISOString().slice(0, 10);
 
-  const queryVoorKolom = (kolom) => `${PLANNING_SELECT(kolom, '= $2')} ORDER BY k.naam`;
+  const queryVoorType = (type) => `${PLANNING_SELECT(type, '= $2')} ORDER BY k.naam`;
 
   const [{ rows: leveringen }, { rows: ophalingen }] = await Promise.all([
-    db.query(queryVoorKolom('gewenste_datum_start'), [GEPLANDE_STATUSSEN, datum]),
-    db.query(queryVoorKolom('gewenste_datum_einde'), [GEPLANDE_STATUSSEN, datum]),
+    db.query(queryVoorType('levering'), [GEPLANDE_STATUSSEN, datum]),
+    db.query(queryVoorType('afhaling'), [GEPLANDE_STATUSSEN, datum]),
   ]);
   await zorgVoorZekerAfhalen(ophalingen);
 
@@ -209,12 +217,11 @@ router.get('/route-inschatting', asyncHandler(async (req, res) => {
   const tijdRegex = /^\d{2}:\d{2}$/;
   const vertrekTijdOverride = tijdRegex.test(req.query.vertrekTijd || '') ? req.query.vertrekTijd : null;
 
-  const kolom = DATUMKOLOM[type];
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
   const volgordeVeld = type === 'levering' ? 'volgorde_levering' : 'volgorde_afhaling';
   const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
 
-  const { rows } = await db.query(`${PLANNING_SELECT(kolom, '= $2')}`, [GEPLANDE_STATUSSEN, datum]);
+  const { rows } = await db.query(`${PLANNING_SELECT(type, '= $2')}`, [GEPLANDE_STATUSSEN, datum]);
 
   const stops = rows
     .filter((b) => (b[voertuigVeld] || '') === voertuigNaam)

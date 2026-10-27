@@ -825,9 +825,17 @@ router.put('/:id', asyncHandler(async (req, res) => {
     const nieuweAfhaaltijd = TIJDSTIP_HHMM_PATROON.test(rows[0].voorkeur_tijdstip_afhaling || '')
       ? `${datum_einde} ${rows[0].voorkeur_tijdstip_afhaling}`
       : null;
+    // leverdatum_afwijkend/afhaaldatum_afwijkend (migratie 056): als Jonas voor
+    // deze boeking bewust een afwijkende leverdatum/afhaaldatum instelde (bv.
+    // plaatsing al een dag vroeger om logistieke redenen, zie
+    // PUT /api/dashboard/:boekingId/afwijkende-datum), mag deze automatische
+    // herberekening dat niet zomaar overschrijven met de huurperiode — enkel
+    // de niet-afwijkende kant (meestal gewoon beide) volgt hier nog mee.
     await db.query(
       `INSERT INTO leveringen (boeking_id, leveringstijd, afhaaltijd) VALUES ($1, $2, $3)
-       ON CONFLICT (boeking_id) DO UPDATE SET leveringstijd = $2, afhaaltijd = $3`,
+       ON CONFLICT (boeking_id) DO UPDATE SET
+         leveringstijd = CASE WHEN leveringen.leverdatum_afwijkend THEN leveringen.leveringstijd ELSE EXCLUDED.leveringstijd END,
+         afhaaltijd = CASE WHEN leveringen.afhaaldatum_afwijkend THEN leveringen.afhaaltijd ELSE EXCLUDED.afhaaltijd END`,
       [req.params.id, nieuweLeveringstijd, nieuweAfhaaltijd]
     );
   }

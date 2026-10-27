@@ -608,8 +608,13 @@ function renderDashboardKolom(container, items, type, opties = {}) {
     // Elke kaart draagt haar eigen datum (i.p.v. één gedeelde kolomdatum) — zo
     // werkt hetzelfde stukje HTML zowel op een gewone dag, bij "eerstvolgende"
     // (een andere dag dan de gekozen lege dag) als bij een bereik met meerdere
-    // dagen door elkaar, zonder aparte gevallen.
-    const kaartDatum = (b[datumVeld] || '').slice(0, 10);
+    // dagen door elkaar, zonder aparte gevallen. Bij een bewust afwijkende
+    // leverdatum/afhaaldatum (⚡, zie dossier) is leveringstijd/afhaaltijd zelf
+    // al op die afwijkende dag gezet (de server filtert/sorteert hier ook al
+    // op, zie utils/effectieveDatum.js) — dus de kaart zelf ook tonen/groeperen
+    // op die effectieve dag i.p.v. altijd de huurperiode, anders dook deze
+    // kaart in een bereikweergave toch nog onder de verkeerde dagkop op.
+    const kaartDatum = b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(0, 10) : (b[datumVeld] || '').slice(0, 10);
     // Zolang Jonas' team nog geen tijdstip expliciet instelde, terugvallen op
     // wat de klant zelf al bij de aanvraag opgaf (voorkeur_tijdstip_*) i.p.v.
     // meteen op de vaste standaardwaarde hieronder — enkel als dat een concreet
@@ -653,6 +658,9 @@ function renderDashboardKolom(container, items, type, opties = {}) {
                   data-boeking-id="${b.id}" data-type="${type}" data-voltooid="${isVoltooid}"
                   title="${isVoltooid ? `Gemarkeerd als ${voltooidWoord} — klik om terug te zetten` : `Markeer als ${voltooidWoord}`}">${isVoltooid ? '✅' : '⬜'}</button>
           <select class="dashboard-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${kaartDatum}" title="Tijdstip">${genereerKwartierOpties(tijdWaarde || standaardTijd)}</select>
+          ${(type === 'levering' ? b.leverdatum_afwijkend : b.afhaaldatum_afwijkend)
+            ? `<span class="dashboard-icoonbtn" title="Afwijkende ${type === 'levering' ? 'leverdatum' : 'afhaaldatum'} — huurperiode blijft ${fmtDatum(b[datumVeld])}, in te stellen/op te heffen in het dossier">⚡</span>`
+            : ''}
           <select class="dashboard-voertuig-select" data-boeking-id="${b.id}" data-type="${type}" title="${huidigVoertuig ? `Voertuig: ${huidigVoertuig}` : 'Geen voertuig toegewezen'}">${voertuigOpties}</select>
           ${statusPillHtml(b.status, b.saldo_openstaand)}
           <span class="dashboard-kaart-acties">
@@ -1018,13 +1026,21 @@ function planningProductenHtml(b) {
 
 // Tijdstip-select — zelfde kwartier-dropdown als op het Dashboard, en zelfde
 // endpoint (PUT /api/dashboard/:boekingId/tijdstip). data-datum komt uit de
-// boeking zelf (niet uit de huidige paginadatum) zodat dit ook in het
-// periode-overzicht (meerdere dagen tegelijk) altijd de juiste dag raakt.
+// EFFECTIEVE dag (leveringstijd/afhaaltijd, zie utils/effectieveDatum.js) i.p.v.
+// zomaar de huurperiode — bij een bewust afwijkende leverdatum/afhaaldatum (⚡,
+// in te stellen in het dossier) staat die al op die afwijkende dag, en moet
+// een latere tijdstip-wijziging hier die dag ook behouden i.p.v. terug naar
+// de huurperiode te springen.
 function planningTijdSelectHtml(b, type) {
   const datumVeld = type === 'levering' ? 'gewenste_datum_start' : 'gewenste_datum_einde';
-  const datum = (b[datumVeld] || '').slice(0, 10);
+  const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
+  const datum = b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(0, 10) : (b[datumVeld] || '').slice(0, 10);
   const tijdWaarde = planningEffectieveTijdWaarde(b, type);
-  return `<select class="planning-stop-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${datum}" title="Tijdstip">${genereerKwartierOpties(tijdWaarde)}</select>`;
+  const afwijkend = type === 'levering' ? b.leverdatum_afwijkend : b.afhaaldatum_afwijkend;
+  const badge = afwijkend
+    ? `<span class="zeker-afhalen-icoon" title="Afwijkende ${type === 'levering' ? 'leverdatum' : 'afhaaldatum'} — huurperiode blijft ${fmtDatum(b[datumVeld])}, in te stellen/op te heffen in het dossier">⚡</span>`
+    : '';
+  return `<select class="planning-stop-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${datum}" title="Tijdstip">${genereerKwartierOpties(tijdWaarde)}</select>${badge}`;
 }
 
 // "Zeker afhalen"-icoontje — enkel bij afhalingen (b.zeker_afhalen komt van de
@@ -1039,6 +1055,45 @@ function zekerAfhalenIconHtml(b, type) {
     : '';
 }
 
+// Snelknop "geleverd"/"afgehaald" — zelfde icoon en endpoint als op het
+// Dashboard (PUT /api/dashboard/:boekingId/voltooid), nu ook rechtstreeks op
+// de Planning-pagina: als de ploegen onderweg zijn zonder de leveringen-app
+// te gebruiken, kan Jonas hier meteen afvinken wat al gebeurd is — de kaart
+// kleurt dan groen (planning-stop-voltooid), net als op het Dashboard. Nog
+// eens klikken zet het gewoon terug (bv. per ongeluk/te vroeg aangevinkt) —
+// geen onomkeerbare actie.
+function planningVoltooidToggleHtml(b, type) {
+  const voltooidVeld = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
+  const voltooidWoord = type === 'levering' ? 'geleverd' : 'opgehaald';
+  const isVoltooid = !!b[voltooidVeld];
+  return `<button type="button" class="planning-stop-voltooid-toggle" data-boeking-id="${b.id}" data-type="${type}" data-voltooid="${isVoltooid}"
+            title="${isVoltooid ? `Gemarkeerd als ${voltooidWoord} — klik om terug te zetten` : `Markeer als ${voltooidWoord}`}">${isVoltooid ? '✅' : '⬜'}</button>`;
+}
+
+function planningKoppelVoltooidToggle(container) {
+  container.querySelectorAll('.planning-stop-voltooid-toggle').forEach((btn) => {
+    btn.addEventListener('click', async (e) => {
+      e.preventDefault();
+      e.stopPropagation(); // niet laten doorwerken naar dragstart/dubbelklik op de kaart zelf
+      const nieuweWaarde = btn.dataset.voltooid !== 'true';
+      try {
+        await api(`/api/dashboard/${btn.dataset.boekingId}/voltooid`, {
+          method: 'PUT',
+          body: JSON.stringify({ type: btn.dataset.type, voltooid: nieuweWaarde }),
+        });
+        btn.dataset.voltooid = String(nieuweWaarde);
+        btn.textContent = nieuweWaarde ? '✅' : '⬜';
+        btn.title = nieuweWaarde ? `Gemarkeerd als ${btn.dataset.type === 'levering' ? 'geleverd' : 'opgehaald'} — klik om terug te zetten` : `Markeer als ${btn.dataset.type === 'levering' ? 'geleverd' : 'opgehaald'}`;
+        const stop = btn.closest('.planning-stop');
+        if (stop) stop.classList.toggle('planning-stop-voltooid', nieuweWaarde);
+        toonToast(nieuweWaarde ? 'Gemarkeerd als voltooid' : 'Markering ongedaan gemaakt');
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
 function planningStopHtml(b, type, groepNaam) {
   const adres = dashboardAdresTekst(b);
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
@@ -1046,6 +1101,7 @@ function planningStopHtml(b, type, groepNaam) {
   return `
     <div class="planning-stop planning-stop-sleepbaar${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}" draggable="true" data-boeking-id="${b.id}" data-klant="${b.klant_naam}" data-groep="${groepNaam}">
       <span class="planning-stop-greep" title="Sleep om de volgorde te wijzigen">⠿</span>
+      ${planningVoltooidToggleHtml(b, type)}
       ${planningTijdSelectHtml(b, type)}
       <span class="planning-stop-info" title="${b.klant_naam} — dubbelklik voor het dossier">
         ${planningProductenHtml(b)}${zekerAfhalenIconHtml(b, type)} · ${adres}
@@ -1194,6 +1250,7 @@ function planningRenderKolom(container, items, type) {
 
   planningKoppelProductToggle(container);
   planningKoppelTijdInput(container);
+  planningKoppelVoltooidToggle(container);
   planningKoppelDragDrop(container, type);
   planningKoppelRouteInschatting(container);
   planningKoppelDubbelklik(container);
@@ -1410,8 +1467,10 @@ document.getElementById('rp-vertrektijd').addEventListener('change', () => { rpV
 function planningBereikStopHtml(b, type) {
   const adres = dashboardAdresTekst(b);
   const voertuigVeld = type === 'levering' ? 'voertuig_levering' : 'voertuig_afhaling';
+  const voltooidVeld = type === 'levering' ? 'levering_voltooid' : 'afhaling_voltooid';
   return `
-    <div class="planning-stop" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
+    <div class="planning-stop${b[voltooidVeld] ? ' planning-stop-voltooid' : ''}" data-boeking-id="${b.id}" data-klant="${b.klant_naam}">
+      ${planningVoltooidToggleHtml(b, type)}
       ${planningTijdSelectHtml(b, type)}
       <span class="planning-stop-info" title="${b.klant_naam} — dubbelklik voor het dossier">
         ${planningProductenHtml(b)}${zekerAfhalenIconHtml(b, type)} · ${adres}
@@ -1427,9 +1486,15 @@ function planningRenderBereikKolom(container, items, type) {
     return;
   }
   const datumVeld = type === 'levering' ? 'gewenste_datum_start' : 'gewenste_datum_einde';
+  const tijdVeld = type === 'levering' ? 'leveringstijd' : 'afhaaltijd';
+  // Groeperen op de effectieve dag (leveringstijd/afhaaltijd), niet zomaar de
+  // huurperiode — bij een bewust afwijkende leverdatum/afhaaldatum (⚡, zie
+  // dossier) staat die al op die afwijkende dag (de server filtert/sorteert
+  // deze bereiklijst ook al zo, zie utils/effectieveDatum.js), anders dook
+  // zo'n stop toch nog onder de verkeerde dagkop op.
   const perDag = new Map();
   items.forEach((b) => {
-    const dag = (b[datumVeld] || '').slice(0, 10);
+    const dag = b[tijdVeld] ? new Date(b[tijdVeld]).toISOString().slice(0, 10) : (b[datumVeld] || '').slice(0, 10);
     if (!perDag.has(dag)) perDag.set(dag, []);
     perDag.get(dag).push(b);
   });
@@ -1463,6 +1528,7 @@ function planningRenderBereikKolom(container, items, type) {
 
   planningKoppelProductToggle(container);
   planningKoppelTijdInput(container);
+  planningKoppelVoltooidToggle(container);
   planningKoppelDubbelklik(container);
 }
 
@@ -2375,6 +2441,7 @@ document.getElementById('check-alles').addEventListener('change', (e) => {
 });
 
 document.getElementById('btn-filter-toepassen').addEventListener('click', () => {
+  wisBoekingenKalenderSelectie();
   boekingenSorteringLaatsteNieuwe = false;
   document.getElementById('btn-laatste-nieuwe').classList.remove('actief');
   laadBoekingenOverzicht();
@@ -2385,6 +2452,7 @@ document.getElementById('filter-zoek').addEventListener('keydown', (e) => {
 });
 
 document.getElementById('btn-laatste-nieuwe').addEventListener('click', (e) => {
+  wisBoekingenKalenderSelectie();
   boekingenSorteringLaatsteNieuwe = !boekingenSorteringLaatsteNieuwe;
   e.target.classList.toggle('actief', boekingenSorteringLaatsteNieuwe);
   laadBoekingenOverzicht();
@@ -3285,8 +3353,57 @@ function berekenDatumRange(bereik) {
   }
 }
 
+// Kalender bovenaan het Reservatieoverzicht (op vraag van Jonas, naar het
+// voorbeeld van het oude "Booking Online"-systeem): één klik op een dag in de
+// kalender toont meteen enkel de reservaties van die dag (vanaf = tot = die
+// dag); een klik op diezelfde dag (of op "✕ alles weergeven" hieronder) heft
+// de kalenderfilter weer op en herstelt de Vanaf/Tot die ervoor actief waren.
+// De bestaande snelfilters/Vanaf-Tot-velden/zoekveld blijven exact zoals ze
+// waren — dit is een extra, onafhankelijke manier om diezelfde velden te
+// vullen, geen vervanging.
+let boekingenKalenderActief = false;
+let boekingenKalenderVorigeVanaf = '';
+let boekingenKalenderVorigeTot = '';
+
+// Door elke andere manier om de periode te wijzigen (snelfilter, manuele
+// Vanaf/Tot + Filteren, "Laatste nieuwe reservaties") aangeroepen, zodat de
+// kalender nooit een gemarkeerde dag toont die niet meer overeenkomt met wat
+// er effectief gefilterd is.
+function wisBoekingenKalenderSelectie() {
+  if (!boekingenKalenderActief) return;
+  boekingenKalenderActief = false;
+  boekingenKalenderWidget.stelIn(null, null);
+}
+
+const boekingenKalenderWidget = maakKalenderWidget({
+  container: document.getElementById('kalender-boekingenoverzicht'),
+  altijdEnkeleDag: true,
+  opWijziging: (dag) => {
+    if (!dag) {
+      // Zelfde dag opnieuw aangeklikt -> kalenderfilter uit, vorige Vanaf/Tot terug.
+      boekingenKalenderActief = false;
+      document.getElementById('filter-vanaf').value = boekingenKalenderVorigeVanaf;
+      document.getElementById('filter-tot').value = boekingenKalenderVorigeTot;
+      laadBoekingenOverzicht();
+      return;
+    }
+    if (!boekingenKalenderActief) {
+      boekingenKalenderVorigeVanaf = document.getElementById('filter-vanaf').value;
+      boekingenKalenderVorigeTot = document.getElementById('filter-tot').value;
+      boekingenKalenderActief = true;
+    }
+    document.getElementById('filter-vanaf').value = dag;
+    document.getElementById('filter-tot').value = dag;
+    document.querySelectorAll('#snelfilters button').forEach((b) => b.classList.remove('actief'));
+    boekingenSorteringLaatsteNieuwe = false;
+    document.getElementById('btn-laatste-nieuwe').classList.remove('actief');
+    laadBoekingenOverzicht();
+  },
+});
+
 document.querySelectorAll('#snelfilters button').forEach((btn) => {
   btn.addEventListener('click', () => {
+    wisBoekingenKalenderSelectie();
     const [vanaf, tot] = berekenDatumRange(btn.dataset.range);
     document.getElementById('filter-vanaf').value = vanaf;
     document.getElementById('filter-tot').value = tot;
@@ -3581,6 +3698,25 @@ async function openDetail(boekingId) {
             <input type="checkbox" id="dd-moet-zeker-afhalen" ${(b.levering && b.levering.afhaling_moet_zeker) ? 'checked' : ''} />
             ⏰ Moet zeker afgehaald worden
           </label>
+
+          <div class="afwijkende-datum-blok" title="Laat de dag waarop je ploeg effectief plaatst afwijken van de huurperiode hierboven — bv. plaatsing al een dag vroeger om logistieke redenen, terwijl met de klant de huurperiode hierboven afgesproken blijft. De huurperiode (en dus de prijs/factuur) verandert hierdoor NIET. Geldt voor Dashboard, Planning én de leveringen-app.">
+            <label>⚡ Leverdatum, indien anders dan de huurperiode (${fmtDatum(b.gewenste_datum_start)})
+              <input type="date" id="dd-leverdatum-afwijkend"
+                value="${(b.levering && b.levering.leverdatum_afwijkend && b.levering.leveringstijd) ? new Date(b.levering.leveringstijd).toISOString().slice(0, 10) : ''}" />
+            </label>
+            ${(b.levering && b.levering.leverdatum_afwijkend)
+              ? '<button type="button" id="btn-leverdatum-afwijkend-wissen" class="linkbtn">Afwijking opheffen</button>'
+              : ''}
+          </div>
+          <div class="afwijkende-datum-blok" title="Laat de dag waarop je ploeg effectief afhaalt afwijken van de huurperiode hierboven. De huurperiode (en dus de prijs/factuur) verandert hierdoor NIET. Geldt voor Dashboard, Planning én de leveringen-app.">
+            <label>⚡ Afhaaldatum, indien anders dan de huurperiode (${fmtDatum(b.gewenste_datum_einde)})
+              <input type="date" id="dd-afhaaldatum-afwijkend"
+                value="${(b.levering && b.levering.afhaaldatum_afwijkend && b.levering.afhaaltijd) ? new Date(b.levering.afhaaltijd).toISOString().slice(0, 10) : ''}" />
+            </label>
+            ${(b.levering && b.levering.afhaaldatum_afwijkend)
+              ? '<button type="button" id="btn-afhaaldatum-afwijkend-wissen" class="linkbtn">Afwijking opheffen</button>'
+              : ''}
+          </div>
         </div>
 
         <div class="detail-kolom-prijstabel paneel">
@@ -3757,6 +3893,35 @@ async function openDetail(boekingId) {
       alert(err.message);
     }
   });
+
+  // Afwijkende leverdatum/afhaaldatum (⚡, zie routes/dashboard.js ->
+  // PUT /:boekingId/afwijkende-datum) — laat de dag waarop de ploeg effectief
+  // rijdt afwijken van de huurperiode hierboven, zonder de prijs/factuur aan
+  // te raken. Opslaan op "change" (datum ingevuld) of via de wis-knop (datum
+  // weer op null, enkel zichtbaar zolang de afwijking actief staat) — dossier
+  // telkens herladen zodat de wis-knop/badges meteen kloppen.
+  async function slaAfwijkendeDatumOp(type, datum) {
+    try {
+      await api(`/api/dashboard/${b.id}/afwijkende-datum`, {
+        method: 'PUT',
+        body: JSON.stringify({ type, datum }),
+      });
+      toonToast(datum ? '⚡ Afwijkende datum opgeslagen' : 'Afwijking opgeheven');
+      openDetail(b.id);
+    } catch (err) {
+      alert(err.message);
+    }
+  }
+  document.getElementById('dd-leverdatum-afwijkend').addEventListener('change', (e) => {
+    if (e.target.value) slaAfwijkendeDatumOp('levering', e.target.value);
+  });
+  document.getElementById('dd-afhaaldatum-afwijkend').addEventListener('change', (e) => {
+    if (e.target.value) slaAfwijkendeDatumOp('afhaling', e.target.value);
+  });
+  const btnLeverdatumWissen = document.getElementById('btn-leverdatum-afwijkend-wissen');
+  if (btnLeverdatumWissen) btnLeverdatumWissen.addEventListener('click', () => slaAfwijkendeDatumOp('levering', null));
+  const btnAfhaaldatumWissen = document.getElementById('btn-afhaaldatum-afwijkend-wissen');
+  if (btnAfhaaldatumWissen) btnAfhaaldatumWissen.addEventListener('click', () => slaAfwijkendeDatumOp('afhaling', null));
 
   document.getElementById('btn-klantgegevens-bewerken').addEventListener('click', () => {
     document.getElementById('klantgegevens-weergave').hidden = true;
@@ -4617,7 +4782,7 @@ function volgendeDagIso(iso) {
 
 function maakKalenderWidget({
   container, initieleStart, initieleEinde, opWijziging, toonBekijkKnop, bekijkKnopTekst, opBekijk,
-  toonDagBereikKnoppen,
+  toonDagBereikKnoppen, altijdEnkeleDag,
 }) {
   let start = initieleStart || null;
   let einde = initieleEinde || start;
@@ -4699,6 +4864,16 @@ function maakKalenderWidget({
   }
 
   function kiesDag(iso) {
+    // Eenvoudige modus voor bv. het Reservatieoverzicht: elke klik kiest exact
+    // één dag (nooit een periode), en een klik op de reeds geselecteerde dag
+    // zet de selectie weer uit (start/einde -> null = "geen datum geselecteerd").
+    if (altijdEnkeleDag) {
+      start = (start === iso) ? null : iso;
+      einde = start;
+      render();
+      opWijziging(start, einde);
+      return;
+    }
     if (toonDagBereikKnoppen) {
       if (modus === 'dag') {
         start = iso;
@@ -4763,7 +4938,11 @@ function maakKalenderWidget({
       });
     }
 
-    if (start && einde && start !== einde) {
+    if (altijdEnkeleDag) {
+      elLabel.textContent = start
+        ? `Gefilterd op ${fmtDatum(start)} — klik opnieuw om te wissen.`
+        : 'Alle reservaties worden getoond — klik op een dag om te filteren.';
+    } else if (start && einde && start !== einde) {
       elLabel.textContent = `Periode: ${fmtDatum(start)} t.e.m. ${fmtDatum(einde)}`;
     } else if (start) {
       elLabel.textContent = `Datum: ${fmtDatum(start)}`;
