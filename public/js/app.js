@@ -3353,54 +3353,11 @@ function berekenDatumRange(bereik) {
   }
 }
 
-// Kalender bovenaan het Reservatieoverzicht (op vraag van Jonas, naar het
-// voorbeeld van het oude "Booking Online"-systeem): één klik op een dag in de
-// kalender toont meteen enkel de reservaties van die dag (vanaf = tot = die
-// dag); een klik op diezelfde dag (of op "✕ alles weergeven" hieronder) heft
-// de kalenderfilter weer op en herstelt de Vanaf/Tot die ervoor actief waren.
-// De bestaande snelfilters/Vanaf-Tot-velden/zoekveld blijven exact zoals ze
-// waren — dit is een extra, onafhankelijke manier om diezelfde velden te
-// vullen, geen vervanging.
-let boekingenKalenderActief = false;
-let boekingenKalenderVorigeVanaf = '';
-let boekingenKalenderVorigeTot = '';
-
-// Door elke andere manier om de periode te wijzigen (snelfilter, manuele
-// Vanaf/Tot + Filteren, "Laatste nieuwe reservaties") aangeroepen, zodat de
-// kalender nooit een gemarkeerde dag toont die niet meer overeenkomt met wat
-// er effectief gefilterd is.
-function wisBoekingenKalenderSelectie() {
-  if (!boekingenKalenderActief) return;
-  boekingenKalenderActief = false;
-  boekingenKalenderWidget.stelIn(null, null);
-}
-
-const boekingenKalenderWidget = maakKalenderWidget({
-  container: document.getElementById('kalender-boekingenoverzicht'),
-  altijdEnkeleDag: true,
-  opWijziging: (dag) => {
-    if (!dag) {
-      // Zelfde dag opnieuw aangeklikt -> kalenderfilter uit, vorige Vanaf/Tot terug.
-      boekingenKalenderActief = false;
-      document.getElementById('filter-vanaf').value = boekingenKalenderVorigeVanaf;
-      document.getElementById('filter-tot').value = boekingenKalenderVorigeTot;
-      laadBoekingenOverzicht();
-      return;
-    }
-    if (!boekingenKalenderActief) {
-      boekingenKalenderVorigeVanaf = document.getElementById('filter-vanaf').value;
-      boekingenKalenderVorigeTot = document.getElementById('filter-tot').value;
-      boekingenKalenderActief = true;
-    }
-    document.getElementById('filter-vanaf').value = dag;
-    document.getElementById('filter-tot').value = dag;
-    document.querySelectorAll('#snelfilters button').forEach((b) => b.classList.remove('actief'));
-    boekingenSorteringLaatsteNieuwe = false;
-    document.getElementById('btn-laatste-nieuwe').classList.remove('actief');
-    laadBoekingenOverzicht();
-  },
-});
-
+// Kalender bovenaan het Reservatieoverzicht: zie de instantie van
+// maakKalenderWidget() verderop (na de definitie van maakKalenderWidget zelf
+// en KALENDER_MAAND_NAMEN — die moeten al bestaan vóór render() voor het
+// eerst loopt, anders crasht dit script hier en draait al het JS-script dat
+// erna komt niet meer, incl. checkSessie() op het einde van het bestand).
 document.querySelectorAll('#snelfilters button').forEach((btn) => {
   btn.addEventListener('click', () => {
     wisBoekingenKalenderSelectie();
@@ -4967,6 +4924,60 @@ function maakKalenderWidget({
     },
   };
 }
+
+// Kalender bovenaan het Reservatieoverzicht (op vraag van Jonas, naar het
+// voorbeeld van het oude "Booking Online"-systeem): één klik op een dag in de
+// kalender toont meteen enkel de reservaties van die dag (vanaf = tot = die
+// dag); een klik op diezelfde dag heft de kalenderfilter weer op en herstelt
+// de Vanaf/Tot die ervoor actief waren. De bestaande snelfilters/Vanaf-Tot-
+// velden/zoekveld blijven exact zoals ze waren — dit is een extra,
+// onafhankelijke manier om diezelfde velden te vullen, geen vervanging.
+// Belangrijk: deze instantiatie moet NA de definitie van maakKalenderWidget()
+// en KALENDER_MAAND_NAMEN hierboven staan (dus hier, en niet bij de rest van
+// het Boekingenoverzicht-blok verderop in dit bestand) — render() binnen
+// maakKalenderWidget() gebruikt KALENDER_MAAND_NAMEN synchroon bij het
+// aanmaken, en die 'const' bestaat pas vanaf haar eigen regel. Eén klik
+// vroeger aanroepen gaf een ReferenceError die de rest van dit script-bestand
+// (incl. checkSessie() op het einde) liet afbreken.
+let boekingenKalenderActief = false;
+let boekingenKalenderVorigeVanaf = '';
+let boekingenKalenderVorigeTot = '';
+
+// Door elke andere manier om de periode te wijzigen (snelfilter, manuele
+// Vanaf/Tot + Filteren, "Laatste nieuwe reservaties") aangeroepen, zodat de
+// kalender nooit een gemarkeerde dag toont die niet meer overeenkomt met wat
+// er effectief gefilterd is.
+function wisBoekingenKalenderSelectie() {
+  if (!boekingenKalenderActief) return;
+  boekingenKalenderActief = false;
+  boekingenKalenderWidget.stelIn(null, null);
+}
+
+const boekingenKalenderWidget = maakKalenderWidget({
+  container: document.getElementById('kalender-boekingenoverzicht'),
+  altijdEnkeleDag: true,
+  opWijziging: (dag) => {
+    if (!dag) {
+      // Zelfde dag opnieuw aangeklikt -> kalenderfilter uit, vorige Vanaf/Tot terug.
+      boekingenKalenderActief = false;
+      document.getElementById('filter-vanaf').value = boekingenKalenderVorigeVanaf;
+      document.getElementById('filter-tot').value = boekingenKalenderVorigeTot;
+      laadBoekingenOverzicht();
+      return;
+    }
+    if (!boekingenKalenderActief) {
+      boekingenKalenderVorigeVanaf = document.getElementById('filter-vanaf').value;
+      boekingenKalenderVorigeTot = document.getElementById('filter-tot').value;
+      boekingenKalenderActief = true;
+    }
+    document.getElementById('filter-vanaf').value = dag;
+    document.getElementById('filter-tot').value = dag;
+    document.querySelectorAll('#snelfilters button').forEach((b) => b.classList.remove('actief'));
+    boekingenSorteringLaatsteNieuwe = false;
+    document.getElementById('btn-laatste-nieuwe').classList.remove('actief');
+    laadBoekingenOverzicht();
+  },
+});
 
 const nieuweBoekingKalender = maakKalenderWidget({
   container: document.getElementById('kalender-nieuwe-boeking'),
