@@ -972,8 +972,16 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 #dashboard-snelfilters button.actief, #planning-snelfilters button.actief { background: var(--blauw); color: white; border-color: var(--blauw); }
 .dashboard-aangepast-bereik { display: flex; align-items: center; gap: 0.8rem; margin-bottom: 1rem; flex-wrap: wrap; }
 .dashboard-aangepast-bereik[hidden] { display: none; } /* anders wint "display: flex" van [hidden] */
-.dashboard-aangepast-bereik label { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; }
-.dashboard-aangepast-bereik input[type="date"] { padding: 0.3rem 0.5rem; }
+/* Van/Tot-datumknoppen (Dashboard/Planning "Aangepast"-bereik) — eigen
+   kalender-popover i.p.v. een native <input type="date">, zelfde reden en
+   aanpak als .afwijkende-datum-blok/-waarde-knop hierboven (dag/maand/jaar,
+   ongeacht de browser-/OS-taalinstelling). */
+.bereik-datum-blok { display: flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; position: relative; }
+.bereik-datum-knop {
+  font-size: 0.85rem; padding: 0.3rem 0.5rem; border: 1px solid var(--rand); border-radius: 4px;
+  background: white; cursor: pointer; color: var(--tekst);
+}
+.bereik-datum-knop:hover { border-color: var(--blauw); }
 .dashboard-datumgroep-kop {
   font-size: 0.78rem; font-weight: 700; color: var(--grijs); text-transform: uppercase;
   letter-spacing: 0.02em; margin: 0.6rem 0 0.15rem; padding-top: 0.3rem; border-top: 1px solid var(--rand);

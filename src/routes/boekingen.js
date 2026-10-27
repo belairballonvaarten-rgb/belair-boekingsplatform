@@ -602,13 +602,19 @@ router.get('/dagen-met-reservaties', asyncHandler(async (req, res) => {
     : new Date().toISOString().slice(0, 7);
   const vanaf = `${maand}-01`;
 
+  // start/einde zijn hier de EFFECTIEVE dagen (incl. een bewust afwijkende
+  // leverdatum/afhaaldatum, migratie 056) i.p.v. enkel de huurperiode — anders
+  // zou een dag vroeger geplaatst product niet gekleurd staan in deze
+  // kalender terwijl het wel degelijk bezet is. Zie ook de uitleg bij
+  // checkBeschikbaarheid()/berekenResterendeAantallen() in utils/beschikbaarheid.js.
   const { rows } = await db.query(
-    `SELECT to_char(b.gewenste_datum_start, 'YYYY-MM-DD') AS start,
-            to_char(b.gewenste_datum_einde, 'YYYY-MM-DD') AS einde
+    `SELECT to_char(LEAST(b.gewenste_datum_start, COALESCE(l.leveringstijd::date, b.gewenste_datum_start)), 'YYYY-MM-DD') AS start,
+            to_char(GREATEST(b.gewenste_datum_einde, COALESCE(l.afhaaltijd::date, b.gewenste_datum_einde)), 'YYYY-MM-DD') AS einde
      FROM boekingen b
+     LEFT JOIN leveringen l ON l.boeking_id = b.id
      WHERE b.status NOT IN ('geweigerd', 'nieuw', 'in_behandeling')
-       AND b.gewenste_datum_start <= (date_trunc('month', $1::date) + interval '1 month - 1 day')::date
-       AND b.gewenste_datum_einde >= date_trunc('month', $1::date)::date`,
+       AND LEAST(b.gewenste_datum_start, COALESCE(l.leveringstijd::date, b.gewenste_datum_start)) <= (date_trunc('month', $1::date) + interval '1 month - 1 day')::date
+       AND GREATEST(b.gewenste_datum_einde, COALESCE(l.afhaaltijd::date, b.gewenste_datum_einde)) >= date_trunc('month', $1::date)::date`,
     [vanaf]
   );
 

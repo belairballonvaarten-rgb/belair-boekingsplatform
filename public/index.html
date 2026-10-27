@@ -127,8 +127,16 @@
         <button type="button" data-dbereik="aangepast">Aangepast</button>
       </div>
       <div class="dashboard-aangepast-bereik" id="dashboard-aangepast-bereik" hidden>
-        <label>Van <input type="date" id="dashboard-bereik-vanaf" /></label>
-        <label>Tot <input type="date" id="dashboard-bereik-tot" /></label>
+        <span class="bereik-datum-blok">Van
+          <button type="button" class="bereik-datum-knop" id="dashboard-bereik-vanaf-knop">Kies datum...</button>
+          <input type="hidden" id="dashboard-bereik-vanaf" />
+          <div id="dashboard-bereik-vanaf-kalender" class="kalender-popover" hidden></div>
+        </span>
+        <span class="bereik-datum-blok">Tot
+          <button type="button" class="bereik-datum-knop" id="dashboard-bereik-tot-knop">Kies datum...</button>
+          <input type="hidden" id="dashboard-bereik-tot" />
+          <div id="dashboard-bereik-tot-kalender" class="kalender-popover" hidden></div>
+        </span>
         <button type="button" id="btn-dashboard-bereik-toepassen" class="linkbtn">Toepassen</button>
       </div>
       <p id="dashboard-maps-niet-geconfigureerd" class="uitleg" hidden>
@@ -169,8 +177,16 @@
         <button type="button" data-pbereik="aangepast">Aangepast</button>
       </div>
       <div class="dashboard-aangepast-bereik" id="planning-aangepast-bereik" hidden>
-        <label>Van <input type="date" id="planning-bereik-vanaf" /></label>
-        <label>Tot <input type="date" id="planning-bereik-tot" /></label>
+        <span class="bereik-datum-blok">Van
+          <button type="button" class="bereik-datum-knop" id="planning-bereik-vanaf-knop">Kies datum...</button>
+          <input type="hidden" id="planning-bereik-vanaf" />
+          <div id="planning-bereik-vanaf-kalender" class="kalender-popover" hidden></div>
+        </span>
+        <span class="bereik-datum-blok">Tot
+          <button type="button" class="bereik-datum-knop" id="planning-bereik-tot-knop">Kies datum...</button>
+          <input type="hidden" id="planning-bereik-tot" />
+          <div id="planning-bereik-tot-kalender" class="kalender-popover" hidden></div>
+        </span>
         <button type="button" id="btn-planning-bereik-toepassen" class="linkbtn">Toepassen</button>
       </div>
       <p class="uitleg" id="planning-uitleg">Wijs een voertuig toe en sleep een stop naar boven/onder om de volgorde van de route te bepalen — dit komt mee bij "Nu synchroniseren" (Instellingen) naar de leveringen-app.</p>

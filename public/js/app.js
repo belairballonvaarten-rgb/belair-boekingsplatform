@@ -580,6 +580,68 @@ function dossierSnelknopHtml(rol, label, b) {
   return `<button type="button" class="dossier-snelknop-mail" data-rol="${rol}" ${uitgeschakeld ? 'disabled' : ''} title="${titel}">${label}</button>`;
 }
 
+// Herbruikbare knop+popover datumkiezer op basis van de eigen kalender i.p.v.
+// een native <input type="date"> — dat laatste toont dag/maand/jaar OF
+// maand/dag/jaar afhankelijk van de browser-/OS-taalinstelling (niet
+// betrouwbaar te sturen via de pagina zelf), zie ook koppelAfwijkendeDatumKalender
+// in het dossier die ditzelfde probleem al oploste voor de Periode-datums.
+// Verwacht in de HTML: een knop `${veldPrefix}-knop`, een popover-container
+// `${veldPrefix}-kalender`, en een verborgen <input type="hidden"> met id
+// exact `veldPrefix` die de ISO-waarde (YYYY-MM-DD) bijhoudt — zo kan
+// bestaande code die gewoon .value van dat veld leest/zet (zoals de
+// "Toepassen"-knoppen en snelfilters bij Dashboard/Planning) ongewijzigd
+// blijven werken. opGekozen (optioneel) wordt opgeroepen na een klik op een
+// dag; het teruggegeven object heeft stelDatum(nieuweDatum) om de waarde ook
+// programmatisch te kunnen zetten (bv. vanuit een snelfilterknop).
+function maakDatumKnopKalender(veldPrefix, { opGekozen } = {}) {
+  const knop = document.getElementById(`${veldPrefix}-knop`);
+  const popoverEl = document.getElementById(`${veldPrefix}-kalender`);
+  const hiddenVeld = document.getElementById(veldPrefix);
+  if (!knop || !popoverEl || !hiddenVeld) return null;
+
+  function bijwerkenKnopTekst() {
+    knop.textContent = hiddenVeld.value ? fmtDatum(hiddenVeld.value) : 'Kies datum...';
+  }
+
+  const widget = maakKalenderWidget({
+    container: popoverEl,
+    initieleStart: hiddenVeld.value || null,
+    altijdEnkeleDag: true,
+    altijdEnkeleDagLabelTekst: (dag) => (dag ? `Gekozen: ${fmtDatum(dag)}` : 'Kies een datum.'),
+    opWijziging: (dag) => {
+      if (!dag) return; // zelfde dag opnieuw aangeklikt -> niets doen
+      hiddenVeld.value = dag;
+      bijwerkenKnopTekst();
+      popoverEl.hidden = true;
+      if (opGekozen) opGekozen(dag);
+    },
+  });
+  bijwerkenKnopTekst();
+
+  knop.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const wordtGeopend = popoverEl.hidden;
+    document.querySelectorAll('.kalender-popover').forEach((el) => { el.hidden = true; });
+    popoverEl.hidden = !wordtGeopend;
+  });
+  popoverEl.addEventListener('click', (e) => e.stopPropagation());
+
+  return {
+    stelDatum(nieuweDatum) {
+      hiddenVeld.value = nieuweDatum || '';
+      bijwerkenKnopTekst();
+      widget.stelIn(nieuweDatum || null, nieuweDatum || null);
+    },
+  };
+}
+// Klikken buiten een open kalender-popover sluit die — de knoppen die een
+// popover openen roepen zelf e.stopPropagation() aan, dus die klikken komen
+// hier niet aan; enkel nodig sinds de popovers op meerdere pagina's naast
+// elkaar kunnen voorkomen (Dashboard/Planning-bereik, dossier-Periode).
+document.addEventListener('click', () => {
+  document.querySelectorAll('.kalender-popover:not([hidden])').forEach((el) => { el.hidden = true; });
+});
+
 function voertuigSelectOpties(huidigVoertuig) {
   return ['<option value="">🚐 —</option>']
     .concat(VOERTUIGEN.map((v) => `<option value="${v.naam}"${huidigVoertuig === v.naam ? ' selected' : ''}>🚐 ${v.naam}</option>`))
@@ -866,6 +928,16 @@ document.getElementById('btn-dashboard-volgende').addEventListener('click', () =
 // Vorige maand (periodemodus, met de kaarten per dag gegroepeerd) — dezelfde
 // datumberekeningen als bij Reservatieoverzicht (zie berekenDatumRange), plus
 // "Aangepast" voor een zelf gekozen periode.
+// LET OP: deze 2 worden pas verderop in dit bestand effectief aangemaakt (zie
+// bij boekingenKalenderWidget) — pas NA de definitie van KALENDER_MAAND_NAMEN/
+// maakKalenderWidget() zelf, anders crasht dit script hier meteen (zelfde
+// val als bij boekingenKalenderWidget, zie de uitleg daar). Hier alvast als
+// 'let' gedeclareerd zodat de click-handlers hieronder er naar kunnen
+// verwijzen — die lopen pas na een klik, dus altijd ruim na de toewijzing
+// verderop.
+let dashboardBereikVanafKalender = null;
+let dashboardBereikTotKalender = null;
+
 document.querySelectorAll('#dashboard-snelfilters button').forEach((btn) => {
   btn.addEventListener('click', () => {
     const sleutel = btn.dataset.dbereik;
@@ -873,8 +945,8 @@ document.querySelectorAll('#dashboard-snelfilters button').forEach((btn) => {
       const [vanaf, tot] = dashboardModus === 'bereik'
         ? [dashboardBereikVanaf, dashboardBereikTot]
         : [dashboardVandaagIso(), dashboardVandaagIso()];
-      document.getElementById('dashboard-bereik-vanaf').value = vanaf;
-      document.getElementById('dashboard-bereik-tot').value = tot;
+      dashboardBereikVanafKalender?.stelDatum(vanaf);
+      dashboardBereikTotKalender?.stelDatum(tot);
       document.getElementById('dashboard-aangepast-bereik').hidden = false;
       document.querySelectorAll('#dashboard-snelfilters button').forEach((b) => b.classList.toggle('actief', b === btn));
       return;
@@ -1634,6 +1706,12 @@ document.getElementById('btn-planning-vandaag').addEventListener('click', () => 
 // Snelfilters boven Planning: Vandaag/Morgen (dagmodus, zelfde als de
 // datumkiezer) en Deze/Volgende/Vorige week, Vorige maand (bereik-modus,
 // enkel-lezen) — hergebruikt dezelfde berekenDatumRange als het Dashboard.
+// Zelfde kanttekening als bij dashboardBereikVanafKalender hierboven: pas
+// verderop in dit bestand effectief aangemaakt, na KALENDER_MAAND_NAMEN/
+// maakKalenderWidget().
+let planningBereikVanafKalender = null;
+let planningBereikTotKalender = null;
+
 document.querySelectorAll('#planning-snelfilters button').forEach((btn) => {
   btn.addEventListener('click', () => {
     const sleutel = btn.dataset.pbereik;
@@ -1641,8 +1719,8 @@ document.querySelectorAll('#planning-snelfilters button').forEach((btn) => {
       const [vanaf, tot] = planningModus === 'bereik'
         ? [planningBereikVanaf, planningBereikTot]
         : [planningVandaagIso(), planningVandaagIso()];
-      document.getElementById('planning-bereik-vanaf').value = vanaf;
-      document.getElementById('planning-bereik-tot').value = tot;
+      planningBereikVanafKalender?.stelDatum(vanaf);
+      planningBereikTotKalender?.stelDatum(tot);
       document.getElementById('planning-aangepast-bereik').hidden = false;
       document.querySelectorAll('#planning-snelfilters button').forEach((b) => b.classList.toggle('actief', b === btn));
       return;
@@ -5040,6 +5118,16 @@ function maakKalenderWidget({
 // aanmaken, en die 'const' bestaat pas vanaf haar eigen regel. Eén klik
 // vroeger aanroepen gaf een ReferenceError die de rest van dit script-bestand
 // (incl. checkSessie() op het einde) liet afbreken.
+// Zelfde reden als hierboven (moet na KALENDER_MAAND_NAMEN/maakKalenderWidget()
+// staan): de Van/Tot-datumknoppen bij het "Aangepast"-bereik van Dashboard en
+// Planning (zie dashboardBereikVanafKalender/planningBereikVanafKalender e.a.,
+// hoger in dit bestand als 'let null' gedeclareerd zodat hun click-handlers
+// er al naar konden verwijzen).
+dashboardBereikVanafKalender = maakDatumKnopKalender('dashboard-bereik-vanaf');
+dashboardBereikTotKalender = maakDatumKnopKalender('dashboard-bereik-tot');
+planningBereikVanafKalender = maakDatumKnopKalender('planning-bereik-vanaf');
+planningBereikTotKalender = maakDatumKnopKalender('planning-bereik-tot');
+
 let boekingenKalenderActief = false;
 let boekingenKalenderVorigeVanaf = '';
 let boekingenKalenderVorigeTot = '';

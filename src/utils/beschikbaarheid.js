@@ -64,15 +64,33 @@ async function checkBeschikbaarheid(productId, datumStart, datumEinde, gevraagdA
   params.push(BLOKKERENDE_STATUSSEN);
   const statusPlaceholder = `$${params.length}`;
 
+  // LET OP: "gewenste_datum_start"/"gewenste_datum_einde" hieronder zijn de
+  // EFFECTIEVE bezette dagen, niet noodzakelijk de huurperiode zelf — een
+  // bewust afwijkende leverdatum/afhaaldatum (leveringen.leverdatum_afwijkend/
+  // afhaaldatum_afwijkend, zie migratie 056 en utils/effectieveDatum.js) kan
+  // de ploeg al een dag vroeger laten plaatsen of later laten afhalen dan de
+  // met de klant afgesproken huurperiode. Die extra dag(en) moeten het product
+  // ook effectief bezet houden voor ANDERE boekingen — anders kan Jonas per
+  // ongeluk hetzelfde product dubbel inplannen op zo'n "logistieke" dag. De
+  // huurperiode zelf (en dus de prijs) verandert hierdoor NIET, zie
+  // berekenMeerdaagsePrijs in routes/boekingen.js — dit raakt enkel waar het
+  // product als bezet geldt. LEAST/GREATEST zorgen ervoor dat een afwijkende
+  // datum de bezette periode enkel kan VERRUIMEN, nooit verkleinen (een
+  // eerdere afhaaldatum dan de huurperiode-einddatum mag het product dus niet
+  // vroeger "vrij" maken dan de huurperiode zelf).
   const { rows: overlappendeBoekingen } = await db.query(
     `
-    SELECT b.id, b.gewenste_datum_start, b.gewenste_datum_einde, bp.aantal
+    SELECT b.id,
+           LEAST(b.gewenste_datum_start, COALESCE(l.leveringstijd::date, b.gewenste_datum_start)) AS gewenste_datum_start,
+           GREATEST(b.gewenste_datum_einde, COALESCE(l.afhaaltijd::date, b.gewenste_datum_einde)) AS gewenste_datum_einde,
+           bp.aantal
     FROM boekingen b
     JOIN boeking_producten bp ON bp.boeking_id = b.id
+    LEFT JOIN leveringen l ON l.boeking_id = b.id
     WHERE bp.product_id = $1
       AND b.status = ANY(${statusPlaceholder})
-      AND b.gewenste_datum_start <= $2
-      AND b.gewenste_datum_einde >= $3
+      AND LEAST(b.gewenste_datum_start, COALESCE(l.leveringstijd::date, b.gewenste_datum_start)) <= $2
+      AND GREATEST(b.gewenste_datum_einde, COALESCE(l.afhaaltijd::date, b.gewenste_datum_einde)) >= $3
       ${exclClause}
     `,
     params
@@ -148,15 +166,22 @@ async function berekenResterendeAantallen(datumStart, datumEinde, exclBoekingId 
   params.push(BLOKKERENDE_STATUSSEN);
   const statusPlaceholder = `$${params.length}`;
 
+  // Zelfde effectieve-bezette-periode-redenering als in checkBeschikbaarheid()
+  // hierboven: een afwijkende leverdatum/afhaaldatum (migratie 056) verruimt
+  // de bezette periode van een ANDERE boeking, nooit de prijs van die boeking.
   const { rows: overlappend } = await db.query(
     `
-    SELECT bp.product_id, b.gewenste_datum_start, b.gewenste_datum_einde, bp.aantal
+    SELECT bp.product_id,
+           LEAST(b.gewenste_datum_start, COALESCE(l.leveringstijd::date, b.gewenste_datum_start)) AS gewenste_datum_start,
+           GREATEST(b.gewenste_datum_einde, COALESCE(l.afhaaltijd::date, b.gewenste_datum_einde)) AS gewenste_datum_einde,
+           bp.aantal
     FROM boekingen b
     JOIN boeking_producten bp ON bp.boeking_id = b.id
     JOIN producten p ON p.id = bp.product_id
+    LEFT JOIN leveringen l ON l.boeking_id = b.id
     WHERE b.status = ANY(${statusPlaceholder})
-      AND b.gewenste_datum_start <= ($2::date + (p.availability_buffer_dagen || ' days')::interval)
-      AND b.gewenste_datum_einde >= ($1::date - (p.availability_buffer_dagen || ' days')::interval)
+      AND LEAST(b.gewenste_datum_start, COALESCE(l.leveringstijd::date, b.gewenste_datum_start)) <= ($2::date + (p.availability_buffer_dagen || ' days')::interval)
+      AND GREATEST(b.gewenste_datum_einde, COALESCE(l.afhaaltijd::date, b.gewenste_datum_einde)) >= ($1::date - (p.availability_buffer_dagen || ' days')::interval)
       ${exclClause}
     `,
     params
