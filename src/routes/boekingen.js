@@ -22,6 +22,7 @@ const { berekenPrijstabel } = require('../utils/prijstabel');
 // utils/wordpressSync.js voor de uitleg. "Vuur-en-vergeet": nooit met await
 // aanroepen, mag de eigenlijke actie hieronder nooit blokkeren/laten falen.
 const { plandWebsiteSync } = require('../utils/wordpressSync');
+const { plantAutoSync } = require('../utils/leveringenAppSync');
 const { genereerOndertekendDocumentPdf, verstuurOndertekendDocumentPerMail } = require('../utils/ondertekendDocument');
 
 const router = express.Router();
@@ -927,6 +928,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
 
   const prijstabel = await berekenPrijstabel(req.params.id);
   plandWebsiteSync();
+  plantAutoSync('boeking-bewerkt'); // adres/leveringswijze/periode etc. kunnen hier gewijzigd zijn
   res.json({ ...rows[0], prijstabel, voorgestelde_transportkost: berekenVoorgesteldeTransportkost(rows[0]) });
 }));
 
@@ -981,6 +983,7 @@ router.put('/:id/producten/:regelId', asyncHandler(async (req, res) => {
   );
   const prijstabel = await berekenPrijstabel(req.params.id);
   plandWebsiteSync();
+  plantAutoSync('producten-gewijzigd'); // zowel bij een regel bewerken als een regel verwijderen
   res.json({ producten, prijstabel });
 }));
 
@@ -1032,6 +1035,7 @@ router.post('/:id/producten', asyncHandler(async (req, res) => {
   );
   const prijstabel = await berekenPrijstabel(req.params.id);
   plandWebsiteSync();
+  plantAutoSync('product-toegevoegd');
   res.status(201).json({ producten, prijstabel });
 }));
 
@@ -1050,6 +1054,7 @@ router.delete('/:id/producten/:regelId', asyncHandler(async (req, res) => {
   );
   const prijstabel = await berekenPrijstabel(req.params.id);
   plandWebsiteSync();
+  plantAutoSync('producten-gewijzigd'); // zowel bij een regel bewerken als een regel verwijderen
   res.json({ producten, prijstabel });
 }));
 
@@ -1060,6 +1065,9 @@ router.delete('/:id', asyncHandler(async (req, res) => {
   const { rows } = await db.query('DELETE FROM boekingen WHERE id = $1 RETURNING id', [req.params.id]);
   if (!rows[0]) return res.status(404).json({ fout: 'Boeking niet gevonden' });
   plandWebsiteSync();
+  // Ook bij verwijderen syncen: anders blijft een geannuleerde/foutieve boeking
+  // zichtbaar in de leveringen-app tot de volgende periodieke sync (max. 5 min).
+  plantAutoSync('boeking-verwijderd');
   res.status(204).end();
 }));
 
@@ -1366,6 +1374,9 @@ router.post('/:id/status', asyncHandler(async (req, res) => {
 
     await client.query('COMMIT');
     plandWebsiteSync();
+    // Belangrijkste trigger: een statuswijziging is vaak het moment waarop een
+    // boeking voor het eerst (of niet meer) relevant wordt voor de leveringen-app.
+    plantAutoSync('boeking-status-wijziging');
     const { rows: updated } = await db.query('SELECT * FROM boekingen WHERE id = $1', [req.params.id]);
     res.json(updated[0]);
   } catch (err) {

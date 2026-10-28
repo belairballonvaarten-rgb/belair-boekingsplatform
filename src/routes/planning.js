@@ -6,6 +6,7 @@ const { geocodeAdres, ONS_MAGAZIJN_ADRES } = require('../utils/afstand');
 const { berekenRoute } = require('../utils/osrm');
 const { bepaalZekerAfhalenBoekingIds } = require('../utils/zekerAfhalen');
 const { EFFECTIEVE_DATUM_SQL } = require('../utils/effectieveDatum');
+const { plantAutoSync } = require('../utils/leveringenAppSync');
 
 // "Zeker afhalen"-vlag op elke afhaling: automatische berekening (zie
 // utils/zekerAfhalen.js) OF de manuele vlag die Jonas zelf in het
@@ -165,6 +166,10 @@ router.put('/volgorde', asyncHandler(async (req, res) => {
       await db.query(`INSERT INTO leveringen (boeking_id, ${kolom}) VALUES ($1, $2)`, [item.boekingId, item.positie]);
     }
   }
+  // De frontend stuurt hier de volledige lijst in één keer door (zie boven),
+  // dus één gedebouncete sync-aanroep volstaat ook bij meerdere snelle
+  // sleepacties na elkaar.
+  plantAutoSync('volgorde-wijziging');
   res.json({ bijgewerkt: volgorde.length });
 }));
 

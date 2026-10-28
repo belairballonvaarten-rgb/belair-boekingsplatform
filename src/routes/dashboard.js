@@ -6,6 +6,7 @@ const { geocodeAdres, ONS_MAGAZIJN_ADRES } = require('../utils/afstand');
 const { berekenPrijstabel } = require('../utils/prijstabel');
 const { bepaalZekerAfhalenBoekingIds } = require('../utils/zekerAfhalen');
 const { EFFECTIEVE_DATUM_SQL } = require('../utils/effectieveDatum');
+const { plantAutoSync } = require('../utils/leveringenAppSync');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -273,6 +274,10 @@ router.put('/:boekingId/tijdstip', asyncHandler(async (req, res) => {
     `UPDATE leveringen SET ${kolom} = $1, ${vlagKolom} = $2 WHERE boeking_id = $3 RETURNING *`,
     [tijdstip, afwijkend, req.params.boekingId]
   );
+  // Tijdstip is net waar de ploeg zich naar plant — zonder dit zou een
+  // laatste-minuut-wijziging hier pas bij de volgende handmatige "Nu
+  // synchroniseren" (of ten laatste de periodieke vangnet-sync) aankomen.
+  plantAutoSync('tijdstip-wijziging');
   if (rows[0]) return res.json(rows[0]);
 
   // Zou normaal altijd al moeten bestaan (aangemaakt bij acceptatie van de
@@ -340,6 +345,9 @@ router.put('/:boekingId/afwijkende-datum', asyncHandler(async (req, res) => {
     `UPDATE leveringen SET ${tijdKolom} = $1, ${vlagKolom} = $2 WHERE boeking_id = $3 RETURNING *`,
     [nieuweWaarde, afwijkend, req.params.boekingId]
   );
+  // Zelfde reden als bij /tijdstip hierboven: dit is net de dag waarop de
+  // ploeg effectief moet rijden, dus meteen (gedebouncet) doorsturen.
+  plantAutoSync('afwijkende-datum-wijziging');
   if (rows[0]) return res.json(rows[0]);
 
   const { rows: nieuw } = await db.query(
@@ -406,6 +414,7 @@ router.put('/:boekingId/voertuig', asyncHandler(async (req, res) => {
     `UPDATE leveringen SET ${kolom} = $1 WHERE boeking_id = $2 RETURNING *`,
     [waarde, req.params.boekingId]
   );
+  plantAutoSync('voertuig-toewijzing');
   if (rows[0]) return res.json(rows[0]);
 
   const { rows: nieuw } = await db.query(

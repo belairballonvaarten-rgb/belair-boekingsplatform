@@ -25,6 +25,7 @@ const crewRoutes = require('./routes/crew');
 const mailTemplatesRoutes = require('./routes/mail-templates');
 const klantBevestigingRoutes = require('./routes/klant-bevestiging');
 const productInfoPubliekRoutes = require('./routes/product-info-publiek');
+const { startPeriodiekeSync } = require('./utils/leveringenAppSync');
 
 const app = express();
 
@@ -136,6 +137,10 @@ const PORT = process.env.PORT || 3000;
 async function main() {
   await zorgVoorEersteAdmin();
   await zorgVoorWachtwoordReset();
+  // Vangnet voor de automatische sync met de leveringen-app (zie
+  // utils/leveringenAppSync.js) — doet gewoon niets zolang
+  // LEVERINGEN_APP_URL/_SYNC_SECRET nog niet ingesteld zijn bij Render.
+  startPeriodiekeSync();
   app.listen(PORT, () => console.log(`Belair-boekingsplatform API draait op poort ${PORT}`));
 }
 
