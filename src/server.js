@@ -1,6 +1,8 @@
 require('dotenv').config();
+const fs = require('fs');
 const path = require('path');
 const express = require('express');
+const compression = require('compression');
 const cors = require('cors');
 const session = require('express-session');
 const pgSession = require('connect-pg-simple')(session);
@@ -33,6 +35,11 @@ const app = express();
 // Zonder dit vertrouwt Express de "https"-status van het originele verzoek niet
 // correct, wat het zetten/lezen van de sessie-cookie kan verstoren.
 app.set('trust proxy', 1);
+
+// Comprimeert elk antwoord (JSON-API-reacties, en straks ook app.js/style.css
+// hieronder) met gzip vóór het versturen — typisch 70-80% kleiner over de
+// lijn, zonder enig risico: de browser pakt dit automatisch uit.
+app.use(compression());
 
 app.use(cors({ origin: process.env.CORS_ORIGIN || true, credentials: true }));
 // Standaard-limiet (100kb) is te klein voor een productcertificaat (PDF/foto)
@@ -84,8 +91,37 @@ app.use('/api/klant-bevestiging', klantBevestigingRoutes);
 // certificaat, zie routes/product-info-publiek.js.
 app.use('/api/product-info', productInfoPubliekRoutes);
 
-// Beheerscherm (statische front-end) — public/index.html is het startpunt
-app.use(express.static(path.join(__dirname, '..', 'public')));
+// Beheerscherm (statische front-end) — public/index.html is het startpunt.
+//
+// app.js/style.css/afbeeldingen mogen lang (7 dagen) in de cache van de
+// browser blijven: dat bespaart een volledige download bij elk herbezoek.
+// Het risico daarvan — dat iemands browser na een update nog dagenlang de
+// OUDE app.js/style.css uit de cache blijft gebruiken — vangen we op door
+// index.html NIET via deze cache te laten lopen (index: false hieronder) en
+// in plaats daarvan hieronder zelf te serveren, met een "?v=...”-versie
+// achter de bestandsnamen die bij elke herstart van de server verandert
+// (ASSET_VERSIE). Een nieuwe deploy op Render herstart het proces altijd,
+// dus dit vraagt nooit een handmatige stap bij het uitbrengen van een update.
+const ASSET_VERSIE = Date.now();
+
+app.use(express.static(path.join(__dirname, '..', 'public'), {
+  index: false,
+  maxAge: '7d',
+}));
+
+let indexHtmlCache = null;
+app.get(['/', '/index.html'], (req, res) => {
+  if (!indexHtmlCache) {
+    const ruw = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+    indexHtmlCache = ruw
+      .replace('href="/css/style.css"', `href="/css/style.css?v=${ASSET_VERSIE}"`)
+      .replace('src="/js/app.js"', `src="/js/app.js?v=${ASSET_VERSIE}"`);
+  }
+  // index.html zelf altijd vers ophalen (klein bestand, nu ook gecomprimeerd),
+  // zodat de bezoeker meteen de juiste "?v=...”-verwijzingen krijgt.
+  res.set('Cache-Control', 'no-cache');
+  res.type('html').send(indexHtmlCache);
+});
 
 // Centrale foutafhandeling
 app.use((err, req, res, next) => {
