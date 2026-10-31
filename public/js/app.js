@@ -52,6 +52,18 @@ function statusPillHtml(status, saldoOpenstaand) {
   return `<span class="status-pill status-${STATUS_KLEUR[status] || 'grijs'}">${weergaveStatusLabel(status, saldoOpenstaand)}</span>`;
 }
 
+// Eenvoudige betaald/niet-betaald-pill — gebruikt op het Dashboard zodra een
+// levering/afhaling al voltooid is. Op dat moment is "Klaar voor levering
+// (open saldo)" (zie weergaveStatusLabel hierboven) een onmogelijke/verwarrende
+// tekst — het is al geleverd — dus tonen we in plaats daarvan gewoon of het
+// openstaand saldo nog openstaat, los van de volledige boekingsstatus.
+function betaalPillHtml(saldoOpenstaand) {
+  const openstaand = saldoOpenstaand != null && Number(saldoOpenstaand) > 0.01;
+  return openstaand
+    ? '<span class="status-pill status-rood">Niet betaald</span>'
+    : '<span class="status-pill status-groen">Betaald</span>';
+}
+
 // Compacte kleurstip i.p.v. de volledige statustekst — op vraag van Jonas voor
 // het Reservatieoverzicht (daar staat de kleurenlegende al bovenaan de tabel,
 // dus de tekst zelf hoeft niet meer in elke rij herhaald te worden). De naam
@@ -718,13 +730,24 @@ function renderDashboardKolom(container, items, type, opties = {}) {
         <div class="dashboard-kaart-rij1">
           <button type="button" class="dashboard-icoonbtn dashboard-kaart-voltooid-toggle"
                   data-boeking-id="${b.id}" data-type="${type}" data-voltooid="${isVoltooid}"
+                  data-status="${b.status}" data-saldo="${b.saldo_openstaand != null ? b.saldo_openstaand : ''}"
                   title="${isVoltooid ? `Gemarkeerd als ${voltooidWoord} — klik om terug te zetten` : `Markeer als ${voltooidWoord}`}">${isVoltooid ? '✅' : '⬜'}</button>
           <select class="dashboard-tijd-input" data-boeking-id="${b.id}" data-type="${type}" data-datum="${kaartDatum}" title="Tijdstip">${genereerKwartierOpties(tijdWaarde || standaardTijd)}</select>
           ${(type === 'levering' ? b.leverdatum_afwijkend : b.afhaaldatum_afwijkend)
             ? `<span class="dashboard-icoonbtn" title="Afwijkende ${type === 'levering' ? 'leverdatum' : 'afhaaldatum'} — huurperiode blijft ${fmtDatum(b[datumVeld])}, in te stellen/op te heffen in het dossier">⚡</span>`
             : ''}
           <select class="dashboard-voertuig-select" data-boeking-id="${b.id}" data-type="${type}" title="${huidigVoertuig ? `Voertuig: ${huidigVoertuig}` : 'Geen voertuig toegewezen'}">${voertuigOpties}</select>
-          ${statusPillHtml(b.status, b.saldo_openstaand)}
+          <span class="dashboard-kaart-statuspill">${isVoltooid
+            // Zodra voltooid: de "Klaar voor levering (open saldo)"-tekst (zie
+            // weergaveStatusLabel) klopt dan niet meer — het is al geleverd/
+            // afgehaald — dus die verdwijnt hier bewust. In de plaats: de
+            // GELEVERD/AFGEHAALD-badge (in één oogopslag duidelijk dat het al
+            // gebeurd is) plus gewoon of het nog betaald moet worden. De
+            // toggle-knop hierboven draagt data-status/data-saldo zodat de
+            // click-handler (verder in deze functie, renderDashboardKolom) dit
+            // terug kan omwisselen zonder de hele kolom opnieuw op te vragen.
+            ? `<span class="status-pill status-pill-voltooid">${type === 'levering' ? 'GELEVERD' : 'AFGEHAALD'}</span> ${betaalPillHtml(b.saldo_openstaand)}`
+            : statusPillHtml(b.status, b.saldo_openstaand)}</span>
           <span class="dashboard-kaart-acties">
             ${telLink}
             ${kaartLink}
@@ -786,6 +809,16 @@ function renderDashboardKolom(container, items, type, opties = {}) {
         btn.textContent = nieuweWaarde ? '✅' : '⬜';
         btn.title = nieuweWaarde ? `Gemarkeerd als ${woord} — klik om terug te zetten` : `Markeer als ${woord}`;
         kaart.classList.toggle('dashboard-kaart-voltooid', nieuweWaarde);
+        // GELEVERD/AFGEHAALD + betaald/niet-betaald-pill meteen omwisselen met
+        // de gewone statuspill, zonder de kolom opnieuw op te vragen (zie
+        // kaartHtml hierboven — zelfde logica).
+        const pillContainer = kaart.querySelector('.dashboard-kaart-statuspill');
+        if (pillContainer) {
+          const saldo = btn.dataset.saldo === '' ? null : Number(btn.dataset.saldo);
+          pillContainer.innerHTML = nieuweWaarde
+            ? `<span class="status-pill status-pill-voltooid">${btn.dataset.type === 'levering' ? 'GELEVERD' : 'AFGEHAALD'}</span> ${betaalPillHtml(saldo)}`
+            : statusPillHtml(btn.dataset.status, saldo);
+        }
         toonToast(nieuweWaarde ? 'Gemarkeerd als voltooid' : 'Markering ongedaan gemaakt');
       } catch (err) {
         alert(err.message);
