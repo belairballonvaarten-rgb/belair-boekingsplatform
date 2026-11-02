@@ -2,6 +2,7 @@ const express = require('express');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
+const { berekenPrijstabel } = require('../utils/prijstabel');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -25,32 +26,41 @@ router.get('/', asyncHandler(async (req, res) => {
   // volledig voldaan zijn. Ze verdwijnen pas zodra Jonas ze expliciet afvinkt
   // (leveringen.facturatie_afgehandeld), los van de officiële boekingsstatus.
   const VOLLEDIG_VOLDAAN_STATUSSEN = ['betaald_volledig', 'voldaan_manueel'];
-  const { rows: teFacturerenRuw } = await db.query(
-    `SELECT b.id, b.gewenste_datum_start, k.naam AS klant_naam, k.telefoon AS klant_telefoon,
-            COALESCE(bp_totaal.waarde, 0) AS waarde,
-            COALESCE(bet.betaald_bedrag, 0) AS betaling_ontvangen
+  const { rows: kandidaten } = await db.query(
+    `SELECT b.id, b.gewenste_datum_start, k.naam AS klant_naam, k.telefoon AS klant_telefoon
      FROM boekingen b
      JOIN klanten k ON k.id = b.klant_id
      LEFT JOIN leveringen l ON l.boeking_id = b.id
-     LEFT JOIN (
-       SELECT boeking_id, SUM(prijs * aantal) AS waarde
-       FROM boeking_producten GROUP BY boeking_id
-     ) bp_totaal ON bp_totaal.boeking_id = b.id
-     LEFT JOIN betalingen bet ON bet.boeking_id = b.id
      WHERE b.status = ANY($1) AND NOT (b.status = ANY($2))
        AND b.gewenste_datum_start <= CURRENT_DATE
        AND COALESCE(l.facturatie_afgehandeld, false) = false
      ORDER BY b.gewenste_datum_start`,
     [GEPLANDE_STATUSSEN, VOLLEDIG_VOLDAAN_STATUSSEN]
   );
-  const teFactureren = teFacturerenRuw
-    .filter((b) => Number(b.waarde) - Number(b.betaling_ontvangen) > 0.01)
-    .map((b) => ({
-      id: b.id, klant_naam: b.klant_naam, klant_telefoon: b.klant_telefoon,
-      gewenste_datum_start: b.gewenste_datum_start,
-      waarde: b.waarde, betaling_ontvangen: b.betaling_ontvangen,
-      saldo: Math.round((Number(b.waarde) - Number(b.betaling_ontvangen)) * 100) / 100,
-    }));
+  // BELANGRIJKE FIX: het openstaand saldo hier NIET meer zelf (opnieuw, en
+  // verkeerd) berekenen als "som van de productprijzen min een apart
+  // 'betalingen'-overzichtsrecord" — dat negeerde transportkost, toeslag/
+  // korting en een eventuele vaste_totaalprijs volledig, en gebruikte een
+  // apart bijgehouden (en dus potentieel niet-exact-synchroon) overzicht i.p.v.
+  // de echte betalingen. Een boeking met bv. transportkost waarvan het
+  // ontvangen voorschot toevallig exact de productprijs dekte, viel hierdoor
+  // stil van de lijst terwijl het ECHTE totaalsaldo (incl. transport) nog
+  // openstond — zo kon "Nog te factureren" items missen zonder dat Jonas dat
+  // ergens zag. Gebruik i.p.v. dat zelf opnieuw uit te rekenen gewoon
+  // berekenPrijstabel() — exact dezelfde, overal elders al geteste berekening
+  // (dossier, Dashboard, klant-bevestiging) — zodat dit altijd consistent is.
+  const teFactureren = [];
+  for (const b of kandidaten) {
+    const prijstabel = await berekenPrijstabel(b.id);
+    if (prijstabel.saldo_openstaand > 0.01) {
+      teFactureren.push({
+        id: b.id, klant_naam: b.klant_naam, klant_telefoon: b.klant_telefoon,
+        gewenste_datum_start: b.gewenste_datum_start,
+        waarde: prijstabel.totaal, betaling_ontvangen: prijstabel.betaald_bedrag,
+        saldo: prijstabel.saldo_openstaand,
+      });
+    }
+  }
 
   // 2. Vuile/natte producten: ALLE producten die momenteel als "vuil"
   // gemarkeerd staan, los van een specifieke dag of boeking (het is een

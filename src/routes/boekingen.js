@@ -764,12 +764,26 @@ router.get('/:id/beschikbaarheid', asyncHandler(async (req, res) => {
     [req.params.id]
   );
 
-  const problemen = [];
+  // Zelfde reden als bij POST / en PUT /:id hierboven: eerst per product_id
+  // SOMMEREN. Dit endpoint voedt o.a. de beschikbaarheid-badge in de
+  // Aanvragen-inbox en bij het dossier — net de plek waar Jonas een conflict
+  // moet zien. Bij 2 regels van hetzelfde product (bv. 2 opties) zou elke
+  // regel apart checken een reëel conflict kunnen verbergen.
+  const gevraagdPerProduct = new Map();
   for (const p of producten) {
+    const bestaand = gevraagdPerProduct.get(p.product_id);
+    gevraagdPerProduct.set(p.product_id, {
+      naam: p.product_naam,
+      totaalAantal: (bestaand ? bestaand.totaalAantal : 0) + p.aantal,
+    });
+  }
+
+  const problemen = [];
+  for (const [productId, { naam, totaalAantal }] of gevraagdPerProduct) {
     const check = await checkBeschikbaarheid(
-      p.product_id, boeking.gewenste_datum_start, boeking.gewenste_datum_einde, p.aantal, req.params.id
+      productId, boeking.gewenste_datum_start, boeking.gewenste_datum_einde, totaalAantal, req.params.id
     );
-    if (!check.beschikbaar) problemen.push(`${p.product_naam}: ${check.reden}`);
+    if (!check.beschikbaar) problemen.push(`${naam}: ${check.reden}`);
   }
   res.json({ beschikbaar: problemen.length === 0, problemen });
 }));
@@ -845,8 +859,27 @@ router.put('/:id', asyncHandler(async (req, res) => {
        WHERE bp.boeking_id = $1`,
       [req.params.id]
     );
+    // BELANGRIJK: eerst per product_id SOMMEREN i.p.v. elke productregel apart
+    // te checken — zelfde reden als bij POST / (nieuwe boeking) hierboven. Deze
+    // boeking kan 2 regels van HETZELFDE product hebben (bv. 2 verschillende
+    // opties van dezelfde springkasteel, toegevoegd via het dossier op
+    // verschillende momenten). exclBoekingId sluit bij het checken terecht
+    // de VOLLEDIGE eigen boeking uit — maar als we dan toch nog per regel
+    // apart (met enkel het aantal van die regel zelf) tegen de andere
+    // boekingen checken, wordt de andere regel van diezelfde boeking nergens
+    // meegeteld:
+    // elke regel afzonderlijk kan "passen" terwijl het totaal van deze boeking
+    // samen met de andere boekingen wél over de voorraad gaat.
+    const gevraagdPerProduct = new Map();
     for (const p of producten) {
-      const check = await checkBeschikbaarheid(p.product_id, nieuweStart, nieuweEinde, p.aantal, req.params.id);
+      const bestaand = gevraagdPerProduct.get(p.product_id);
+      gevraagdPerProduct.set(p.product_id, {
+        naam: p.naam,
+        totaalAantal: (bestaand ? bestaand.totaalAantal : 0) + p.aantal,
+      });
+    }
+    for (const [productId, { naam, totaalAantal }] of gevraagdPerProduct) {
+      const check = await checkBeschikbaarheid(productId, nieuweStart, nieuweEinde, totaalAantal, req.params.id);
       // force_overboeken: Jonas bevestigde al dat dit bewust een overboeking is
       // (bv. 's morgens nog afhalen, diezelfde namiddag al terug plaatsen) — zie
       // magOverboekenNaBevestiging() in public/js/app.js. De boeking wordt dan
@@ -855,7 +888,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
       if (!check.beschikbaar && !req.body.force_overboeken) {
         // Productnaam mee in de foutmelding — anders weet je bij meerdere
         // producten op één boeking niet welk van de twee de botsing veroorzaakt.
-        return res.status(409).json({ fout: `Niet beschikbaar op de nieuwe periode voor "${p.naam}": ${check.reden}`, product_id: p.product_id });
+        return res.status(409).json({ fout: `Niet beschikbaar op de nieuwe periode voor "${naam}": ${check.reden}`, product_id: productId });
       }
     }
   }
@@ -940,18 +973,49 @@ router.put('/:id/producten/:regelId', asyncHandler(async (req, res) => {
   const { prijs, aantal, optie_keuze_id } = req.body;
   const updates = [];
   const params = [];
-  if (aantal !== undefined) { params.push(aantal); updates.push(`aantal = $${params.length}`); }
+
+  // Regel + boekingsperiode altijd opzoeken (vroeger enkel bij een
+  // optiewijziging) — nodig voor de beschikbaarheidscheck hieronder zodra het
+  // aantal wijzigt. BELANGRIJKE FIX: deze check ontbrak hier VOLLEDIG — het
+  // bewerken van het aantal op een al bestaande productregel (bv. via de
+  // productenkiezer in het dossier, die bij eenzelfde product gewoon het
+  // aantal van de bestaande regel ophoogt i.p.v. een nieuwe regel te maken)
+  // ging rechtstreeks naar de UPDATE hieronder, zonder ooit checkBeschikbaarheid
+  // aan te roepen zoals POST .../producten (een NIEUWE regel) dat wél al deed.
+  // Daardoor kon het aantal van een bestaand product stilletjes opgehoogd
+  // worden tot ver voorbij wat nog vrij was — een echte overboeking, zonder
+  // de gebruikelijke "Niet beschikbaar, toch doorzetten?"-waarschuwing (zie
+  // magOverboekenNaBevestiging/apiMetOverboekenRetry in app.js, die deze route
+  // al via dossierProductToevoegen aanroepen en dus meteen van deze fix
+  // profiteren, zonder dat de frontend zelf iets hoeft te wijzigen).
+  const { rows: regelRows } = await db.query(
+    `SELECT bp.product_id, bp.prijs, bp.optie_meerkost,
+            b.gewenste_datum_start, b.gewenste_datum_einde
+     FROM boeking_producten bp JOIN boekingen b ON b.id = bp.boeking_id
+     WHERE bp.id = $1 AND bp.boeking_id = $2`,
+    [req.params.regelId, req.params.id]
+  );
+  if (!regelRows[0]) return res.status(404).json({ fout: 'Productregel niet gevonden' });
+  const regel = regelRows[0];
+
+  if (aantal !== undefined) {
+    // exclBoekingId = deze boeking zelf: haar eigen huidige gebruik (incl. het
+    // OUDE aantal van deze regel) mag niet tegen zichzelf meetellen — enkel
+    // checken of het NIEUWE aantal nog past tegenover andere boekingen.
+    const check = await checkBeschikbaarheid(
+      regel.product_id, regel.gewenste_datum_start, regel.gewenste_datum_einde, aantal, req.params.id
+    );
+    if (!check.beschikbaar && !req.body.force_overboeken) {
+      return res.status(409).json({ fout: `Niet beschikbaar: ${check.reden}` });
+    }
+    params.push(aantal); updates.push(`aantal = $${params.length}`);
+  }
 
   let nieuwePrijs = prijs;
   if (optie_keuze_id !== undefined) {
-    const { rows: regelRows } = await db.query(
-      'SELECT product_id, prijs, optie_meerkost FROM boeking_producten WHERE id = $1 AND boeking_id = $2',
-      [req.params.regelId, req.params.id]
-    );
-    if (!regelRows[0]) return res.status(404).json({ fout: 'Productregel niet gevonden' });
     let optie;
     try {
-      optie = await haalOptieKeuzeOp(db, regelRows[0].product_id, optie_keuze_id);
+      optie = await haalOptieKeuzeOp(db, regel.product_id, optie_keuze_id);
     } catch (err) {
       return res.status(err.status || 400).json({ fout: err.message });
     }
@@ -962,9 +1026,9 @@ router.put('/:id/producten/:regelId', asyncHandler(async (req, res) => {
     // bijsturen met het verschil tussen de oude en de nieuwe meerkost, zodat
     // het wisselen van optie meteen doorwerkt in de totaalprijs van deze regel.
     if (nieuwePrijs === undefined) {
-      const huidigeMeerkost = Number(regelRows[0].optie_meerkost) || 0;
+      const huidigeMeerkost = Number(regel.optie_meerkost) || 0;
       const nieuweMeerkost = optie ? Number(optie.meerkost) : 0;
-      nieuwePrijs = Number(regelRows[0].prijs) - huidigeMeerkost + nieuweMeerkost;
+      nieuwePrijs = Number(regel.prijs) - huidigeMeerkost + nieuweMeerkost;
     }
   }
   if (nieuwePrijs !== undefined) { params.push(nieuwePrijs); updates.push(`prijs = $${params.length}`); }
@@ -1214,10 +1278,23 @@ router.post('/', asyncHandler(async (req, res) => {
   // andere klant en diezelfde namiddag al terug plaatsen. Zo'n overboeking
   // blijft daarna gewoon zichtbaar als conflict bij het dossier (zie
   // GET /:id/beschikbaarheid), i.p.v. onopgemerkt te blijven.
+  //
+  // BELANGRIJK: eerst per product_id SOMMEREN i.p.v. elke productregel apart
+  // te checken. Eén nieuwe boeking kan meerdere regels van HETZELFDE product
+  // bevatten (bv. 2 verschillende opties/varianten van dezelfde springkasteel,
+  // zie voegProductRijToe() in app.js die dat toelaat zolang de optie
+  // verschilt) — die delen allemaal dezelfde voorraad (max_boekingen_per_dag).
+  // Elke regel afzonderlijk tegen de (nog ongewijzigde) databank checken zou
+  // dat niet zien: 2 regels van elk 8 stuks op een voorraad van 10 zouden dan
+  // elk apart "ok" krijgen, terwijl het gevraagde totaal (16) niet past.
+  const gevraagdPerProduct = new Map();
   for (const p of producten) {
-    const check = await checkBeschikbaarheid(p.product_id, gewenste_datum_start, datumEinde, p.aantal || 1);
+    gevraagdPerProduct.set(p.product_id, (gevraagdPerProduct.get(p.product_id) || 0) + (Number(p.aantal) || 1));
+  }
+  for (const [productId, totaalAantal] of gevraagdPerProduct) {
+    const check = await checkBeschikbaarheid(productId, gewenste_datum_start, datumEinde, totaalAantal);
     if (!check.beschikbaar && !req.body.force_overboeken) {
-      return res.status(409).json({ fout: `Niet beschikbaar: ${check.reden}`, product_id: p.product_id });
+      return res.status(409).json({ fout: `Niet beschikbaar: ${check.reden}`, product_id: productId });
     }
   }
 
