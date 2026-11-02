@@ -118,6 +118,33 @@ function scheidPostcodeGemeente(waardeA, waardeB) {
   return { postcode: waardeA || null, gemeente: waardeB || null };
 }
 
+// Sommige formulieren (bv. cateringmateriaal/events-aanvragen) sturen geen
+// los "Product"-veld met telkens 1 item, maar één "Services List"-tekstveld
+// met de VOLLEDIGE opsomming, elk als "Naam: aantal", gescheiden door komma's
+// — bv. 'Percolator 6L: 1, Buffettafel: 8, Klapstoel "zwart": 45, Glazen: 40,
+// Servies: 50, Venster frigo: 1'. Voorheen werd dit veld nergens gelezen,
+// waardoor enkel het aparte "Product"-veld (meestal gewoon het eerste item
+// uit diezelfde lijst) een productregel werd, en de rest van de bestelling
+// in de boeking zelf volledig ontbrak (de ruwe inzending bleef wel altijd
+// bewaard, zie website_inzendingen.ruwe_data — enkel de OMZETTING naar
+// productregels miste dit). We splitsen op komma, en per stuk op de laatste
+// ":" voor de naam/aantal — ontbreekt een herkenbaar aantal, dan nemen we 1
+// (beter een regel met mogelijk verkeerd aantal dan een item dat stilzwijgend
+// verdwijnt).
+function parseServicesLijst(ruw) {
+  if (!ruw) return [];
+  return ruw
+    .split(',')
+    .map((stuk) => stuk.trim())
+    .filter(Boolean)
+    .map((stuk) => {
+      const match = stuk.match(/^(.+):\s*(\d+)\s*$/);
+      if (!match) return { naam: stuk, aantal: 1 };
+      return { naam: match[1].trim(), aantal: parseInt(match[2], 10) || 1 };
+    })
+    .filter((item) => item.naam);
+}
+
 async function vindProductId(naamRuw) {
   if (!naamRuw) return null;
   const zoek = normaliseerTekst(naamRuw);
@@ -189,6 +216,7 @@ async function verwerkInzending(ruweData) {
   const huurvoorwaardenRuw = zoekVeld(ruweData, 'Huurvoorwaarden');
   const huurvoorwaarden_geaccepteerd = Boolean(huurvoorwaardenRuw && normaliseerTekst(huurvoorwaardenRuw).includes('akkoord'));
   const productNaam = zoekVeld(ruweData, 'Product');
+  const servicesLijstRuw = zoekVeld(ruweData, 'Services List', 'Services lijst', 'Diensten', 'Productenlijst', 'Producten lijst');
 
   // Niets hiervan blokkeert nog de aanmaak — enkel verzamelen voor de
   // "nog na te kijken"-opmerking hieronder.
@@ -226,11 +254,28 @@ async function verwerkInzending(ruweData) {
   // migratie 049) i.p.v. enkel vermeld in de Opmerkingen — zo valt het meteen
   // op in de productenlijst zelf van het dossier, en is het in 1 klik te
   // vervangen door het juiste product.
-  const productId = productNaam ? await vindProductId(productNaam) : null;
-  if (!productNaam) {
+  //
+  // Is er een "Services List" (zie parseServicesLijst hierboven), dan bevat
+  // die AL het volledige order (het losse "Product"-veld is daar typisch
+  // gewoon het eerste item van) — dan gebruiken we uitsluitend de lijst, met
+  // elk item z'n eigen aantal, i.p.v. ook nog het Product-veld als aparte
+  // (dubbele) regel toe te voegen. Is er geen Services List, dan blijft het
+  // gedrag exact zoals voorheen: het ene Product-veld, aantal 1.
+  const servicesLijst = parseServicesLijst(servicesLijstRuw);
+  const productItems = servicesLijst.length
+    ? servicesLijst
+    : (productNaam ? [{ naam: productNaam, aantal: 1 }] : []);
+
+  if (!productItems.length) {
     aandachtspunten.push('Geen product opgegeven in het webformulier — zelf toevoegen.');
-  } else if (!productId) {
-    aandachtspunten.push(`Product "${productNaam}" niet herkend in de productenlijst — rode regel "niet herkend" toegevoegd, zelf corrigeren.`);
+  }
+  const productRegels = [];
+  for (const item of productItems) {
+    const gevondenId = await vindProductId(item.naam);
+    if (!gevondenId) {
+      aandachtspunten.push(`Product "${item.naam}" niet herkend in de productenlijst — rode regel "niet herkend" toegevoegd, zelf corrigeren.`);
+    }
+    productRegels.push({ naam: item.naam, aantal: item.aantal, productId: gevondenId });
   }
 
   const adresVolledig = [plaatsingsadres, [postcode, gemeente].filter(Boolean).join(' ')].filter(Boolean).join(', ') || null;
@@ -266,21 +311,29 @@ async function verwerkInzending(ruweData) {
       ]
     );
     const boekingId = boekingRows[0].id;
-    if (productId) {
-      // Herkend product: gewoon een normale regel, zoals bij elke manuele boeking.
-      const { rows: productRows } = await client.query('SELECT prijs FROM producten WHERE id = $1', [productId]);
-      await client.query(
-        'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, 1, $3)',
-        [boekingId, productId, productRows[0]?.prijs || 0]
-      );
-    } else if (productNaam) {
-      // Niet herkend, maar er stond wél iets in het Product-veld: een
-      // placeholder-regel (prijs 0, nog zelf te bepalen) met de letterlijke
-      // tekst, die in het dossier rood/"niet herkend" getoond wordt.
-      await client.query(
-        'INSERT INTO boeking_producten (boeking_id, product_id, ruwe_naam, aantal, prijs) VALUES ($1, NULL, $2, 1, 0)',
-        [boekingId, productNaam]
-      );
+    // Eén regel per item uit productRegels (hierboven al bepaald — ofwel de
+    // volledige Services List, ofwel het ene Product-veld) i.p.v. voorheen
+    // altijd maximaal één regel: dat was precies de bug — bij een "Services
+    // List" met meerdere items werd enkel het eerste/aparte Product-veld
+    // geregistreerd en ging de rest van de bestelling nergens in de boeking
+    // zelf terecht.
+    for (const regel of productRegels) {
+      if (regel.productId) {
+        // Herkend product: gewoon een normale regel, zoals bij elke manuele boeking.
+        const { rows: productRows } = await client.query('SELECT prijs FROM producten WHERE id = $1', [regel.productId]);
+        await client.query(
+          'INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs) VALUES ($1, $2, $3, $4)',
+          [boekingId, regel.productId, regel.aantal, productRows[0]?.prijs || 0]
+        );
+      } else {
+        // Niet herkend: een placeholder-regel (prijs 0, nog zelf te bepalen)
+        // met de letterlijke tekst, die in het dossier rood/"niet herkend"
+        // getoond wordt — met het aantal dat in de Services List stond.
+        await client.query(
+          'INSERT INTO boeking_producten (boeking_id, product_id, ruwe_naam, aantal, prijs) VALUES ($1, NULL, $2, $3, 0)',
+          [boekingId, regel.naam, regel.aantal]
+        );
+      }
     }
     await client.query(
       'INSERT INTO boeking_status_historiek (boeking_id, van_status, naar_status) VALUES ($1, NULL, $2)',

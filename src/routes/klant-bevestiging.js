@@ -35,6 +35,16 @@ const router = express.Router();
 // opentrekken.
 const BEVESTIGBARE_STATUSSEN = ['nieuw', 'in_behandeling', 'geaccepteerd', 'ingepland'];
 
+// Statussen die aantonen dat de aanvraag al voorbij het bevestigingspunt is
+// GERAAKT (bv. Jonas heeft de status zelf al manueel naar "Bevestigd" of
+// verder gezet in het dossier, zonder dat de klant ooit op de knop in de mail
+// klikte — klant_bevestigd_op blijft dan NULL). Zonder deze lijst viel dit
+// geval vroeger door naar de rode "Kan niet meer bevestigd worden"-pagina,
+// wat voor de klant aanvoelde alsof er iets fout liep — terwijl de aanvraag
+// net in orde is. Enkel 'geweigerd' (niet in deze lijst) toont nog die
+// pagina: dat is wél een geval waar de link terecht niets meer doet.
+const AL_BEVESTIGD_STATUSSEN = ['bevestigd', 'betaalverzoek_verstuurd', 'betaald_deels', 'betaald_volledig', 'gefactureerd', 'voldaan_manueel'];
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function escapeHtml(tekst) {
@@ -182,7 +192,7 @@ async function haalBevestigbareBoekingOp(req) {
   if (!boeking || boeking.klant_bevestigings_token !== req.params.token) {
     return { fout: PAGINA_LINK_ONGELDIG, status: 404 };
   }
-  if (boeking.klant_bevestigd_op) {
+  if (boeking.klant_bevestigd_op || AL_BEVESTIGD_STATUSSEN.includes(boeking.status)) {
     return { fout: PAGINA_AL_BEVESTIGD, status: 200 };
   }
   if (!BEVESTIGBARE_STATUSSEN.includes(boeking.status)) {
