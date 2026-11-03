@@ -27,6 +27,7 @@ const crewRoutes = require('./routes/crew');
 const mailTemplatesRoutes = require('./routes/mail-templates');
 const klantBevestigingRoutes = require('./routes/klant-bevestiging');
 const productInfoPubliekRoutes = require('./routes/product-info-publiek');
+const todoRoutes = require('./routes/todo');
 const { startPeriodiekeSync } = require('./utils/leveringenAppSync');
 
 const app = express();
@@ -82,6 +83,7 @@ app.use('/api/sync', syncRoutes);
 app.use('/api/voertuigen', voertuigenRoutes);
 app.use('/api/planning', planningRoutes);
 app.use('/api/dagoverzicht', dagoverzichtRoutes);
+app.use('/api/todo', todoRoutes);
 app.use('/api/crew', crewRoutes);
 app.use('/api/mail-templates', mailTemplatesRoutes);
 // Publiek (geen login) — de "Ik bevestig"-knop in de aanvraagbevestigingsmail

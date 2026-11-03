@@ -1158,6 +1158,16 @@ button.secundair { border: 1px solid var(--blauw); color: var(--blauw); backgrou
 .dagoverzicht-vink .dagoverzicht-detail { font-weight: 600; flex-shrink: 0; margin-left: auto; }
 .dagoverzicht-vuil li { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.3rem 0.6rem; }
 
+/* TODO-paneel (Dagoverzicht) — los, vrij takenlijstje van Jonas zelf. */
+.todo-item { display: flex; align-items: flex-start; gap: 0.5rem; }
+.todo-item input[type="checkbox"] { margin-top: 0.25rem; width: auto; flex-shrink: 0; }
+.todo-item span.todo-tekst { flex: 1 1 auto; word-break: break-word; }
+.todo-item.todo-afgewerkt span.todo-tekst { text-decoration: line-through; color: var(--grijs); }
+.todo-item button.verwijder { background: none; border: none; color: var(--rood); font-weight: 700; cursor: pointer; padding: 0 0.2rem; flex-shrink: 0; }
+.todo-toevoegen { display: flex; gap: 0.5rem; margin-top: 0.8rem; }
+.todo-toevoegen input { margin-top: 0; }
+.todo-toevoegen button { white-space: nowrap; padding: 0.55rem 1rem; }
+
 /* PRODUCT — logistieke velden & certificaat */
 .form-certificaat { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; margin-top: 0.4rem; }
 .certificaat-huidig { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }

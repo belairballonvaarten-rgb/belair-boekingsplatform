@@ -16,6 +16,7 @@ const PRODUCT_KOLOMMEN_ZONDER_BESTAND = `
   id, naam, categorieen, sku, prijs, weekendprijs, afhaalprijs, weekdagprijs, meerdaagse_prijstabel,
   max_boekingen_per_dag, availability_buffer_dagen, overnachting_mogelijk,
   overnachting_toeslag, parent_id, korting_toegelaten, zichtbaarheid, optie_label,
+  logboek_verplicht,
   afbeeldingen, afmetingen, leeftijdscategorie, kostprijs, aankoopdatum, staat, staat_bijgewerkt_op,
   serienummer, bouwjaar,
   motor_type, gewicht_kg, aantal_valmatten, aantal_piketten, aantal_zandzakken,
@@ -98,9 +99,10 @@ router.get('/logboek-overzicht', asyncHandler(async (req, res) => {
             MAX(l.datum) FILTER (WHERE l.type = 'plaatsing') AS laatste_plaatsing
      FROM producten p
      LEFT JOIN product_logboek l ON l.product_id = p.id
-     WHERE p.zichtbaarheid <> 'hidden' OR EXISTS (
-       SELECT 1 FROM product_logboek l2 WHERE l2.product_id = p.id
-     )
+     WHERE p.logboek_verplicht
+       AND (p.zichtbaarheid <> 'hidden' OR EXISTS (
+         SELECT 1 FROM product_logboek l2 WHERE l2.product_id = p.id
+       ))
      GROUP BY p.id, p.naam
      ORDER BY p.naam`
   );
@@ -353,7 +355,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
   const velden = [
     'naam', 'categorieen', 'sku', 'prijs', 'weekendprijs', 'afhaalprijs', 'weekdagprijs', 'meerdaagse_prijstabel',
     'max_boekingen_per_dag', 'availability_buffer_dagen', 'overnachting_mogelijk',
-    'overnachting_toeslag', 'parent_id', 'korting_toegelaten', 'zichtbaarheid',
+    'overnachting_toeslag', 'parent_id', 'korting_toegelaten', 'zichtbaarheid', 'logboek_verplicht',
     'afbeeldingen', 'afmetingen', 'leeftijdscategorie', 'kostprijs', 'aankoopdatum', 'staat',
     'serienummer', 'bouwjaar', 'optie_label',
     'motor_type', 'gewicht_kg', 'aantal_valmatten', 'aantal_piketten', 'aantal_zandzakken',

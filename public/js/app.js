@@ -2059,7 +2059,92 @@ async function laadDagoverzicht() {
   if (datum === dagoverzichtVandaagIso()) {
     document.getElementById('ster-dagoverzicht').hidden = !(data.bijzonderheden && data.bijzonderheden.length);
   }
+
+  // TODO-lijstje is los van de gekozen dag (zie laadTodo hieronder) — altijd
+  // meeladen wanneer het Dagoverzicht geopend/ververst wordt.
+  laadTodo();
 }
+
+// ============================================================
+// TODO — Jonas' eigen, vrije takenlijstje op het Dagoverzicht (zie migratie
+// 057/routes/todo.js). Bewust helemaal los van boekingen/klanten: enkel
+// tekst + een vink. Zelfde opzet (lijst + afvinken) als "Nog te factureren"
+// hierboven, vandaar ook dezelfde .dagoverzicht-lijst-opmaak.
+// ============================================================
+function todoItemHtml(item) {
+  return `
+    <li>
+      <div class="todo-item${item.afgewerkt ? ' todo-afgewerkt' : ''}" data-id="${item.id}">
+        <input type="checkbox" class="todo-vink" ${item.afgewerkt ? 'checked' : ''} />
+        <span class="todo-tekst">${item.tekst}</span>
+        <button type="button" class="verwijder todo-verwijder" title="Verwijderen">✕</button>
+      </div>
+    </li>`;
+}
+
+function todoKoppelActies(container) {
+  container.querySelectorAll('.todo-vink').forEach((chk) => {
+    chk.addEventListener('change', async () => {
+      const regel = chk.closest('.todo-item');
+      const id = regel.dataset.id;
+      chk.disabled = true;
+      try {
+        await api(`/api/todo/${id}`, {
+          method: 'PUT',
+          body: JSON.stringify({ afgewerkt: chk.checked }),
+        });
+        laadTodo();
+      } catch (err) {
+        chk.checked = !chk.checked;
+        chk.disabled = false;
+        alert(err.message);
+      }
+    });
+  });
+  container.querySelectorAll('.todo-verwijder').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const regel = btn.closest('.todo-item');
+      const id = regel.dataset.id;
+      try {
+        await api(`/api/todo/${id}`, { method: 'DELETE' });
+        laadTodo();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  });
+}
+
+async function laadTodo() {
+  const container = document.getElementById('dagoverzicht-todo');
+  if (!container) return;
+  const items = await api('/api/todo');
+  container.innerHTML = items.length
+    ? items.map(todoItemHtml).join('')
+    : '<li class="leeg-bericht">Nog geen taken — voeg er hieronder eentje toe.</li>';
+  todoKoppelActies(container);
+}
+
+async function todoToevoegen() {
+  const veld = document.getElementById('todo-nieuw-tekst');
+  const tekst = veld.value.trim();
+  if (!tekst) return;
+  veld.disabled = true;
+  try {
+    await api('/api/todo', { method: 'POST', body: JSON.stringify({ tekst }) });
+    veld.value = '';
+    laadTodo();
+  } catch (err) {
+    alert(err.message);
+  } finally {
+    veld.disabled = false;
+    veld.focus();
+  }
+}
+document.getElementById('btn-todo-toevoegen').addEventListener('click', todoToevoegen);
+document.getElementById('todo-nieuw-tekst').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') { e.preventDefault(); todoToevoegen(); }
+});
 
 // Ster naast "Dagoverzicht" in de menubalk: licht op zodra er bijzonderheden
 // zijn bij een boeking van VANDAAG (los van welke datum je eventueel net aan
@@ -6095,6 +6180,8 @@ async function openProductDetail(productId) {
         <div class="paneel">
           <h4>Logboek (controle/reiniging/herstelling)</h4>
           <p class="uitleg">Verplicht minstens ${LOGBOEK_MINIMUM_CONTROLES}x per jaar een controle/nazicht noteren (FOD-verplichting, een bevestigde plaatsing telt automatisch mee) — zie ook het overzicht onder "Logboek" in het menu.</p>
+          <label class="checkbox"><input type="checkbox" id="pb-logboek-verplicht" ${p.logboek_verplicht ? 'checked' : ''} /> Dit product hoort thuis in het Logboek-overzicht</label>
+          <p class="uitleg-klein" style="margin-top:0.2rem">Zet dit uit voor producten waar de FOD-verplichting niet op slaat (bv. feestmaterialen) — ze verdwijnen dan ook uit "Snel invoeren".</p>
           <p>
             <a href="/api/producten/${p.id}/logboek.pdf" target="_blank" rel="noopener" class="linkbtn">📄 Logboek afdrukken (laatste 5)</a>
             <a href="/api/producten/${p.id}/logboek.pdf?volledig=1" target="_blank" rel="noopener" class="linkbtn">📄 Volledig logboek</a>
@@ -6164,6 +6251,7 @@ async function openProductDetail(productId) {
           max_boekingen_per_dag: parseInt(document.getElementById('pb-max-per-dag').value, 10) || 1,
           availability_buffer_dagen: parseInt(document.getElementById('pb-buffer-dagen').value, 10) || 0,
           zichtbaarheid: document.getElementById('pb-zichtbaarheid').value,
+          logboek_verplicht: document.getElementById('pb-logboek-verplicht').checked,
           motor_type: document.getElementById('pb-motor-type').value || null,
           gewicht_kg: document.getElementById('pb-gewicht-kg').value !== '' ? parseFloat(document.getElementById('pb-gewicht-kg').value) : null,
           aantal_valmatten: document.getElementById('pb-aantal-valmatten').value !== '' ? parseInt(document.getElementById('pb-aantal-valmatten').value, 10) : null,
