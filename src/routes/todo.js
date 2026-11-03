@@ -13,7 +13,14 @@ router.use(vereistIngelogd);
 // Nog niet afgewerkte items eerst (nieuwste eerst), afgewerkte onderaan (meest
 // recent afgewerkt eerst) — zo verdwijnt een afgevinkt item niet meteen uit
 // het zicht, maar zakt het wel netjes onderaan weg.
+//
+// Op vraag van Jonas: een afgevinkt item moet na 1 dag automatisch verdwijnen.
+// Geen aparte cron-job nodig — bij elke keer dat de lijst opgehaald wordt
+// (elk bezoek aan Dagoverzicht) ruimen we eerst op wat al >24u afgewerkt is.
 router.get('/', asyncHandler(async (req, res) => {
+  await db.query(
+    `DELETE FROM todo_items WHERE afgewerkt AND afgewerkt_op < now() - interval '1 day'`
+  );
   const { rows } = await db.query(
     `SELECT * FROM todo_items
      ORDER BY afgewerkt ASC, COALESCE(afgewerkt_op, aangemaakt_op) DESC`
