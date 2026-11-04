@@ -29,6 +29,7 @@ const klantBevestigingRoutes = require('./routes/klant-bevestiging');
 const productInfoPubliekRoutes = require('./routes/product-info-publiek');
 const todoRoutes = require('./routes/todo');
 const { startPeriodiekeSync } = require('./utils/leveringenAppSync');
+const { startPeriodiekeDropboxSync } = require('./utils/dropboxSync');
 
 const app = express();
 
@@ -179,6 +180,11 @@ async function main() {
   // utils/leveringenAppSync.js) — doet gewoon niets zolang
   // LEVERINGEN_APP_URL/_SYNC_SECRET nog niet ingesteld zijn bij Render.
   startPeriodiekeSync();
+  // Zelfde soort vangnet voor de Dropbox-koppeling (foto's + dagelijkse
+  // planning-back-up, zie utils/dropboxSync.js en SETUP-DROPBOX.md) — doet
+  // gewoon niets zolang DROPBOX_APP_KEY/_APP_SECRET/_REFRESH_TOKEN nog niet
+  // ingesteld zijn bij Render.
+  startPeriodiekeDropboxSync();
   app.listen(PORT, () => console.log(`Belair-boekingsplatform API draait op poort ${PORT}`));
 }
 
