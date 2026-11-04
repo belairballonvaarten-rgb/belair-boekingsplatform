@@ -24,6 +24,7 @@
 // hergebruikt bij de leveringen-app — gewoon dezelfde 3 waarden op beide
 // Render-services instellen, niet twee keer een eigen Dropbox-app aanmaken.
 const db = require('../db');
+const { genereerPlanningBackupPdf } = require('./planningBackupPdf');
 
 const BACKUP_MAP = '/Belair-Fun backups';
 
@@ -92,19 +93,28 @@ function naarDatum(waarde) {
   return new Date(waarde).toISOString().slice(0, 10);
 }
 
-// Eén JSON-bestand per kalenderdag met de volledige huidige planning (alle
-// boekingen + hun producten + leveringsgegevens), als extra vangnet naast de
-// databank zelf. Overschrijft het bestand van vandaag als het al bestaat (bv.
-// een tweede ronde dezelfde dag na een herstart) — dus altijd de meest
-// recente stand voor die dag, geen opeenstapeling van meerdere versies.
+// Twee bestanden per kalenderdag, allebei als extra vangnet naast de
+// databank zelf:
+// 1) Eén JSON-bestand met de VOLLEDIGE huidige planning (alle boekingen +
+//    hun producten/leveringsgegevens, zonder datumbeperking) — technische
+//    back-up, bedoeld om een databank mee te herstellen, niet om zelf te lezen.
+// 2) Eén leesbaar PDF-overzicht (zie utils/planningBackupPdf.js) — volledig
+//    detail per boeking (klant, prijs/saldo, producten, notities), maar enkel
+//    recente + toekomstige boekingen, zodat Jonas dit ook gewoon zelf kan
+//    openen/afdrukken (bv. als hij ergens zonder internet zit).
+// Overschrijft de bestanden van vandaag als ze al bestaan (bv. een tweede
+// ronde dezelfde dag na een herstart) — dus altijd de meest recente stand
+// voor die dag, geen opeenstapeling van meerdere versies.
 async function backupPlanningNaarDropbox() {
   if (!isGeconfigureerd()) return;
   const vandaag = naarDatum(new Date());
-  const pad = `${BACKUP_MAP}/planning-${vandaag}.json`;
+  const jsonPad = `${BACKUP_MAP}/planning-${vandaag}.json`;
 
   // Niet elke periodieke ronde (elk uur) opnieuw uploaden als het bestand van
-  // vandaag al bestaat — enkel de eerste keer per dag dat dit draait.
-  if (await bestaatAlInDropbox(pad)) return;
+  // vandaag al bestaat — enkel de eerste keer per dag dat dit draait. Enkel
+  // het JSON-bestand gecheckt: beide horen bij dezelfde dagelijkse ronde, dus
+  // als dat ene er al staat, staat de rest (het PDF) ook al.
+  if (await bestaatAlInDropbox(jsonPad)) return;
 
   const { rows: boekingen } = await db.query(
     `SELECT b.*, k.naam AS klant_naam, k.email AS klant_email, k.telefoon AS klant_telefoon
@@ -115,7 +125,17 @@ async function backupPlanningNaarDropbox() {
   const { rows: leveringen } = await db.query('SELECT * FROM leveringen ORDER BY boeking_id');
 
   const inhoud = JSON.stringify({ gemaakt_op: new Date().toISOString(), boekingen, producten, leveringen }, null, 2);
-  await uploadBestand(pad, Buffer.from(inhoud, 'utf8'));
+  await uploadBestand(jsonPad, Buffer.from(inhoud, 'utf8'));
+
+  // Het PDF mag de dagelijkse ronde nooit laten mislukken (bv. een probleem
+  // bij het opmaken van het document) — de JSON-back-up hierboven staat dan
+  // sowieso al veilig, en het PDF komt gewoon terug bij de volgende ronde.
+  try {
+    const { buffer, bestandsnaam } = await genereerPlanningBackupPdf();
+    await uploadBestand(`${BACKUP_MAP}/${bestandsnaam}`, buffer);
+  } catch (err) {
+    console.warn('[dropboxSync] leesbaar planning-PDF mislukt (JSON-back-up staat wel al klaar):', err.message);
+  }
 }
 
 // Vangnet-achtige periodieke ronde (zelfde opzet als startPeriodiekeSync() in

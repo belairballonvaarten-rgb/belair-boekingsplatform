@@ -649,9 +649,13 @@ legend { font-weight: 700; color: var(--blauw-donker); padding: 0 0.4rem; }
 .logboek-type-keuze-rij .checkbox { font-weight: 400; font-size: 0.9rem; }
 
 /* MODAL */
+/* z-index bewust hoog (5000): Leaflet (zie de kaart "Locatie crew" op het
+   Dashboard) zet zijn eigen besturingselementen/panes tot z-index 1000 —
+   met de vorige waarde (50) kwam de kaart dus bovenop élke modal te staan
+   (bv. "Melding sturen"), waardoor de velden onzichtbaar/onklikbaar werden. */
 .modal {
   position: fixed; inset: 0; background: rgba(0,0,0,0.4);
-  display: flex; align-items: center; justify-content: center; z-index: 50;
+  display: flex; align-items: center; justify-content: center; z-index: 5000;
 }
 /* Zelfde reden als bij #view-login hierboven: zonder deze regel blijft de
    popup als een volledig scherm-dekkende laag zichtbaar en onderschept ze
