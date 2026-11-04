@@ -654,6 +654,21 @@ document.addEventListener('click', () => {
   document.querySelectorAll('.kalender-popover:not([hidden])').forEach((el) => { el.hidden = true; });
 });
 
+// Chrome/Edge wijzigen de waarde van een <input type="number"> die toevallig
+// nog focus heeft wanneer je er met het muiswieltje over scrollt (in plaats
+// van gewoon de pagina te scrollen) — daardoor lijkt het alsof ingevoerde
+// cijfers (bv. "Valmatten", "Verlengkabel standaard/dubbel" op de productfiche)
+// zomaar veranderen/verdwijnen als je naar boven/beneden scrollt terwijl de
+// muis toevallig boven zo'n veld hangt. Oplossing: een nummerveld dat focus
+// heeft meteen laten "blur"-en zodra er gescrolld wordt, zodat het scrollen
+// altijd gewoon de pagina scrollt i.p.v. het getal te wijzigen.
+document.addEventListener('wheel', (e) => {
+  const el = document.activeElement;
+  if (el && el.tagName === 'INPUT' && el.type === 'number') {
+    el.blur();
+  }
+}, { passive: true });
+
 function voertuigSelectOpties(huidigVoertuig) {
   return ['<option value="">🚐 —</option>']
     .concat(VOERTUIGEN.map((v) => `<option value="${v.naam}"${huidigVoertuig === v.naam ? ' selected' : ''}>🚐 ${v.naam}</option>`))

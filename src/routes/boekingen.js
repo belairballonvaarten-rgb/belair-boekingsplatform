@@ -47,7 +47,14 @@ const TOEGELATEN_OVERGANGEN = {
 // nul" — bij een overgang hiernaartoe wordt een eventueel nog openstaand
 // saldo automatisch als betaald geregistreerd, zodat hij niet ook nog apart
 // een betaling van het resterende bedrag moet ingeven.
-const STATUSSEN_MET_AUTOMATISCHE_VOLLEDIGE_BETALING = ['gefactureerd', 'voldaan_manueel'];
+//
+// "betaald_volledig" hoort hier ook bij: Jonas kan via de statusbalk bewust
+// rechtstreeks naar deze status springen (bv. cash/overschrijving die hij zelf
+// al ontving maar niet via het betaalverzoek-traject liep) zonder eerst apart
+// een betaling in te geven — voordien bleef de financiële tabel (Openstaand
+// saldo) in dat geval gewoon staan, wat voor Jonas verwarrend/fout aanvoelde
+// ("ik klik op Betaald (volledig) maar het saldo blijft open staan").
+const STATUSSEN_MET_AUTOMATISCHE_VOLLEDIGE_BETALING = ['betaald_volledig', 'gefactureerd', 'voldaan_manueel'];
 
 // Zoekt een gekozen optie-keuze op (zie migratie 055 / routes/producten.js)
 // en controleert dat ze wel degelijk bij het opgegeven product hoort — anders
@@ -1427,13 +1434,18 @@ router.post('/:id/status', asyncHandler(async (req, res) => {
       );
     }
 
-    // Bij "Gefactureerd" of "Voldaan manueel" het eventueel nog openstaand
-    // saldo automatisch als betaald registreren (zie STATUSSEN_MET_...
+    // Bij "Betaald (volledig)", "Gefactureerd" of "Voldaan manueel" het eventueel
+    // nog openstaand saldo automatisch als betaald registreren (zie STATUSSEN_MET_...
     // hierboven) — Jonas hoeft dan zelf geen aparte betaling meer in te geven.
     if (STATUSSEN_MET_AUTOMATISCHE_VOLLEDIGE_BETALING.includes(nieuweStatus)) {
       const prijstabel = await berekenPrijstabel(req.params.id);
       if (prijstabel.saldo_openstaand > 0.01) {
-        const statusLabel = nieuweStatus === 'gefactureerd' ? 'Gefactureerd' : 'Voldaan manueel';
+        const STATUS_LABEL_PER_STATUS = {
+          betaald_volledig: 'Betaald (volledig)',
+          gefactureerd: 'Gefactureerd',
+          voldaan_manueel: 'Voldaan manueel',
+        };
+        const statusLabel = STATUS_LABEL_PER_STATUS[nieuweStatus] || nieuweStatus;
         await client.query(
           'INSERT INTO betaling_transacties (boeking_id, bedrag, opmerking) VALUES ($1, $2, $3)',
           [req.params.id, prijstabel.saldo_openstaand, `Automatisch volledig betaald gezet bij status "${statusLabel}"`]
