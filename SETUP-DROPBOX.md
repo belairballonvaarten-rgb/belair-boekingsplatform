@@ -1,39 +1,43 @@
 # Dropbox koppelen — foto's + dagelijkse back-up
 
-Met deze koppeling doet het platform twee dingen vanzelf, elk uur:
+Dit gaat over **twee aparte projecten/services bij Render**, die wel
+dezelfde Dropbox-"app" (dezelfde 3 geheime waarden) gebruiken:
 
-1. **Leveringsfoto's** (genomen door de chauffeur bij plaatsing/afhaling in
-   de leveringen-app) worden gekopieerd naar een map in jouw Dropbox:
-   `Belair-Fun leveringsfoto's`, met een submap per boeking (datum + klant).
-2. **Een dagelijkse back-up** van de volledige planning (alle boekingen) als
-   één JSON-bestand per dag, in de map `Belair-Fun backups`.
+1. **Leveringsfoto's in volle kwaliteit** — dit gebeurt in de
+   **leveringen-app** (de crew-app waarin de chauffeur foto's neemt bij
+   plaatsing/afhaling). Die stuurt de originele, niet-verkleinde foto
+   rechtstreeks naar een map in jouw Dropbox op het moment van fotograferen.
+2. **Een dagelijkse back-up van de volledige planning** (alle boekingen) als
+   JSON-bestand, elk uur gecontroleerd/aangemaakt — dit gebeurt **hier**, in
+   dit boekingsplatform, in de map `Belair-Fun backups`.
 
-Je hoeft dit maar **één keer** in te stellen. Het klinkt technischer dan het
+**Heb je al eerder Dropbox ingesteld bij de leveringen-app?** Kijk dat eerst
+na (stap 6 hieronder, maar dan bij de leveringen-app-service op Render) — zo
+ja, dan staan de 3 waarden daar al, en moet je ze hier bij dit
+boekingsplatform gewoon hergebruiken (stap 6), **zonder** stap 1 t.e.m. 5
+opnieuw te doen. Twijfel je, dan kost het geen kwaad om gewoon alles
+hieronder te volgen — Dropbox laat gewoon dezelfde app-sleutel meermaals
+gebruiken.
+
+Je hoeft dit maar **één keer** in te stellen (voor allebei de services samen,
+als je stap 1 t.e.m. 5 nog niet eerder deed). Het klinkt technischer dan het
 is — volg gewoon de stappen hieronder in volgorde. Duurt ongeveer 10 minuten.
-
-**Belangrijk om vooraf te weten:** dit kopieert een foto exact zoals ze nu al
-in de databank van de leveringen-app staat. Of dat ook de volle, originele
-kwaliteit is, hangt af van wat die andere app (de leveringen-app, niet dit
-boekingsplatform) zelf opslaat op het moment dat de chauffeur de foto neemt —
-als die app de foto al verkleint vóór opslag, kan deze koppeling dat niet
-meer "terughalen". Wil je dat met zekerheid vermijden, dan moet dat in de
-leveringen-app zelf aangepast worden.
 
 ---
 
 ## Stap 1 — Een Dropbox-"app" aanmaken
 
 Dit is geen app die je installeert — het is gewoon een naam/toegang die
-Dropbox aanmaakt zodat het boekingsplatform veilig in jouw Dropbox mag
-schrijven, **enkel in zijn eigen map** (niet je hele Dropbox).
+Dropbox aanmaakt zodat de software veilig in jouw Dropbox mag schrijven,
+**enkel in zijn eigen map** (niet je hele Dropbox).
 
 1. Ga naar **https://www.dropbox.com/developers/apps/create** en log in met
    je gewone Dropbox-account.
 2. Bij "Choose an API": kies **Scoped access**.
 3. Bij "Choose the type of access you need": kies **App folder** — dan mag
-   het platform enkel in zijn eigen, aparte map schrijven (`Apps/Belair
-   Boekingsplatform` in je Dropbox), niet ergens anders.
-4. Geef een naam, bv. `Belair Boekingsplatform`.
+   enkel in zijn eigen, aparte map geschreven worden (`Apps/Belair-Fun` in je
+   Dropbox), niet ergens anders.
+4. Geef een naam, bv. `Belair-Fun`.
 5. Klik op **Create app**.
 
 ## Stap 2 — Rechten instellen (Permissions)
@@ -88,9 +92,13 @@ curl https://api.dropboxapi.com/oauth2/token \
 Je krijgt een antwoord terug met daarin `"refresh_token": "..."` — dat lange
 stuk tekst (zonder de aanhalingstekens) is wat je nodig hebt bij stap 6.
 
-## Stap 6 — De 3 waarden doorgeven aan Render
+## Stap 6 — De 3 waarden doorgeven aan Render — **bij BEIDE services**
 
-1. Ga naar je service op **https://dashboard.render.com**.
+Voeg deze 3 waarden toe bij **zowel** de leveringen-app-service **als** de
+boekingsplatform-service op Render (dezelfde 3 waarden, gewoon tweemaal
+instellen):
+
+1. Ga naar de service op **https://dashboard.render.com**.
 2. Ga naar **Environment**.
 3. Voeg deze 3 waarden toe:
 
@@ -101,21 +109,23 @@ stuk tekst (zonder de aanhalingstekens) is wat je nodig hebt bij stap 6.
    | `DROPBOX_REFRESH_TOKEN` | het refresh token uit stap 5 |
 
 4. Sla op. Render herstart de service automatisch — dat duurt even (1-2
-   minuten).
+   minuten). Herhaal dit voor de andere service.
 
 ## Klaar
 
-Zodra Render herstart is, begint het platform vanzelf (elk uur, en meteen al
-bij het opstarten) nieuwe leveringsfoto's en de dagelijkse planning-back-up
-naar je Dropbox te kopiëren — geen knop nodig. De eerste ronde kan dus tot
-een uur op zich laten wachten na het herstarten.
+- Bij de **leveringen-app**: vanaf nu stuurt elke nieuw genomen foto (bij
+  plaatsing/afhaling) automatisch de originele, niet-verkleinde versie naar
+  een map in je Dropbox — genoemd naar datum + klant. **Enkel nieuwe foto's
+  vanaf nu**, geen bestaande foto's met terugwerkende kracht (die stonden al
+  verkleind opgeslagen, het origineel bestaat daarvan nergens meer om alsnog
+  op te halen).
+- Bij dit **boekingsplatform**: begint elk uur (en meteen al bij het
+  opstarten) automatisch de dagelijkse planning-back-up te controleren/maken
+  in de map `Belair-Fun backups` — geen knop nodig.
 
 **Even opletten:**
-- Ook **bestaande** foto's (van vóór deze koppeling) worden gesynct, niet
-  enkel nieuwe — maar in porties van maximaal 25 per uur, om Dropbox niet te
-  overbelasten. Heb je een grote achterstand aan foto's staan, dan kan het
-  dus even duren (bv. 200 foto's ≈ 8 uur) voor alles ingehaald is — nieuwe
-  foto's komen daarna gewoon telkens binnen het uur mee.
-- Als iets één keer mislukt (bv. tijdelijk geen internet), probeert het
-  platform dat vanzelf opnieuw bij de volgende ronde — je hoeft zelf niets te
-  doen.
+- Als iets één keer mislukt (bv. tijdelijk geen internet op locatie), wordt
+  dat gewoon stilzwijgend overgeslagen voor die ene foto/dag — er is geen
+  her-probeer-mechanisme voor een mislukte foto-upload, enkel voor de
+  dagelijkse back-up (die controleert gewoon elk uur opnieuw of vandaag al
+  gebeurd is).

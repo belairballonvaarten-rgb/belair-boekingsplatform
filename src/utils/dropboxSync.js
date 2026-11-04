@@ -1,31 +1,30 @@
-// Koppeling met Dropbox — op vraag van Jonas, voor twee dingen (zie
-// SETUP-DROPBOX.md voor de eenmalige opzet die hij zelf, één keer, moet doen):
+// Koppeling met Dropbox — dagelijkse back-up van de huidige planning (alle
+// boekingen + hun producten/levering) als één JSON-bestand per dag, als
+// extra vangnet naast de databank zelf. Zie SETUP-DROPBOX.md voor de
+// eenmalige opzet die Jonas zelf, één keer, moet doen.
 //
-// 1) Leveringsfoto's — genomen door de chauffeur bij plaatsing/afhaling in de
-//    leveringen-app (crew-app), die rechtstreeks in deze gedeelde databank
-//    schrijft (tabel leveringen_fotos, zie routes/boekingen.js) — worden hier
-//    automatisch gekopieerd naar een Dropbox-map. BELANGRIJK: dit kopieert de
-//    foto exact zoals ze nu al in de databank staat. Of dat ook de volle,
-//    originele resolutie is, hangt af van wat de leveringen-app zelf bij het
-//    fotograferen opslaat (dat is een ander project, niet dit boekingsplatform)
-//    — als die app de foto al verkleint vóór opslag, kan deze sync dat niet
-//    meer "terughalen". Wil Jonas dat met zekerheid ook de oorspronkelijke,
-//    onverkleinde foto naar Dropbox gaat, dan moet dat in de leveringen-app
-//    zelf gebeuren, op het moment van fotograferen.
-//
-// 2) Een dagelijkse back-up van de huidige planning (alle boekingen + hun
-//    producten/levering) als één JSON-bestand per dag, als extra vangnet
-//    naast de databank zelf.
+// LET OP, dit bestand doet NIET de leveringsfoto's — die horen bij de
+// leveringen-app (crew-app), niet hier. Eerst zat hier ook een foto-sync die
+// las wat al in de gedeelde databank stond (tabel leveringen_fotos), maar
+// die kan NOOIT meer dan de daar al verkleinde (900px/62%-kwaliteit) foto
+// leveren — de leveringen-app verkleint de foto immers al vóór opslag, dus
+// het origineel bestaat nergens anders meer om alsnog in volle kwaliteit
+// door te sturen. Voor "foto's in Dropbox in volle kwaliteit" is de
+// leveringen-app zelf aangepast: die stuurt nu, los van de normale opslag
+// hier, de ORIGINELE (niet-verkleinde) foto rechtstreeks naar Dropbox op het
+// moment van fotograferen (zie server.js/public/index.html in dat project).
 //
 // Gebruikt de kale Dropbox HTTP-API via de ingebouwde fetch (geen extra
 // npm-package nodig — zelfde aanpak als wordpressSync.js/eenvoudigFactureren.js
 // hiernaast) met een "refresh token"-opzet: dat token verloopt nooit (tot
 // Jonas het zelf intrekt in Dropbox), en wordt hier bij elke nodige aanroep
 // omgewisseld voor een kortlevend access-token (geldig enkele uren — we
-// cachen het dus even i.p.v. bij elke upload opnieuw aan te vragen).
+// cachen het dus even i.p.v. bij elke upload opnieuw aan te vragen). Dezelfde
+// 3 omgevingsvariabelen (DROPBOX_APP_KEY/_APP_SECRET/_REFRESH_TOKEN) worden
+// hergebruikt bij de leveringen-app — gewoon dezelfde 3 waarden op beide
+// Render-services instellen, niet twee keer een eigen Dropbox-app aanmaken.
 const db = require('../db');
 
-const FOTO_MAP = "/Belair-Fun leveringsfoto's";
 const BACKUP_MAP = '/Belair-Fun backups';
 
 function isGeconfigureerd() {
@@ -60,7 +59,7 @@ async function haalAccessToken() {
 
 // Uploadt ruwe bytes naar een vast pad in Dropbox — overschrijft als dat pad
 // al bestaat (handig bij een herhaalde poging na een eerder mislukte upload,
-// bv. de dagelijkse back-up die telkens hetzelfde pad voor "vandaag" gebruikt).
+// en voor de dagelijkse back-up die telkens hetzelfde pad voor "vandaag" gebruikt).
 async function uploadBestand(dropboxPad, buffer) {
   const token = await haalAccessToken();
   const resp = await fetch('https://content.dropboxapi.com/2/files/upload', {
@@ -88,55 +87,9 @@ async function bestaatAlInDropbox(dropboxPad) {
   return resp.ok;
 }
 
-// Dropbox-paden mogen geen "/" bevatten in een bestands-/mapnaam, en we
-// willen geen rare tekens (klantnamen met leestekens e.d.) — simpele,
-// veilige vervanging; lang genoeg voor een leesbare mapnaam, niet langer.
-function veiligeNaam(tekst) {
-  return String(tekst || '').replace(/[/\\:*?"<>|]/g, '-').trim().slice(0, 80) || 'onbekend';
-}
-
 function naarDatum(waarde) {
   if (!waarde) return 'onbekende-datum';
   return new Date(waarde).toISOString().slice(0, 10);
-}
-
-// Zoekt leveringsfoto's die nog niet naar Dropbox gekopieerd zijn
-// (dropbox_pad IS NULL, zie migratie 059) en uploadt ze één voor één, per
-// boeking/datum in een eigen submap. Bewust NIET binnen één transactie: elke
-// foto die lukt wordt meteen als "gesynct" gemarkeerd, zodat een foto die om
-// wat voor reden dan ook mislukt (bv. tijdelijk geen internet) niet blokkeert
-// dat de andere, al gelukte, niet telkens opnieuw geprobeerd worden — en de
-// mislukte komt vanzelf terug bij de volgende periodieke ronde.
-async function syncFotosNaarDropbox() {
-  if (!isGeconfigureerd()) return;
-  const { rows } = await db.query(
-    `SELECT lf.id, lf.fase, lf.naam, lf.data_url, lf.aangemaakt_op,
-            k.naam AS klant_naam, b.gewenste_datum_start
-     FROM leveringen_fotos lf
-     JOIN leveringen l ON l.id = lf.leveringen_id
-     JOIN boekingen b ON b.id = l.boeking_id
-     JOIN klanten k ON k.id = b.klant_id
-     WHERE lf.dropbox_pad IS NULL
-     ORDER BY lf.aangemaakt_op
-     LIMIT 25`
-  );
-  for (const foto of rows) {
-    try {
-      const komma = foto.data_url.indexOf(',');
-      if (komma === -1) throw new Error('data_url heeft geen geldig "data:...;base64,"-formaat');
-      const header = foto.data_url.slice(0, komma);
-      const base64 = foto.data_url.slice(komma + 1);
-      const buffer = Buffer.from(base64, 'base64');
-      const extensie = /image\/png/.test(header) ? 'png' : 'jpg';
-      const submap = `${naarDatum(foto.gewenste_datum_start)} - ${veiligeNaam(foto.klant_naam)}`;
-      const bestandsnaam = `${foto.fase || 'foto'}-${veiligeNaam(foto.naam) || foto.id.slice(0, 8)}.${extensie}`;
-      const pad = `${FOTO_MAP}/${submap}/${bestandsnaam}`;
-      await uploadBestand(pad, buffer);
-      await db.query('UPDATE leveringen_fotos SET dropbox_pad = $1 WHERE id = $2', [pad, foto.id]);
-    } catch (err) {
-      console.warn(`[dropboxSync] foto ${foto.id} overslaan (komt terug bij volgende ronde):`, err.message);
-    }
-  }
 }
 
 // Eén JSON-bestand per kalenderdag met de volledige huidige planning (alle
@@ -166,18 +119,12 @@ async function backupPlanningNaarDropbox() {
 }
 
 // Vangnet-achtige periodieke ronde (zelfde opzet als startPeriodiekeSync() in
-// leveringenAppSync.js): elk uur een foto-sync-rondje (nieuwe foto's komen
-// toch maar af en toe binnen, geen haast) en een check of de planning-back-up
-// van vandaag al gebeurd is. Fouten hier mogen de server nooit laten crashen
-// — gewoon loggen en bij de volgende ronde opnieuw proberen.
+// leveringenAppSync.js): elk uur een check of de planning-back-up van
+// vandaag al gebeurd is. Fouten hier mogen de server nooit laten crashen —
+// gewoon loggen en bij de volgende ronde opnieuw proberen.
 function startPeriodiekeDropboxSync() {
   if (!isGeconfigureerd()) return;
   const taak = async () => {
-    try {
-      await syncFotosNaarDropbox();
-    } catch (err) {
-      console.warn('[dropboxSync] periodieke foto-sync mislukt:', err.message);
-    }
     try {
       await backupPlanningNaarDropbox();
     } catch (err) {
@@ -190,7 +137,6 @@ function startPeriodiekeDropboxSync() {
 
 module.exports = {
   isGeconfigureerd,
-  syncFotosNaarDropbox,
   backupPlanningNaarDropbox,
   startPeriodiekeDropboxSync,
 };
