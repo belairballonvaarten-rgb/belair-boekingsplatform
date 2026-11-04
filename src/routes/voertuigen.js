@@ -97,8 +97,25 @@ router.post('/:id/melding', asyncHandler(async (req, res) => {
   if (!isGeconfigureerd()) {
     return res.status(207).json({ verstuurd: 0, mislukt: 0, opgeslagen: true, fout: 'Push-meldingen zijn nog niet geconfigureerd (VAPID_PUBLIC_KEY/VAPID_PRIVATE_KEY ontbreken bij Render) — de melding staat wel klaar op het scherm zodra de iPad ververst.' });
   }
+  // Een voertuig wordt op 2 verschillende manieren "gebruikt" in de leveringen-app:
+  // 1) Een echt vast toestel-login (voertuig.html, met toegangscode) — dat
+  //    abonnement staat rechtstreeks met voertuig_id getagd.
+  // 2) (In de praktijk de manier die Jonas gebruikt) Een gewoon crewlid-account
+  //    (Crew-pagina hier) met "Standaard voertuig" ingesteld, bv. de iPad-
+  //    accounts "Belair Camionette"/"Linirent Bus" — dat abonnement staat
+  //    getagd met user_id, NIET voertuig_id, dus die werden hier vroeger
+  //    gemist (0 verstuurd, geen fout te zien). Vul daarom aan met elk
+  //    crewlid wiens standaard voertuig dit is, of dat hier vandaag expliciet
+  //    aan toegewezen staat (via "Wijzig voertuig" in de leveringen-app).
   const { rows: subs } = await db.query(
-    'SELECT id, endpoint, p256dh, auth FROM push_subscriptions WHERE voertuig_id = $1',
+    `SELECT DISTINCT ps.id, ps.endpoint, ps.p256dh, ps.auth
+     FROM push_subscriptions ps
+     WHERE ps.voertuig_id = $1
+        OR ps.user_id IN (
+          SELECT id FROM users WHERE standaard_voertuig_id = $1
+          UNION
+          SELECT gebruiker_id FROM voertuig_bemanning WHERE voertuig_id = $1 AND datum = CURRENT_DATE
+        )`,
     [req.params.id]
   );
   const { verstuurd, mislukt } = await stuurNaarAbonnementen(db, subs, { title: titel, message: bericht });
