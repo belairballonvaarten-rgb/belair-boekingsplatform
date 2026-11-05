@@ -30,6 +30,7 @@ const productInfoPubliekRoutes = require('./routes/product-info-publiek');
 const todoRoutes = require('./routes/todo');
 const { startPeriodiekeSync } = require('./utils/leveringenAppSync');
 const { startPeriodiekeDropboxSync } = require('./utils/dropboxSync');
+const { versie, gewijzigd_op } = require('./versie');
 
 const app = express();
 
@@ -66,7 +67,10 @@ app.use(
   })
 );
 
-app.get('/api/gezondheid', (req, res) => res.json({ status: 'ok', tijd: new Date().toISOString() }));
+// versie/gewijzigd_op hier mee in de respons (zie src/versie.js) — zo kan de
+// Instellingen-pagina (zie laadInstellingen() in app.js) in één oogopslag
+// tonen welke versie er effectief draait, ongeacht de deploy-methode.
+app.get('/api/gezondheid', (req, res) => res.json({ status: 'ok', tijd: new Date().toISOString(), versie, gewijzigd_op }));
 
 app.use('/api/auth', authRoutes);
 app.use('/api/klanten', klantenRoutes);

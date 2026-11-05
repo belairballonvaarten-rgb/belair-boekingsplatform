@@ -1,6 +1,6 @@
 {
   "name": "belair-boekingsplatform",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Custom boekingsplatform voor Belair-Fun — vervangt bookingonline.co.uk",
   "main": "src/server.js",
   "type": "commonjs",

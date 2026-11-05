@@ -14,24 +14,50 @@ const STATUS_LABELS = {
   voldaan_manueel: 'Voldaan manueel',
 };
 
-// Kleurcode per status, voor snel visueel overzicht: rood = nog niet bevestigd
-// door de klant, oranje = bevestigd (zelf via de mail-knop of door Jonas) t.e.m.
-// betaalverzoek/gedeeltelijk betaald — bewust dezelfde kleur voor beide, dat is
-// voor Jonas allebei "onderweg, nog niet volledig in orde" — groen = volledig
-// betaald/gefactureerd en klaar voor transportplanning, grijs = geweigerd.
+// Kleurcode per status — op vraag van Jonas de uniforme 5-stappen/4-kleuren-
+// werkflow: rood = aanvraag nog bij Jonas, in behandeling/controle (stap 1-2);
+// oranje = aanvraagbevestiging verstuurd, wacht op bevestiging klant (stap 3 —
+// dit is een AFGELEIDE kleur, zie effectieveStatusKleur hieronder, want de
+// status zelf verandert pas bij een echte klant-reactie); geel = klant
+// bevestigd t.e.m. betaalverzoek/gedeeltelijk betaald, wacht op volledige
+// betaling (stap 4); groen = volledig betaald/gefactureerd, klaar voor
+// levering (stap 5); grijs = geweigerd.
 const STATUS_KLEUR = {
   nieuw: 'rood',
   in_behandeling: 'rood',
   geaccepteerd: 'rood',
   ingepland: 'rood',
-  bevestigd: 'oranje',
-  betaalverzoek_verstuurd: 'oranje',
-  betaald_deels: 'oranje',
+  bevestigd: 'geel',
+  betaalverzoek_verstuurd: 'geel',
+  betaald_deels: 'geel',
   betaald_volledig: 'groen',
   gefactureerd: 'groen',
   voldaan_manueel: 'groen',
   geweigerd: 'grijs',
 };
+
+// Statussen waar de hierboven afgesproken "oranje" fase (stap 3: aanvraagmail
+// verstuurd, wacht op reactie klant) als AFGELEIDE kleur bovenop de basiskleur
+// (rood) komt — gebaseerd op laatste_mail_verstuurd_op (zie BOEKINGEN_OVERZICHT_SELECT
+// in routes/boekingen.js, of client-side afgeleid uit b.communicatie in het
+// dossier — zie laatsteUitgaandeMailOp hieronder). Zodra de klant zelf reageert
+// springt de echte status door naar 'bevestigd' (geel) en verdwijnt dit weer.
+const STATUS_MET_AFGELEIDE_ORANJE = ['nieuw', 'in_behandeling', 'geaccepteerd', 'ingepland'];
+function effectieveStatusKleur(status, laatsteMailVerstuurdOp) {
+  if (STATUS_MET_AFGELEIDE_ORANJE.includes(status) && laatsteMailVerstuurdOp) return 'oranje';
+  return STATUS_KLEUR[status] || 'grijs';
+}
+
+// Zoekt de datum van de laatst verstuurde uitgaande mail (bv. de aanvraag-
+// bevestiging) in een communicatie-array — gebruikt in het dossier (zie
+// openDetail), waar laatste_mail_verstuurd_op niet rechtstreeks meekomt met de
+// boeking zelf (enkel het Reservatieoverzicht/Aanvragen-inbox hebben dat al
+// klaarstaan via de server-query). communicatie staat al DESC gesorteerd op
+// aangemaakt_op, dus de eerste match is meteen de laatste.
+function laatsteUitgaandeMailOp(communicatie) {
+  const laatste = (communicatie || []).find((c) => c.type === 'email' && c.richting === 'uitgaand');
+  return laatste ? laatste.aangemaakt_op : null;
+}
 
 // De letterlijke status "Betaald (volledig)" garandeert niet dat het saldo ook
 // echt op 0 staat — Jonas kan via de statusbalk bewust rechtstreeks naar de
@@ -40,16 +66,22 @@ const STATUS_KLEUR = {
 // boekingenoverzicht, ...) moet dit dan ook duidelijk zijn — dezelfde regel
 // die de statusbalk zelf al gebruikt (zie statusStepperHtml hieronder).
 // saldoOpenstaand is optioneel: enkel meegeven waar het gekend is.
-function weergaveStatusLabel(status, saldoOpenstaand) {
+// laatsteMailVerstuurdOp is ook optioneel: enkel meegeven waar gekend (zie
+// effectieveStatusKleur hierboven) — toont dan "Wacht op bevestiging klant"
+// i.p.v. de gewone statusnaam, i.p.v. op elkaar afgestemd te houden met de kleur.
+function weergaveStatusLabel(status, saldoOpenstaand, laatsteMailVerstuurdOp) {
   if (['betaald_volledig', 'gefactureerd', 'voldaan_manueel'].includes(status)
     && saldoOpenstaand != null && Number(saldoOpenstaand) > 0.01) {
     return 'Klaar voor levering (open saldo)';
   }
+  if (STATUS_MET_AFGELEIDE_ORANJE.includes(status) && laatsteMailVerstuurdOp) {
+    return 'Wacht op bevestiging klant';
+  }
   return STATUS_LABELS[status];
 }
 
-function statusPillHtml(status, saldoOpenstaand) {
-  return `<span class="status-pill status-${STATUS_KLEUR[status] || 'grijs'}">${weergaveStatusLabel(status, saldoOpenstaand)}</span>`;
+function statusPillHtml(status, saldoOpenstaand, laatsteMailVerstuurdOp) {
+  return `<span class="status-pill status-${effectieveStatusKleur(status, laatsteMailVerstuurdOp)}">${weergaveStatusLabel(status, saldoOpenstaand, laatsteMailVerstuurdOp)}</span>`;
 }
 
 // Eenvoudige betaald/niet-betaald-pill — gebruikt op het Dashboard zodra een
@@ -68,9 +100,9 @@ function betaalPillHtml(saldoOpenstaand) {
 // het Reservatieoverzicht (daar staat de kleurenlegende al bovenaan de tabel,
 // dus de tekst zelf hoeft niet meer in elke rij herhaald te worden). De naam
 // blijft wel als tooltip beschikbaar.
-function statusKleurDotHtml(status, saldoOpenstaand) {
-  const titel = weergaveStatusLabel(status, saldoOpenstaand);
-  return `<span class="status-kleur-stip status-kleur-${STATUS_KLEUR[status] || 'grijs'}" title="${titel}"></span>`;
+function statusKleurDotHtml(status, saldoOpenstaand, laatsteMailVerstuurdOp) {
+  const titel = weergaveStatusLabel(status, saldoOpenstaand, laatsteMailVerstuurdOp);
+  return `<span class="status-kleur-stip status-kleur-${effectieveStatusKleur(status, laatsteMailVerstuurdOp)}" title="${titel}"></span>`;
 }
 
 // Kleine, kort-zichtbare bevestiging onderaan het scherm — vooral bedoeld voor
@@ -133,13 +165,15 @@ function producttenKolomHtml(namenString) {
   </details>`;
 }
 
-// Vier grote fases voor de statusbalk bovenaan het dossier — een vereenvoudigde,
+// Drie grote fases voor de statusbalk bovenaan het dossier — een vereenvoudigde,
 // visuele samenvatting van de fijnmazigere TOEGELATEN_OVERGANGEN-statemachine
-// hieronder. "Geweigerd" valt hier los van buiten.
+// hieronder, uniform met de kleuren in STATUS_KLEUR hierboven. "Geweigerd"
+// valt hier los van buiten. Fase 0 ("In verwerking") toont zelf nog een
+// afgeleide oranje sub-kleur zodra de aanvraagmail al verstuurd is (zie
+// effectieveStatusKleur), vandaar dat ZIJN kleur hier enkel de basis (rood) is.
 const STATUS_FASEN = [
   { label: 'In verwerking', kleur: 'rood', statussen: ['nieuw', 'in_behandeling', 'geaccepteerd', 'ingepland'] },
-  { label: 'Bevestigd', kleur: 'oranje', statussen: ['bevestigd'] },
-  { label: 'Betaalverzoek', kleur: 'oranje', statussen: ['betaalverzoek_verstuurd', 'betaald_deels'] },
+  { label: 'Bevestiging / betaling', kleur: 'geel', statussen: ['bevestigd', 'betaalverzoek_verstuurd', 'betaald_deels'] },
   { label: 'Klaar voor levering', kleur: 'groen', statussen: ['betaald_volledig', 'gefactureerd', 'voldaan_manueel'] },
 ];
 
@@ -148,21 +182,26 @@ const STATUS_FASEN = [
 // actieve fase "Klaar voor levering" is, tonen we tussen haakjes of dit ook
 // effectief (al) volledig betaald is — want de status alleen garandeert dat niet,
 // zeker niet als een tussenstap (zoals het betaalverzoek) bewust overgeslagen werd.
-// De vier grote fase-knoppen zijn klikbaar: een klik op een andere fase springt
+// De drie grote fase-knoppen zijn klikbaar: een klik op een andere fase springt
 // er meteen naartoe (voorste status van die fase), en een klik op de reeds
 // actieve fase "deselecteert" ze weer — terug naar de laatste status van de
 // vorige fase. Zo kan Jonas ook makkelijk terug naar een vorige status zonder
 // een aparte "wijzig status"-knop/keuzelijst. "Geweigerd" is een aparte knop
 // die altijd zichtbaar blijft (ook als het niet de actieve status is), zodat
 // je er zowel naartoe als vanaf kan schakelen.
-function statusStepperHtml(status, saldoOpenstaand) {
+function statusStepperHtml(status, saldoOpenstaand, laatsteMailVerstuurdOp) {
   const huidigeIndex = STATUS_FASEN.findIndex((f) => f.statussen.includes(status));
   const stappenHtml = STATUS_FASEN.map((f, i) => {
     let klasse = 'stepper-stap';
     let label = f.label;
     if (huidigeIndex >= 0 && i < huidigeIndex) klasse += ' stepper-voltooid';
     else if (i === huidigeIndex) {
-      klasse += ` stepper-actief stepper-${f.kleur}`;
+      // Fase 0 ("In verwerking") toont oranje i.p.v. rood zodra er al een
+      // aanvraagbevestigingsmail verstuurd is (zie effectieveStatusKleur) —
+      // "Wacht op bevestiging klant" i.p.v. de gewone fasenaam.
+      const kleur = i === 0 ? effectieveStatusKleur(status, laatsteMailVerstuurdOp) : f.kleur;
+      if (i === 0 && kleur === 'oranje') label = 'Wacht op bevestiging klant';
+      klasse += ` stepper-actief stepper-${kleur}`;
       if (i === STATUS_FASEN.length - 1 && saldoOpenstaand != null) {
         label += Number(saldoOpenstaand) > 0.01 ? ' (open saldo)' : ' (betaald)';
       }
@@ -2220,7 +2259,7 @@ async function laadAanvragen() {
     kaart.className = 'kaart';
     kaart.innerHTML = `
       <div class="kaart-info">
-        <h3>${b.klant_naam} ${statusPillHtml(b.status)}${speciaalSterHtml(b)}</h3>
+        <h3>${b.klant_naam} ${statusPillHtml(b.status, null, b.laatste_mail_verstuurd_op)}${speciaalSterHtml(b)}</h3>
         <p>📅 ${fmtDatum(b.gewenste_datum_start)}${b.gewenste_datum_start !== b.gewenste_datum_einde ? ' – ' + fmtDatum(b.gewenste_datum_einde) : ''}</p>
         <p>🎪 ${b.producten_namen || '—'}</p>
         <p>📍 ${b.leveringsadres || '—'}</p>
@@ -2608,7 +2647,7 @@ async function laadBoekingenOverzicht() {
     const saldo = Number(b.saldo_openstaand) || 0;
     const saldoVoldaan = saldo <= 0.01;
     const tr = document.createElement('tr');
-    tr.className = `rij-kleur-${STATUS_KLEUR[b.status] || 'grijs'}`;
+    tr.className = `rij-kleur-${effectieveStatusKleur(b.status, b.laatste_mail_verstuurd_op)}`;
     tr.innerHTML = `
       <td><input type="checkbox" class="check-boeking-rij" data-boeking-id="${b.id}" /></td>
       <td>${fmtDatum(b.gewenste_datum_start)}</td>
@@ -2620,7 +2659,7 @@ async function laadBoekingenOverzicht() {
       <td>${adres.gemeente}</td>
       <td>${b.klant_naam}</td>
       <td class="saldo-cel${saldoVoldaan ? ' voldaan' : ''}" title="Totaal: ${fmtEuro(b.totaal)}">${saldoVoldaan ? '✓ Voldaan' : fmtEuro(saldo)}</td>
-      <td>${statusKleurDotHtml(b.status, saldo)}${speciaalSterHtml(b)}</td>
+      <td>${statusKleurDotHtml(b.status, saldo, b.laatste_mail_verstuurd_op)}${speciaalSterHtml(b)}</td>
       <td title="${b.type_ondergrond || ''}">${ondergrondAfkorting(b.type_ondergrond)}</td>
       <td>Bekijk →</td>
     `;
@@ -3771,11 +3810,16 @@ async function openDetail(boekingId) {
       </div>`)
     .join('') || '<p class="leeg-bericht">Nog geen communicatie gelogd.</p>';
 
+  // laatste_mail_verstuurd_op komt niet rechtstreeks mee met GET /api/boekingen/:id
+  // (enkel het Reservatieoverzicht/Aanvragen-inbox hebben dat al klaarstaan) —
+  // hier afgeleid uit de al meegegeven communicatie-array (zie laatsteUitgaandeMailOp).
+  const laatsteMailVerstuurdOp = laatsteUitgaandeMailOp(b.communicatie);
+
   inhoud.innerHTML = `
     <div class="paneel">
-      <h3>${b.klant_naam} ${statusPillHtml(b.status, b.prijstabel.saldo_openstaand)}${speciaalSterHtml(b)}</h3>
+      <h3>${b.klant_naam} ${statusPillHtml(b.status, b.prijstabel.saldo_openstaand, laatsteMailVerstuurdOp)}${speciaalSterHtml(b)}</h3>
       ${b.speciaal_verzoek ? `<div class="speciaal-verzoek-banner">⭑ Speciaal verzoek${b.speciaal_verzoek_notitie ? ': ' + b.speciaal_verzoek_notitie : ''}</div>` : ''}
-      ${statusStepperHtml(b.status, b.prijstabel.saldo_openstaand)}
+      ${statusStepperHtml(b.status, b.prijstabel.saldo_openstaand, laatsteMailVerstuurdOp)}
       <p class="uitleg" style="margin: 0 0 0.4rem;">Klik op een fase hierboven om ernaartoe te springen, of klik de actieve fase nogmaals aan om terug te gaan naar de vorige status.</p>
       <div class="status-acties">${actiesHtml || '<p class="leeg-bericht">Geen volgende stap voorgesteld</p>'}</div>
       <p class="dossier-snelknoppen-label">✉️ E-mails versturen</p>
@@ -4215,7 +4259,7 @@ async function openDetail(boekingId) {
     });
   });
 
-  // De vier grote fase-knoppen bovenaan: een klik op een andere fase springt
+  // De drie grote fase-knoppen bovenaan: een klik op een andere fase springt
   // meteen naar de eerste status van die fase (ook een stap overslaan/teruggaan
   // is toegelaten); een klik op de reeds actieve fase "deselecteert" ze weer,
   // terug naar de laatste status van de vorige fase. "Geweigerd" is een eigen
@@ -6624,6 +6668,16 @@ function raadWebinzendingTitel(data) {
 // INSTELLINGEN (systeemkoppelingen)
 // ============================================================
 async function laadInstellingen() {
+  const versieEl = document.getElementById('instellingen-versie');
+  try {
+    const gezondheid = await api('/api/gezondheid');
+    versieEl.textContent = gezondheid.versie
+      ? `v${gezondheid.versie} — bijgewerkt op ${fmtDatum(gezondheid.gewijzigd_op)}`
+      : 'Onbekend (oudere versie zonder versie-info)';
+  } catch (err) {
+    versieEl.textContent = 'Kon versie niet ophalen — ' + err.message;
+  }
+
   const meldingNietGeconfigureerd = document.getElementById('instellingen-sync-niet-geconfigureerd');
   const knop = document.getElementById('btn-sync-leveringen-app');
   const resultaat = document.getElementById('instellingen-sync-resultaat');
