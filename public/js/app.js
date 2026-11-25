@@ -2483,12 +2483,17 @@ function huidigeBoekingenFilterParams() {
   const vanaf = document.getElementById('filter-vanaf').value;
   const tot = document.getElementById('filter-tot').value;
   const zoek = document.getElementById('filter-zoek').value;
+  const openSaldo = document.getElementById('filter-open-saldo').checked;
   const params = new URLSearchParams();
   if (status) params.set('status', status);
   if (productId) params.set('product_id', productId);
   if (vanaf) params.set('vanaf', vanaf);
   if (tot) params.set('tot', tot);
   if (zoek.trim()) params.set('zoek', zoek.trim());
+  // Komt bovenop de gekozen status/periode hierboven (zie bouwBoekingenFilter in
+  // boekingen.js) — dus bv. "Deze week" + dit vinkje toont enkel de boekingen
+  // van deze week die ook nog een openstaand saldo hebben, niet alle openstaande.
+  if (openSaldo) params.set('open_saldo', '1');
   if (boekingenSorteringLaatsteNieuwe) params.set('sortering', 'laatst_toegevoegd');
   return params;
 }
