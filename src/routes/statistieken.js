@@ -6,6 +6,17 @@ const { asyncHandler } = require('../utils/asyncHandler');
 const router = express.Router();
 router.use(vereistIngelogd);
 
+// Zelfde canonische lijst als dashboard.js/planning.js/dagoverzicht.js/
+// wordpressSync.js: dit waren voorheen de enige plekken in het platform die
+// "geaccepteerd" telden via b.status != 'geweigerd' i.p.v. deze lijst — dat
+// liet 'nieuw' en 'in_behandeling' (nog te beoordelen aanvragen) wél meetellen
+// in de omzet-/boekingencijfers hier, terwijl die overal elders worden
+// uitgesloten. Op vraag van Jonas gelijkgetrokken.
+const GEPLANDE_STATUSSEN = [
+  'geaccepteerd', 'ingepland', 'bevestigd', 'betaalverzoek_verstuurd',
+  'betaald_deels', 'betaald_volledig', 'gefactureerd', 'voldaan_manueel',
+];
+
 const MAAND_NAMEN = [
   'jan', 'feb', 'mrt', 'apr', 'mei', 'jun', 'jul', 'aug', 'sep', 'okt', 'nov', 'dec',
 ];
@@ -65,10 +76,10 @@ async function berekenLivePerMaand(jaar) {
       FROM boeking_producten
       GROUP BY boeking_id
     ) bp_totaal ON bp_totaal.boeking_id = b.id
-    WHERE EXTRACT(YEAR FROM b.gewenste_datum_start) = $1 AND b.status != 'geweigerd'
+    WHERE EXTRACT(YEAR FROM b.gewenste_datum_start) = $1 AND b.status = ANY($2)
     GROUP BY maand
     `,
-    [jaar]
+    [jaar, GEPLANDE_STATUSSEN]
   );
   return new Map(rows.map((r) => [r.maand, r]));
 }
@@ -155,11 +166,11 @@ async function berekenProductenPerCategorie(vanaf, tot) {
     JOIN boekingen b ON b.id = bp.boeking_id
     JOIN producten p ON p.id = bp.product_id
     LEFT JOIN LATERAL UNNEST(p.categorieen) AS cat ON true
-    WHERE b.gewenste_datum_start >= $1 AND b.gewenste_datum_start <= $2 AND b.status != 'geweigerd'
+    WHERE b.gewenste_datum_start >= $1 AND b.gewenste_datum_start <= $2 AND b.status = ANY($3)
     GROUP BY categorie, p.naam
     ORDER BY categorie ASC, aantal DESC, product_naam ASC
     `,
-    [vanaf, tot]
+    [vanaf, tot, GEPLANDE_STATUSSEN]
   );
   const perCategorie = [];
   const index = new Map();
@@ -277,9 +288,9 @@ async function berekenBoekingenInPeriode(van, tot) {
       FROM boeking_producten
       GROUP BY boeking_id
     ) bp_totaal ON bp_totaal.boeking_id = b.id
-    WHERE b.aangemaakt_op::date BETWEEN $1 AND $2 AND b.status != 'geweigerd'
+    WHERE b.aangemaakt_op::date BETWEEN $1 AND $2 AND b.status = ANY($3)
     `,
-    [van, tot]
+    [van, tot, GEPLANDE_STATUSSEN]
   );
   return { aantal: rows[0].aantal, waarde: Number(rows[0].waarde) };
 }
@@ -348,12 +359,12 @@ router.get('/', asyncHandler(async (req, res) => {
     SELECT COALESCE(NULLIF(TRIM(k.gemeente), ''), '(onbekend)') AS gemeente, COUNT(*)::int AS aantal
     FROM boekingen b
     JOIN klanten k ON k.id = b.klant_id
-    WHERE EXTRACT(YEAR FROM b.gewenste_datum_start) = $1 AND b.status != 'geweigerd'
+    WHERE EXTRACT(YEAR FROM b.gewenste_datum_start) = $1 AND b.status = ANY($2)
     GROUP BY gemeente
     ORDER BY aantal DESC, gemeente ASC
     LIMIT 8
     `,
-    [jaar]
+    [jaar, GEPLANDE_STATUSSEN]
   );
 
   // Standaardperiode voor de producten-uitsplitsing = het volledige geselecteerde

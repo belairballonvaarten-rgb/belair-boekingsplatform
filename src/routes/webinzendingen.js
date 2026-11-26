@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const db = require('../db');
 const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
@@ -354,7 +355,12 @@ async function verwerkInzending(ruweData) {
 // geprobeerd er automatisch een aanvraag van te maken — zo gaat er nooit iets
 // verloren, ook niet als de automatische omzetting faalt.
 router.post('/website-formulier/:token', asyncHandler(async (req, res) => {
-  if (!WEBHOOK_TOKEN || req.params.token !== WEBHOOK_TOKEN) {
+  // timingSafeEqual i.p.v. !== — vermijdt dat de responstijd de geheime token lekt;
+  // lengtevergelijking eerst, want timingSafeEqual vereist buffers van gelijke lengte.
+  const ontvangen = Buffer.from(String(req.params.token || ''));
+  const verwacht = Buffer.from(String(WEBHOOK_TOKEN || ''));
+  const geldig = Boolean(WEBHOOK_TOKEN) && ontvangen.length === verwacht.length && crypto.timingSafeEqual(ontvangen, verwacht);
+  if (!geldig) {
     return res.status(403).json({ fout: 'Ongeldige of ontbrekende token' });
   }
   const ruweData = req.body || {};

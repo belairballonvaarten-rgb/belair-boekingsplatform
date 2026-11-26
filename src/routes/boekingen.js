@@ -955,12 +955,18 @@ router.put('/:id', asyncHandler(async (req, res) => {
   if (req.body.gewenste_datum_start !== undefined || req.body.gewenste_datum_einde !== undefined) {
     const nieuweAantalDagen = berekenAantalDagen(rows[0].gewenste_datum_start, rows[0].gewenste_datum_einde);
     const { rows: productenVolledig } = await db.query(
-      `SELECT bp.id AS regel_id, p.prijs, p.weekendprijs
+      `SELECT bp.id AS regel_id, bp.prijs_handmatig, p.prijs, p.weekendprijs
        FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id
        WHERE bp.boeking_id = $1`,
       [req.params.id]
     );
     for (const regel of productenVolledig) {
+      // prijs_handmatig (migratie 061): een regel waarvan Jonas zelf de prijs
+      // manueel bijstuurde (bv. een korting, via PUT .../producten/:regelId)
+      // mag hier NIET zomaar overschreven worden door de automatische
+      // dagprijs/weekendprijs-herberekening — anders verdwijnt zo'n korting
+      // stilletjes zodra de periode van de boeking nadien nog wijzigt.
+      if (regel.prijs_handmatig) continue;
       const nieuwePrijs = berekenMeerdaagsePrijs(regel, nieuweAantalDagen);
       await db.query('UPDATE boeking_producten SET prijs = $1 WHERE id = $2', [nieuwePrijs, regel.regel_id]);
     }
@@ -1039,6 +1045,11 @@ router.put('/:id/producten/:regelId', asyncHandler(async (req, res) => {
     }
   }
   if (nieuwePrijs !== undefined) { params.push(nieuwePrijs); updates.push(`prijs = $${params.length}`); }
+  // prijs_handmatig (migratie 061): enkel zetten als Jonas zelf expliciet een
+  // prijs meegaf (dus niet bij de automatische prijsaanpassing hierboven na
+  // enkel een optiewissel) — dat markeert deze regel als "niet aanraken" bij
+  // een latere automatische periode-herberekening (zie PUT /:id hierboven).
+  if (req.body.prijs !== undefined) { params.push(true); updates.push(`prijs_handmatig = $${params.length}`); }
   if (!updates.length) return res.status(400).json({ fout: 'Geen velden om te updaten' });
   params.push(req.params.regelId, req.params.id);
   const { rows } = await db.query(
@@ -1092,11 +1103,15 @@ router.post('/:id/producten', asyncHandler(async (req, res) => {
     return res.status(err.status || 400).json({ fout: err.message });
   }
   const prijs = basisprijs + (optie ? Number(optie.meerkost) : 0);
+  // prijs_handmatig (migratie 061): ook hier enkel zetten als Jonas bij het
+  // toevoegen zelf al een prijs opgaf i.p.v. de automatische suggestie —
+  // zelfde "niet aanraken bij periodewijziging"-reden als hierboven.
+  const prijsHandmatig = req.body.prijs !== undefined;
 
   await db.query(
-    `INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs, optie_keuze_id, optie_naam, optie_meerkost)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [req.params.id, product_id, aantalNum, prijs, optie ? optie.id : null, optie ? optie.naam : null, optie ? optie.meerkost : null]
+    `INSERT INTO boeking_producten (boeking_id, product_id, aantal, prijs, prijs_handmatig, optie_keuze_id, optie_naam, optie_meerkost)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+    [req.params.id, product_id, aantalNum, prijs, prijsHandmatig, optie ? optie.id : null, optie ? optie.naam : null, optie ? optie.meerkost : null]
   );
 
   const { rows: producten } = await db.query(

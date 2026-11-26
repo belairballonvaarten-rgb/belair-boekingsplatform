@@ -11,6 +11,7 @@
 // bescherming, vandaar dat elke boeking z'n EIGEN token heeft i.p.v. bv. het
 // (makkelijk op te sommen) boekingnummer zelf te gebruiken.
 const express = require('express');
+const crypto = require('crypto');
 const db = require('../db');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { verstuurMail } = require('../utils/mailer');
@@ -178,6 +179,13 @@ async function stuurSeintjeNaarJonas(boeking, { geannuleerd = false } = {}) {
 // de status staat het niet meer toe) — gedeeld door zowel GET (enkel tonen)
 // als POST (effectief bevestigen) hieronder, want beide moeten exact dezelfde
 // checks doen.
+function tokenKomtOvereen(a, b) {
+  const bufA = Buffer.from(String(a || ''));
+  const bufB = Buffer.from(String(b || ''));
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
 async function haalBevestigbareBoekingOp(req) {
   if (!UUID_REGEX.test(req.params.boekingId) || !UUID_REGEX.test(req.params.token)) {
     return { fout: PAGINA_LINK_ONGELDIG, status: 404 };
@@ -189,7 +197,9 @@ async function haalBevestigbareBoekingOp(req) {
     [req.params.boekingId]
   );
   const boeking = rows[0];
-  if (!boeking || boeking.klant_bevestigings_token !== req.params.token) {
+  // timingSafeEqual i.p.v. !== — vermijdt dat de responstijd zelf een beetje van de
+  // token lekt (beide zijn hier al UUID's van gelijke lengte, zie UUID_REGEX hierboven).
+  if (!boeking || !tokenKomtOvereen(boeking.klant_bevestigings_token, req.params.token)) {
     return { fout: PAGINA_LINK_ONGELDIG, status: 404 };
   }
   if (boeking.klant_bevestigd_op || AL_BEVESTIGD_STATUSSEN.includes(boeking.status)) {

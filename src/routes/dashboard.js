@@ -388,6 +388,10 @@ router.put('/:boekingId/voltooid', asyncHandler(async (req, res) => {
      WHERE boeking_id = $2 RETURNING *`,
     [voltooid, req.params.boekingId]
   );
+  // Zelfde reden als bij tijdstip/voertuig hieronder: ook deze wijziging moet
+  // meteen naar de leveringen-app door, anders loopt die daar uit de pas tot
+  // de volgende boekingswijziging dat toevallig alsnog triggert.
+  plantAutoSync('levering-afhaling-voltooid');
   if (rows[0]) return res.json(rows[0]);
 
   const { rows: nieuw } = await db.query(

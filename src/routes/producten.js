@@ -306,10 +306,14 @@ router.post('/bulk-import', asyncHandler(async (req, res) => {
     // Bekend Excel-probleem op een Belgische computer: prijzen met een komma
     // als decimaalteken ("150,00") worden — als "," toch het scheidingsteken
     // is — foutief in twee velden opgesplitst ("150" en "00"). Dat schuift alle
-    // velden erna één plaats op. Dit patroon herkennen we en herstellen we:
-    // 1 veld te veel, en het 3de veld is een kort getal (de "decimalen").
-    if (scheidingsteken === ',' && velden.length === 6 && /^\d{1,2}$/.test(velden[2])) {
-      velden = [velden[0], `${velden[1]}.${velden[2]}`, velden[3], velden[4], velden[5]];
+    // velden erna één plaats op. Dit patroon herkennen we en herstellen we: 1 veld
+    // te veel, en het 3de veld is een kort getal (de "decimalen"). Zowel de
+    // 5-kolomrij (mét afbeelding, wordt 6 velden) als de 4-kolomrij (zonder
+    // afbeelding, wordt 5 velden) moeten hier hersteld worden — niet enkel het
+    // 6-veld-geval, anders schuiven bij een rij zonder afbeelding categorie/type
+    // stilletjes één plaats op.
+    if (scheidingsteken === ',' && (velden.length === 5 || velden.length === 6) && /^\d{1,2}$/.test(velden[2])) {
+      velden = [velden[0], `${velden[1]}.${velden[2]}`, ...velden.slice(3)];
     }
     const [naamRuw, prijsRuw, typeRuw, categorieRuw, afbeeldingRuw] = velden;
     const naam = (naamRuw || '').trim();

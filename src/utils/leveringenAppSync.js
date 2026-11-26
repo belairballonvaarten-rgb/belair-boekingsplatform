@@ -95,7 +95,11 @@ async function voerSyncUit() {
        FROM boeking_producten
        GROUP BY boeking_id
      ) bp_totalen ON bp_totalen.boeking_id = b.id
-     WHERE b.status = ANY($1) AND b.gewenste_datum_einde >= $2
+     -- Let op: GREATEST ipv enkel b.gewenste_datum_einde — anders valt een boeking
+     -- met een afwijkende (latere) afhaaldatum (leveringen.afhaaltijd, zie
+     -- effectieveDatum.js) stilletjes buiten dit syncvenster zodra de huurperiode
+     -- zelf al > 2 dagen geleden eindigde, terwijl de ploeg dan nog moet gaan afhalen.
+     WHERE b.status = ANY($1) AND GREATEST(b.gewenste_datum_einde, ${EFFECTIEVE_DATUM_SQL.afhaling}) >= $2
      ORDER BY b.gewenste_datum_start`,
     [GEPLANDE_STATUSSEN, cutoffStr]
   );
