@@ -4485,7 +4485,12 @@ async function openDetail(boekingId) {
       elFout.textContent = `Kon product niet toevoegen: ${err.message}`;
     }
   }
-  ververProductenKiezer('dp-productenkiezer', b.gewenste_datum_start, b.gewenste_datum_einde, boekingId, dossierProductToevoegen, false);
+  // Let op: GEEN exclBoekingId hier (bewust anders dan eerder) — deze boeking
+  // zelf moet wél meetellen als "bezet", anders daalt het "(X vrij)"-cijfer
+  // nooit wanneer je net een product aan DEZE boeking toevoegt (gemeld door
+  // Jonas: het product bleef altijd "beschikbaar" staan in de kiezer, ook na
+  // selectie, omdat de boeking zelf volledig buiten de telling viel).
+  ververProductenKiezer('dp-productenkiezer', b.gewenste_datum_start, b.gewenste_datum_einde, null, dossierProductToevoegen, false);
   inhoud.querySelectorAll('.btn-product-verwijderen').forEach((btn) => {
     btn.addEventListener('click', async () => {
       if (!confirm('Dit product uit de boeking verwijderen?')) return;
