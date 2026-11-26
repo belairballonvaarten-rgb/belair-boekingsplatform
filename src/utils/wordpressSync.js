@@ -52,11 +52,13 @@ async function synchroniseerWebsiteBeschikbaarheid({ fullSync = false } = {}) {
     `SELECT b.id, b.gewenste_datum_start, b.gewenste_datum_einde, bp.producten_namen
      FROM boekingen b
      LEFT JOIN (
+       -- Let op: de WordPress-plugin herkent elk product via de kale producttitel
+       -- (zelfde matching als de BookingOnline-CSV-import: csv_split_items() splitst
+       -- op " / ", csv_normalize_name() vergelijkt de kale naam). Daarom hier BEWUST
+       -- geen " — optie (xN)"-toevoeging en gescheiden met " / " i.p.v. ", " — anders
+       -- herkent de website geen enkel product en wordt er stil niets geblokkeerd.
        SELECT bp.boeking_id,
-              string_agg(
-                p.naam || COALESCE(' — ' || bp.optie_naam, '') || CASE WHEN bp.aantal > 1 THEN ' (x' || bp.aantal || ')' ELSE '' END,
-                ', ' ORDER BY p.naam
-              ) AS producten_namen
+              string_agg(DISTINCT p.naam, ' / ') AS producten_namen
        FROM boeking_producten bp JOIN producten p ON p.id = bp.product_id
        GROUP BY bp.boeking_id
      ) bp ON bp.boeking_id = b.id
