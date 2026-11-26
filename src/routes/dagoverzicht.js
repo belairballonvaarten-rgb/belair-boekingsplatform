@@ -88,7 +88,26 @@ router.get('/', asyncHandler(async (req, res) => {
     notities: b.notities,
   }));
 
-  res.json({ datum, teFactureren, bijzonderheden, vuileProducten });
+  // 4. Nog te factureren, binnenkort: boekingen die Jonas zelf gemarkeerd heeft
+  // als "factureer pas na levering" (migratie 062, facturatie_na_levering —
+  // bv. een eventkantoor dat pas na het evenement een factuur kan verwerken)
+  // en waarvan de leverdatum nog in de toekomst ligt — puur een geheugensteun
+  // dat hij dit straks nog moet opvolgen, los van de hierboven al getoonde
+  // "verleden"-lijst (die pas verschijnt zodra de leverdatum voorbij is).
+  const { rows: teFacturerenToekomstRuw } = await db.query(
+    `SELECT b.id, b.gewenste_datum_start, k.naam AS klant_naam
+     FROM boekingen b
+     JOIN klanten k ON k.id = b.klant_id
+     WHERE b.status = ANY($1) AND b.facturatie_na_levering = true
+       AND b.gewenste_datum_start > CURRENT_DATE
+     ORDER BY b.gewenste_datum_start`,
+    [GEPLANDE_STATUSSEN]
+  );
+  const teFacturerenToekomst = teFacturerenToekomstRuw.map((b) => ({
+    id: b.id, klant_naam: b.klant_naam, gewenste_datum_start: b.gewenste_datum_start,
+  }));
+
+  res.json({ datum, teFactureren, teFacturerenToekomst, bijzonderheden, vuileProducten });
 }));
 
 // Een boekingssaldo afvinken als "afgehandeld" (factuur verstuurd/opgevolgd) —

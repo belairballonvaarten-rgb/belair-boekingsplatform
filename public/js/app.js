@@ -2020,6 +2020,20 @@ function dagoverzichtFacturatieHtml(lijst) {
   `).join('')}</ul>`;
 }
 
+// "Binnenkort"-reminderlijst (facturatie_na_levering, zie migratie 062) —
+// zelfde opmaak als dagoverzichtFacturatieHtml hierboven, maar zonder vink
+// (er valt hier nog niets af te handelen) en zonder saldo (dat is normaal
+// gezien nog gewoon volledig open, dat is precies de bedoeling).
+function dagoverzichtFacturatieToekomstHtml(lijst) {
+  if (!lijst.length) return '<p class="leeg-bericht">Niets op de planning.</p>';
+  return `<ul class="dagoverzicht-lijst">${lijst.map((b) => `
+    <li>
+      <span class="dagoverzicht-datum">${fmtDatum(b.gewenste_datum_start)}</span>
+      <button type="button" class="linkbtn dagoverzicht-naar-dossier" data-boeking-id="${b.id}">${b.klant_naam}</button>
+    </li>
+  `).join('')}</ul>`;
+}
+
 function dagoverzichtVuilHtml(lijst) {
   if (!lijst.length) return '<p class="leeg-bericht">Geen vuile/natte producten op dit moment.</p>';
   return `<ul class="dagoverzicht-lijst">${lijst.map((p) => `
@@ -2098,6 +2112,10 @@ async function laadDagoverzicht() {
   facturatieEl.innerHTML = dagoverzichtFacturatieHtml(data.teFactureren);
   dagoverzichtKoppelDossierLinks(facturatieEl);
   dagoverzichtKoppelFacturatieVinken(facturatieEl);
+
+  const facturatieToekomstEl = document.getElementById('dagoverzicht-facturatie-toekomst');
+  facturatieToekomstEl.innerHTML = dagoverzichtFacturatieToekomstHtml(data.teFacturerenToekomst);
+  dagoverzichtKoppelDossierLinks(facturatieToekomstEl);
 
   const vuilEl = document.getElementById('dagoverzicht-vuil');
   vuilEl.innerHTML = dagoverzichtVuilHtml(data.vuileProducten);
@@ -3944,6 +3962,9 @@ async function openDetail(boekingId) {
 
         <div class="detail-kolom-prijstabel paneel">
           <h4>Prijstabel &amp; betaling</h4>
+          <label class="checkbox" title="Voor klanten die pas NA levering gefactureerd worden (bv. een eventkantoor) — de status mag dan gewoon naar 'Klaar voor levering' (Betaald volledig/Gefactureerd/Voldaan manueel), zonder dat het openstaand saldo hieronder automatisch als betaald geregistreerd wordt. Verschijnt zo in 'Nog te factureren' op het Dagoverzicht.">
+            <input type="checkbox" id="dd-facturatie-na-levering" ${b.facturatie_na_levering ? 'checked' : ''} /> Factureer na levering (niet automatisch als betaald markeren)
+          </label>
           <div class="prijstabel">
             ${prijstabelProductenHtml}
             <div class="prijstabel-rij prijstabel-sub"><span>Subtotaal producten</span><span>${fmtEuro(p.subtotaal_producten)}</span></div>
@@ -4291,6 +4312,15 @@ async function openDetail(boekingId) {
         wijzigStatus(b.id, STATUS_FASEN[faseIndex].statussen[0]);
       }
     });
+  });
+
+  document.getElementById('dd-facturatie-na-levering').addEventListener('change', async (e) => {
+    await api(`/api/boekingen/${boekingId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ facturatie_na_levering: e.target.checked }),
+    });
+    openDetail(boekingId);
+    laadBoekingenOverzicht();
   });
 
   document.getElementById('btn-toeslag-opslaan').addEventListener('click', async () => {

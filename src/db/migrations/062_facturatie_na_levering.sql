@@ -1,0 +1,12 @@
+-- Vlag voor klanten die pas NA levering gefactureerd worden (bv. een
+-- bedrijfsklant/eventkantoor die zelf pas na het evenement een factuur wil/
+-- kan verwerken) — op vraag van Jonas. Zonder deze vlag registreerde het
+-- systeem bij het zetten van de status "Klaar voor levering" (Betaald
+-- volledig/Gefactureerd/Voldaan manueel) ALTIJD automatisch het volledige
+-- openstaand saldo als betaald (zie POST /:id/status in routes/boekingen.js)
+-- — onterecht voor zo'n klant, want er is nog niets ontvangen. Met deze vlag
+-- aan slaat die automatische betaalregistratie over, en blijft de boeking wel
+-- gewoon "klaar voor levering" tonen (met open saldo, zie weergaveStatusLabel
+-- in app.js, die dat al kon tonen) en verschijnt ze in de "Nog te
+-- factureren"-lijst (Dagoverzicht) zodra de leverdatum voorbij is.
+ALTER TABLE boekingen ADD COLUMN IF NOT EXISTS facturatie_na_levering BOOLEAN NOT NULL DEFAULT false;

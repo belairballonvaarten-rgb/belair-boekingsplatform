@@ -834,6 +834,7 @@ router.put('/:id', asyncHandler(async (req, res) => {
     'voorkeur_tijdstip_levering', 'voorkeur_tijdstip_afhaling',
     'speciaal_verzoek', 'speciaal_verzoek_notitie',
     'gewenste_datum_start', 'gewenste_datum_einde',
+    'facturatie_na_levering',
   ];
   const updates = [];
   const params = [];
@@ -1411,7 +1412,7 @@ router.post('/', asyncHandler(async (req, res) => {
 // Status wijzigen (accepteren/weigeren/inplannen/...)
 router.post('/:id/status', asyncHandler(async (req, res) => {
   const { status: nieuweStatus, opmerking } = req.body;
-  const { rows } = await db.query('SELECT status FROM boekingen WHERE id = $1', [req.params.id]);
+  const { rows } = await db.query('SELECT status, facturatie_na_levering FROM boekingen WHERE id = $1', [req.params.id]);
   const boeking = rows[0];
   if (!boeking) return res.status(404).json({ fout: 'Boeking niet gevonden' });
 
@@ -1452,7 +1453,14 @@ router.post('/:id/status', asyncHandler(async (req, res) => {
     // Bij "Betaald (volledig)", "Gefactureerd" of "Voldaan manueel" het eventueel
     // nog openstaand saldo automatisch als betaald registreren (zie STATUSSEN_MET_...
     // hierboven) — Jonas hoeft dan zelf geen aparte betaling meer in te geven.
-    if (STATUSSEN_MET_AUTOMATISCHE_VOLLEDIGE_BETALING.includes(nieuweStatus)) {
+    // Uitzondering: facturatie_na_levering (migratie 062) — een klant die pas NA
+    // levering gefactureerd wordt (bv. een eventkantoor) heeft nog niets betaald,
+    // dus hier NIET automatisch "volledig betaald" registreren. De boeking mag wel
+    // gewoon naar deze status (= "klaar voor levering" in de UI, zie STATUS_FASEN/
+    // weergaveStatusLabel in app.js, die een open saldo bij deze statussen al apart
+    // toont), en komt zo in de "Nog te factureren"-lijst (Dagoverzicht) terecht
+    // zodra de leverdatum voorbij is.
+    if (STATUSSEN_MET_AUTOMATISCHE_VOLLEDIGE_BETALING.includes(nieuweStatus) && !boeking.facturatie_na_levering) {
       const prijstabel = await berekenPrijstabel(req.params.id);
       if (prijstabel.saldo_openstaand > 0.01) {
         const STATUS_LABEL_PER_STATUS = {
