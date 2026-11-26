@@ -2,6 +2,7 @@ const express = require('express');
 const { vereistIngelogd } = require('../middleware/auth');
 const { asyncHandler } = require('../utils/asyncHandler');
 const { voerSyncUit, isGeconfigureerd } = require('../utils/leveringenAppSync');
+const { synchroniseerWebsiteBeschikbaarheid } = require('../utils/wordpressSync');
 
 const router = express.Router();
 router.use(vereistIngelogd);
@@ -24,6 +25,20 @@ router.post('/leveringen-app', asyncHandler(async (req, res) => {
     res.json(resultaat);
   } catch (err) {
     res.status(err.status || 502).json({ fout: err.message, details: err.data });
+  }
+}));
+
+
+// Handmatige testknop voor de website-sync (Instellingen) — dezelfde functie
+// die automatisch ("vuur-en-vergeet") na elke boekingswijziging draait (zie
+// utils/wordpressSync.js: plandWebsiteSync()), maar dan met het echte
+// resultaat/foutmelding zichtbaar in de UI i.p.v. enkel in de Render-logs.
+router.post('/website', asyncHandler(async (req, res) => {
+  try {
+    const resultaat = await synchroniseerWebsiteBeschikbaarheid({ fullSync: true });
+    res.json(resultaat);
+  } catch (err) {
+    res.status(err.nietGeconfigureerd ? 400 : 502).json({ fout: err.message });
   }
 }));
 

@@ -7000,6 +7000,31 @@ document.getElementById('btn-sync-leveringen-app').addEventListener('click', asy
   }
 });
 
+document.getElementById('btn-sync-website').addEventListener('click', async () => {
+  const knop = document.getElementById('btn-sync-website');
+  const resultaat = document.getElementById('instellingen-website-sync-resultaat');
+  knop.disabled = true;
+  const oorspronkelijkeTekst = knop.textContent;
+  knop.textContent = 'Synchroniseren...';
+  resultaat.hidden = true;
+  try {
+    const data = await api('/api/sync/website', { method: 'POST' });
+    const onbekend = (data.unknown || []).length
+      ? ` Let op — ${data.unknown.length} onherkende productnaam/namen (komen niet overeen met een producttitel/alias op de website): ${data.unknown.map((u) => `${u.name} (${u.count}x)`).join(', ')}.`
+      : '';
+    resultaat.textContent = `${data.verstuurd} boeking(en) verstuurd — ${data.mapped} gekoppeld, ${data.inserted} blokkering(en) toegevoegd, ${data.ignored} genegeerd.${onbekend}`;
+    resultaat.className = (data.unknown || []).length ? 'melding fout' : 'melding ok';
+    resultaat.hidden = false;
+  } catch (err) {
+    resultaat.textContent = err.message;
+    resultaat.className = 'melding fout';
+    resultaat.hidden = false;
+  } finally {
+    knop.disabled = false;
+    knop.textContent = oorspronkelijkeTekst;
+  }
+});
+
 // ============================================================
 // STATISTIEKEN
 // ============================================================

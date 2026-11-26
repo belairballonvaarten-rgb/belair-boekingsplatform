@@ -445,6 +445,14 @@
         <p id="instellingen-sync-resultaat" class="melding" hidden></p>
       </div>
 
+      <div class="instellingen-blok">
+        <h3>Koppeling met de website (beschikbaarheid)</h3>
+        <p class="uitleg">Stuurt de huidige geplande boekingen door naar de WordPress-website (plugin "Belair Beschikbaarheid"), zodat de publieke beschikbaarheidschecker op de productpagina's klopt. Dit gebeurt normaal automatisch na elke boekingswijziging, op de achtergrond — deze knop is om dat meteen te forceren en de echte foutmelding te zien als de automatische sync om een of andere reden niet aankomt.</p>
+        <p id="instellingen-website-sync-niet-geconfigureerd" class="uitleg" hidden>Nog niet gekoppeld — zet <code>WORDPRESS_SITE_URL</code> en <code>WORDPRESS_SYNC_SECRET</code> bij de omgevingsvariabelen op Render.</p>
+        <button type="button" id="btn-sync-website" class="linkbtn">🔄 Nu synchroniseren</button>
+        <p id="instellingen-website-sync-resultaat" class="melding" hidden></p>
+      </div>
+
       <div class="instellingen-blok instellingen-blok-breed">
         <h3>E-mailtemplates</h3>
         <p class="uitleg">Sjablonen die je met opmaak (vet, lijsten, links, ...) kan instellen en die je vanuit een boekingdossier naar de klant stuurt, via je eigen Microsoft 365-account. De 4 knoppen bovenaan een dossier (Aanvraagbevestiging / Betaalverzoek / Reservatiebevestiging / Review-verzoek) sturen telkens de template die je hieronder die rol geeft — overige templates blijven bereikbaar via de vrije lijst bij "Communicatie" in het dossier zelf.</p>
